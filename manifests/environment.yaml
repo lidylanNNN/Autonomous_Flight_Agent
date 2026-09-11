@@ -1,0 +1,43 @@
+# Defined by DEV_SPEC.md section 3.
+# M0 will turn this into the typed EnvironmentManifest contract.
+manifest_version: "m0-draft"
+status: "pending_pin"
+project:
+  name: "autonomous-flight-agent"
+  spec_version: "v1.6"
+
+host:
+  os: "Ubuntu 22.04 LTS"
+
+python:
+  version: "3.11"
+  package_manager: "uv"
+
+ros2:
+  distro: "Humble"
+  python_client: "rclpy"
+
+px4:
+  version_family: "v1.16.x"
+  branch_or_tag: "stable"
+  commit: "pending_pin"
+
+px4_msgs:
+  commit: "pending_pin"
+
+gazebo:
+  version_family: "Harmonic"
+  mode: "headless_for_ci_and_benchmark"
+
+vehicle:
+  model: "x500 multicopter"
+
+middleware:
+  name: "uXRCE-DDS"
+
+llm:
+  integration: "provider abstraction"
+
+container:
+  runtime: "Docker / Docker Compose"
+  status: "planned_m12"

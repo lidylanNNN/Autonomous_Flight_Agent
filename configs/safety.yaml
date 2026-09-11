@@ -1,0 +1,4 @@
+# Defined by DEV_SPEC.md.
+# M0 will turn safety invariants into versioned policy configuration.
+policy_version: "m0-draft"
+status: "pending_m0_definition"
