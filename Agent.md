@@ -23,7 +23,8 @@ Agent 可以从 `DEV_SPEC.md` 读取以下项：
 - State Verifier 规则：Takeoff、GoTo、Hold、RTL、Land 的成功判定必须来自状态观测，而不是相信 LLM 或 PX4 ACK。
 - Recovery / Replanning 设计：紧急安全行为由 deterministic recovery policy 兜底；LLM replanning 只在安全边界内做任务层调整。
 - Trace 要求：完整记录 Mission、Plan、Proposal、Safety Decision、ROS2 Dispatch、PX4 ACK、Skill Result、Verification、Recovery 等事件。
-- Evaluation 策略：Evaluation 从 M0 开始持续建设，不等到 M8；包含 Unit / Contract / Safety、Agent Simulation、PX4/Gazebo E2E 三层。
+- Mission Set 策略：测评集从 M0 开始持续建设，不等到 M8；`DEV_SPEC.md` 使用 `mission_sets/` 保存 Dev / Validation / Frozen Test 数据。
+- Evaluation 策略：评估方法和评测执行逻辑与测评集分开，包含 Unit / Contract / Safety、Agent Simulation、PX4/Gazebo E2E 三层。
 - Frozen Mission Set 原则：最终 Task Success、Hard Safety Violation、Recovery Success、Latency 等指标主要来自 PX4/Gazebo Frozen Mission Set。
 - Metrics 定义：Task Success、Hard Safety Violation Rate、Recovery Success、Valid Tool Call Rate、Latency、Safety Intervention Rate、PX4 Reject Rate、LLM Calls / Mission 等。
 - Fault Injection 分层：Pure Software、ROS2 Adapter Fault Proxy、PX4/Gazebo Fault Scenario。
@@ -48,7 +49,7 @@ Agent 可以从 `DEV_SPEC.md` 读取以下项：
 
 仓库结构不在本文档中重新定义。Agent 需要仓库布局时，应读取 `DEV_SPEC.md`：
 
-- 第 21 章 `Repository Skeleton`：四个隔离区域、依赖方向、硬规则。
+- 第 21 章 `Repository Skeleton`：核心代码、ROS2/PX4 adapter、mission sets、evaluation harness、tests 的隔离区域、依赖方向、硬规则。
 - 第 21.1 节 `Final Repository Skeleton`：最终目标目录树。
 - 第 21.2 节 `Module Delivery Map`：模块、代码路径、文档路径、最低测试和首次里程碑。
 - 第 21.6 节 `M0 Minimal Skeleton`：当前 M0 应优先落地的最小结构。
@@ -65,7 +66,7 @@ Agent 可以从 `DEV_SPEC.md` 读取以下项：
 - `main` 应保持可构建、可运行；功能开发使用短生命周期 `feature/*`，Bug 使用 `fix/*`，高风险实验使用 `experiment/*`。
 - 禁止对 `main` force push。
 - Milestone 完成后必须绑定 Git Commit，并按 `DEV_SPEC.md` 要求打 Tag。
-- Frozen Test、Release、Ablation 结果必须绑定 Git Commit、Tag、环境 Manifest、模型/Prompt/Safety/PX4 等版本信息。
+- Frozen Test、Release、Ablation 结果必须绑定 Git Commit、Tag、环境 Manifest、测评集版本、模型/Prompt/Safety/PX4 等版本信息。
 - 以下变化必须升级 `DEV_SPEC.md` 版本：Architecture、Contract、Milestone、Safety Boundary、Evaluation Protocol、Repository Structure、Release Gate。
 - `DEV_SPEC.md` 始终表示当前版本，历史版本由 Git/Tag 保存。
 

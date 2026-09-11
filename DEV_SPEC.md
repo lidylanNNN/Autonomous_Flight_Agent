@@ -2052,50 +2052,68 @@ class MissionEvalCase(BaseModel):
 
 # 15.4 Mission Taxonomy
 
-## Normal Missions
+V1 Mission Taxonomy 不按孤立错误名词组织，而按开源 UAV benchmark 更常见的方式组织：
 
-1. takeoff → land
-2. takeoff → one waypoint → land
-3. multi-waypoint
-4. waypoint → hold → continue
-5. waypoint → RTL
-6. user-requested land
+```text
+Task Template
++ Environment / Constraint
++ Fault / Disturbance
++ Expected Outcome
++ Safety / Verification Tags
+```
 
-## Planning / Constraint
+原因：
 
-7. altitude above allowed envelope
-8. waypoint outside geofence
-9. mission partially outside geofence
-10. goto while landed
-11. takeoff while already airborne
-12. RTL without valid home
-13. ambiguous mission
-14. contradictory requirements
+- 正常飞行任务必须是可执行、可复现实验，而不是抽象 checklist；
+- Safety / Failsafe / Recovery case 是叠加在任务上的边界条件，不是让 LLM 接管安全动作；
+- 每条 EvalCase 都必须能落到 simulator initial state、mission objective、fault injection、required outcome 和 forbidden outcome；
+- 后续扩展到 80–150 cases 时，可以通过新增 task template、环境变量、故障 profile 和 risk tag 扩展，而不是重新发明 taxonomy。
 
-## Execution Failure
+M0 Dev Mission Set 使用：
 
-15. command ACK rejected
-16. command timeout
-17. position does not converge
-18. waypoint verification timeout
-19. stale world state
-20. delayed state feedback
+```text
+10 Task Templates × 3 Variants = 30 Dev Mission Cases
+```
 
-## Resource / Safety
+## Task Templates
 
-21. low battery before takeoff
-22. low battery during mission
-23. PX4 failsafe active
-24. communication degradation
-25. Agent model unavailable while airborne
+1. takeoff and stable hover
+2. land from hover
+3. takeoff → land
+4. takeoff → single waypoint → land
+5. takeoff → random waypoint → land
+6. multi-waypoint route
+7. waypoint → hold → continue
+8. waypoint → observe area → RTL
+9. choose legal alternative observation point
+10. abort unsafe or impossible mission
 
-## Recovery
+## Variants
 
-26. invalid waypoint → replan
-27. failed waypoint → hold → replan
-28. low battery → RTL / land
-29. planner produces malformed tool args
-30. repeated unsafe proposal
+每个 Task Template 至少生成以下三类变体：
+
+1. **normal**：无故障、无越界约束，验证基本任务执行链路；
+2. **constraint_boundary**：叠加 geofence、altitude envelope、home validity、authority、mission ambiguity 或 contradictory requirement 等边界；
+3. **fault_disturbance**：叠加 ACK rejected、command timeout、position non-convergence、stale state、delayed feedback、low battery、PX4 failsafe active、communication degradation、model unavailable 或 malformed tool args 等扰动。
+
+## Required Coverage
+
+M0 的 30 条 Dev Mission Cases 必须覆盖：
+
+- basic flight：takeoff、hover、land、RTL；
+- target reaching：single waypoint、random waypoint、boundary waypoint；
+- trajectory：multi-waypoint、hold、continue、observe、return；
+- mission-level planning：ambiguous goal、contradictory goal、legal alternative selection、impossible mission rejection；
+- state verification：ACK accepted but not complete、position does not converge、hold duration not satisfied、landing not confirmed、stale state rejection；
+- safety boundary：altitude envelope、geofence、goto while landed、takeoff while airborne、RTL without home、human / RC authority;
+- resource / failsafe：low battery before takeoff、low battery during mission、PX4 failsafe active、communication degradation;
+- recovery / replanning：invalid waypoint replan、failed waypoint hold and replan、low battery RTL / land、malformed tool args reject and retry、repeated unsafe proposal abort.
+
+详细 M0 taxonomy 落地文档见：
+
+```text
+docs/mission_set_docs/mission_taxonomy.md
+```
 
 第一版目标：
 
@@ -2744,7 +2762,7 @@ Verification Failure
 一条命令：
 
 ```bash
-python -m evaluation.run \
+python -m eval_harness.run \
     --dataset validation-v1 \
     --repeats 3
 ```
@@ -2870,8 +2888,11 @@ src/flight_agent/
 ros2_ws/
 = ROS2 / PX4 Adapter，只负责把核心 Contract 映射到真实飞控通信
 
-evaluation/
-= 外部裁判系统，负责出题、跑 Episode、故障注入和判分
+mission_sets/
+= 测评集数据，负责保存 EvalCase schema、dev / validation / frozen_test case
+
+eval_harness/
+= 外部裁判系统，负责跑 Episode、故障注入、判分、报告和 bad case 导出
 
 tests/
 = 开发期的软件单元/契约/集成测试
@@ -2901,9 +2922,12 @@ src/flight_agent
     不 import px4_msgs
     不知道 ROS Topic 名
 
-evaluation
-    可以调用 flight_agent
-    flight_agent 不能反向依赖 evaluation
+mission_sets
+    只能定义测评集数据，不 import flight_agent
+
+eval_harness
+    可以调用 flight_agent 和 mission_sets
+    flight_agent 不能反向依赖 eval_harness
 ```
 
 ---
@@ -2952,8 +2976,12 @@ autonomous-flight-agent/
 │   │   ├── mock_human_approval.md
 │   │   └── mock_fault_profiles.md
 │   │
-│   ├── evaluation/
+│   ├── mission_sets/
+│   │   ├── mission_taxonomy.md
 │   │   ├── mission_set_design.md
+│   │   └── split_rules.md
+│   │
+│   ├── evaluation/
 │   │   ├── grading_rules.md
 │   │   ├── fault_injection.md
 │   │   └── benchmark_mapping.md
@@ -3052,15 +3080,23 @@ autonomous-flight-agent/
 │               ├── px4_topics.py
 │               └── frame_transform.py
 │
-├── evaluation/
+├── mission_sets/
 │   │
 │   ├── schemas/
 │   │   └── mission_case.py
 │   │
-│   ├── missions/
-│   │   ├── dev/
-│   │   ├── validation/
-│   │   └── frozen_test/
+│   ├── dev/
+│   ├── validation/
+│   ├── frozen_test/
+│   └── manifests/
+│
+├── eval_harness/
+│   │
+│   ├── fixtures/
+│   │   ├── mock_runtime/
+│   │   ├── mock_llm/
+│   │   ├── mock_approval/
+│   │   └── faults/
 │   │
 │   ├── graders/
 │   │   ├── task_success.py
@@ -3128,18 +3164,19 @@ autonomous-flight-agent/
 
 | Module | 核心代码 | 交付文档 | 最低测试 | 首次里程碑 |
 |---|---|---|---|---|
-| Contracts | `src/flight_agent/contracts/` | `docs/contracts/*.md` | Schema / serialization / invalid input | M0 |
+| Contracts | `src/flight_agent/contracts/` | `docs/contract_specs/*.md` | Schema / serialization / invalid input | M0 |
 | Mission | `src/flight_agent/mission/` | `docs/architecture/system_architecture.md` | state transition / contract binding | M5 |
 | Planner | `src/flight_agent/planner/` | `docs/architecture/runtime_boundaries.md` | structured output / retry / context | M5 |
-| Safety | `src/flight_agent/safety/` | `docs/contracts/safety_contract.md` | invariant / boundary / reject reason | M4 |
-| Skills | `src/flight_agent/skills/` | `docs/contracts/skill_contract.md` | args / timeout / lifecycle | M3 |
-| Verifier | `src/flight_agent/verifier/` | `docs/contracts/verification_contract.md` | success/failure/dwell/timeout | M6 |
+| Safety | `src/flight_agent/safety/` | `docs/contract_specs/safety_contract.md` | invariant / boundary / reject reason | M4 |
+| Skills | `src/flight_agent/skills/` | `docs/contract_specs/skill_contract.md` | args / timeout / lifecycle | M3 |
+| Verifier | `src/flight_agent/verifier/` | `docs/contract_specs/verification_contract.md` | success/failure/dwell/timeout | M6 |
 | Recovery | `src/flight_agent/recovery/` | `docs/architecture/runtime_boundaries.md` | failure class / fallback / replan limit | M7 |
 | Runtime Protocol | `src/flight_agent/runtime/base.py` | `docs/architecture/runtime_boundaries.md` | protocol contract | M0/M1 |
 | ROS2/PX4 Runtime | `ros2_ws/.../runtime.py` | `docs/architecture/runtime_boundaries.md` | ROS2 integration / frame / ACK | M1–M3 |
 | Trace | `src/flight_agent/tracing/` | `docs/architecture/system_architecture.md` | event schema / ordering / persistence | M2 |
-| Evaluation | `evaluation/` | `docs/evaluation/*.md` | grader / runner / fixture validation | M0/M8 |
-| Simulation | `sim/` | `docs/evaluation/mission_set_design.md` | reset / deterministic scenario | M1/M8 |
+| Mission Sets | `mission_sets/` | `docs/mission_set_docs/*.md` | schema / fixture validation | M0/M9 |
+| Evaluation Harness | `eval_harness/` | `docs/evaluation/*.md` | grader / runner / fault validation | M8 |
+| Simulation | `sim/` | `docs/mission_set_docs/mission_set_design.md` | reset / deterministic scenario | M1/M8 |
 | Docker/CI | `docker/` + CI | `README.md` + M12 report | smoke / second-machine startup | M12 |
 
 ---
@@ -3167,10 +3204,10 @@ Mock 不是“临时糊一个假的对象”，而是正式测试基础设施。
 
 | Mock | 实现代码 | 交付文档 | Fixture / Profile | 最低测试 | 首次交付 Milestone |
 |---|---|---|---|---|---|
-| **MockFlightRuntime** | `src/flight_agent/runtime/mock.py` | `docs/mocks/mock_flight_runtime.md` | `evaluation/fixtures/mock_runtime/` | `tests/contract/runtime/test_mock_runtime_contract.py`；`tests/integration/mock_runtime/test_skill_lifecycle.py` | M3 |
-| **MockLLMProvider** | `src/flight_agent/planner/mock.py` | `docs/mocks/mock_llm_provider.md` | `evaluation/fixtures/mock_llm/` | `tests/contract/planner/test_mock_llm_contract.py`；`tests/integration/mock_runtime/test_agent_loop_scripted.py` | M5 |
-| **MockHumanApproval** | `src/flight_agent/safety/approval.py` 中 `MockHumanApproval` | `docs/mocks/mock_human_approval.md` | `evaluation/fixtures/mock_approval/` | `tests/unit/safety/test_human_approval.py`；`tests/integration/mock_runtime/test_approval_gate.py` | M4 |
-| **Mock Fault Injector / Profiles** | `evaluation/fault_injection/` | `docs/mocks/mock_fault_profiles.md` + `docs/evaluation/fault_injection.md` | `evaluation/fixtures/faults/` | `tests/unit/evaluation/test_fault_profiles.py`；`tests/integration/mock_runtime/test_fault_recovery.py` | M8 |
+| **MockFlightRuntime** | `src/flight_agent/runtime/mock.py` | `docs/mocks/mock_flight_runtime.md` | `eval_harness/fixtures/mock_runtime/` | `tests/contract/runtime/test_mock_runtime_contract.py`；`tests/integration/mock_runtime/test_skill_lifecycle.py` | M3 |
+| **MockLLMProvider** | `src/flight_agent/planner/mock.py` | `docs/mocks/mock_llm_provider.md` | `eval_harness/fixtures/mock_llm/` | `tests/contract/planner/test_mock_llm_contract.py`；`tests/integration/mock_runtime/test_agent_loop_scripted.py` | M5 |
+| **MockHumanApproval** | `src/flight_agent/safety/approval.py` 中 `MockHumanApproval` | `docs/mocks/mock_human_approval.md` | `eval_harness/fixtures/mock_approval/` | `tests/unit/safety/test_human_approval.py`；`tests/integration/mock_runtime/test_approval_gate.py` | M4 |
+| **Mock Fault Injector / Profiles** | `eval_harness/fault_injection/` | `docs/mocks/mock_fault_profiles.md` + `docs/evaluation/fault_injection.md` | `eval_harness/fixtures/faults/` | `tests/unit/eval_harness/test_fault_profiles.py`；`tests/integration/mock_runtime/test_fault_recovery.py` | M8 |
 
 > 表中的 Mock 只有在 **代码 + 文档 + Fixture + Test** 全部完成后才算交付；Mock 与 Real Runtime 必须共享同一 Contract。
 
@@ -3227,7 +3264,7 @@ What It Does NOT Simulate
 建议：
 
 ```text
-evaluation/fixtures/mock_runtime/
+eval_harness/fixtures/mock_runtime/
 ├── normal_takeoff.yaml
 ├── normal_goto.yaml
 ├── ack_rejected.yaml
@@ -3296,7 +3333,7 @@ No hidden model behavior
 建议：
 
 ```text
-evaluation/fixtures/mock_llm/
+eval_harness/fixtures/mock_llm/
 ├── normal_plan.yaml
 ├── malformed_skill_args.yaml
 ├── unsafe_waypoint_then_replan.yaml
@@ -3375,7 +3412,7 @@ security boundary
 ### Fixtures
 
 ```text
-evaluation/fixtures/mock_approval/
+eval_harness/fixtures/mock_approval/
 ├── approve.yaml
 ├── reject.yaml
 └── timeout.yaml
@@ -3417,7 +3454,7 @@ no progress
 ### Code
 
 ```text
-evaluation/fault_injection/
+eval_harness/fault_injection/
 ├── base.py
 ├── profiles.py
 ├── communication.py
@@ -3441,7 +3478,7 @@ docs/evaluation/fault_injection.md
 ### Fixtures
 
 ```text
-evaluation/fixtures/faults/
+eval_harness/fixtures/faults/
 ├── ack_reject.yaml
 ├── timeout.yaml
 ├── stale_state.yaml
@@ -3453,7 +3490,7 @@ evaluation/fixtures/faults/
 ### Tests
 
 ```text
-tests/unit/evaluation/test_fault_profiles.py
+tests/unit/eval_harness/test_fault_profiles.py
 tests/integration/mock_runtime/test_fault_recovery.py
 ```
 
@@ -3511,12 +3548,16 @@ else:
 
 ---
 
-## 21.5 Evaluation Module Is an External Judge
+## 21.5 Evaluation Harness Is an External Judge
 
 ```text
-evaluation/
+mission_sets/
 ├── schemas/
-├── missions/
+├── dev/
+├── validation/
+└── frozen_test/
+
+eval_harness/
 ├── graders/
 ├── fault_injection/
 ├── runner/
@@ -3527,8 +3568,8 @@ evaluation/
 职责：
 
 ```text
-missions/
-= 考题
+mission_sets/
+= 考题 / 测评集数据
 
 runner/
 = 组织考试
@@ -3549,13 +3590,13 @@ bad_cases/
 依赖方向：
 
 ```text
-evaluation
+eval_harness
     ↓
 FlightAgentService / FlightRuntime / Trace
 
 flight_agent
     ✕
-不能 import evaluation
+不能 import eval_harness
 ```
 
 这保证：
@@ -3583,6 +3624,7 @@ autonomous-flight-agent/
 ├── docs/
 │   ├── contracts/
 │   ├── mocks/
+│   ├── mission_sets/
 │   └── evaluation/
 │
 ├── src/flight_agent/
@@ -3594,13 +3636,12 @@ autonomous-flight-agent/
 │       ├── base.py
 │       └── mock.py
 │
-├── evaluation/
+├── mission_sets/
 │   ├── schemas/
 │   │   └── mission_case.py
-│   └── missions/
-│       ├── dev/
-│       ├── validation/
-│       └── frozen_test/
+│   ├── dev/
+│   ├── validation/
+│   └── frozen_test/
 │
 └── tests/
     ├── unit/
@@ -3709,11 +3750,11 @@ docs/milestones/Mx.md
 | 项目范围 / 架构 / 开发顺序 | `DEV_SPEC.md` | 架构变化先改 Spec，再改代码 |
 | 当前开发进度 | Progress Board + `docs/milestones/Mx.md` | 不以聊天记录为准 |
 | 架构决策 | `docs/adr/ADR-xxx.md` | 记录 Context / Options / Decision / Consequences |
-| Core Contract | `src/flight_agent/contracts/` + `docs/contracts/` | 代码与文档同步 |
+| Core Contract | `src/flight_agent/contracts/` + `docs/contract_specs/` | 代码与文档同步 |
 | Safety Policy | `configs/safety.yaml` + policy version | 不允许由 Prompt 覆盖 |
-| Evaluation Dataset | `evaluation/missions/` + dataset manifest | Dev / Validation / Frozen 分离 |
+| Mission Set Dataset | `mission_sets/` + dataset manifest | Dev / Validation / Frozen 分离 |
 | 环境 / 依赖版本 | `manifests/environment.yaml` / `dependencies.repos` | PX4/px4_msgs/ROS/Gazebo 固定版本 |
-| 正式实验 | `evaluation/reports/<run_id>/manifest.yaml` | 每个结果绑定完整环境 |
+| 正式实验 | `eval_harness/reports/<run_id>/manifest.yaml` | 每个结果绑定完整环境 |
 | 大型运行 Artifact | 外部 Artifact Storage | Git 只保存 URI + Hash |
 
 原则：
@@ -4004,7 +4045,7 @@ Contract 修改顺序：
 ↓
 更新 Contract
 ↓
-更新 docs/contracts
+更新 docs/contract_specs
 ↓
 更新 Contract Test
 ↓
@@ -4085,7 +4126,7 @@ LLM 绕过 Safety Supervisor
 目录：
 
 ```text
-evaluation/missions/
+mission_sets/
 ├── dev/
 ├── validation/
 └── frozen_test/
@@ -4169,7 +4210,7 @@ ablation: B4
 结果目录：
 
 ```text
-evaluation/reports/<run_id>/
+eval_harness/reports/<run_id>/
 ├── manifest.yaml
 ├── summary.json
 ├── metrics.csv

@@ -30,7 +30,8 @@ The system is not intended to replace PX4 or low-level flight control. PX4 remai
 - **Safety:** deterministic Mission Contract and Safety Supervisor
 - **Verification:** state-based verifier for flight skill outcomes
 - **Recovery:** deterministic fallback policy plus mission-level replanning
-- **Evaluation:** unit/contract/safety tests, agent simulation, PX4/Gazebo frozen mission set
+- **Mission sets:** schema-driven dev / validation / frozen-test cases
+- **Evaluation harness:** unit/contract/safety tests, agent simulation, PX4/Gazebo frozen mission set
 - **Tooling:** `uv`, pytest, mypy, ruff, Docker / Docker Compose
 
 ## Target Architecture
@@ -70,7 +71,7 @@ Current initialized pieces:
 - M0 safety and environment manifest placeholders;
 - core `flight_agent` package skeleton;
 - initial contract/runtime placeholder modules;
-- evaluation schema and mission-set directories;
+- mission-set schema and dataset directories;
 - unit and contract test directories;
 - M0 milestone document.
 
