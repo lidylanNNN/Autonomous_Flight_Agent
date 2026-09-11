@@ -2981,7 +2981,7 @@ autonomous-flight-agent/
 │   │   ├── mission_set_design.md
 │   │   └── split_rules.md
 │   │
-│   ├── evaluation/
+│   ├── eval_doc/
 │   │   ├── grading_rules.md
 │   │   ├── fault_injection.md
 │   │   └── benchmark_mapping.md
@@ -3175,7 +3175,7 @@ autonomous-flight-agent/
 | ROS2/PX4 Runtime | `ros2_ws/.../runtime.py` | `docs/architecture/runtime_boundaries.md` | ROS2 integration / frame / ACK | M1–M3 |
 | Trace | `src/flight_agent/tracing/` | `docs/architecture/system_architecture.md` | event schema / ordering / persistence | M2 |
 | Mission Sets | `mission_sets/` | `docs/mission_set_docs/*.md` | schema / fixture validation | M0/M9 |
-| Evaluation Harness | `eval_harness/` | `docs/evaluation/*.md` | grader / runner / fault validation | M8 |
+| Evaluation Harness | `eval_harness/` | `docs/eval_doc/*.md` | grader / runner / fault validation | M8 |
 | Simulation | `sim/` | `docs/mission_set_docs/mission_set_design.md` | reset / deterministic scenario | M1/M8 |
 | Docker/CI | `docker/` + CI | `README.md` + M12 report | smoke / second-machine startup | M12 |
 
@@ -3207,7 +3207,7 @@ Mock 不是“临时糊一个假的对象”，而是正式测试基础设施。
 | **MockFlightRuntime** | `src/flight_agent/runtime/mock.py` | `docs/mocks/mock_flight_runtime.md` | `eval_harness/fixtures/mock_runtime/` | `tests/contract/runtime/test_mock_runtime_contract.py`；`tests/integration/mock_runtime/test_skill_lifecycle.py` | M3 |
 | **MockLLMProvider** | `src/flight_agent/planner/mock.py` | `docs/mocks/mock_llm_provider.md` | `eval_harness/fixtures/mock_llm/` | `tests/contract/planner/test_mock_llm_contract.py`；`tests/integration/mock_runtime/test_agent_loop_scripted.py` | M5 |
 | **MockHumanApproval** | `src/flight_agent/safety/approval.py` 中 `MockHumanApproval` | `docs/mocks/mock_human_approval.md` | `eval_harness/fixtures/mock_approval/` | `tests/unit/safety/test_human_approval.py`；`tests/integration/mock_runtime/test_approval_gate.py` | M4 |
-| **Mock Fault Injector / Profiles** | `eval_harness/fault_injection/` | `docs/mocks/mock_fault_profiles.md` + `docs/evaluation/fault_injection.md` | `eval_harness/fixtures/faults/` | `tests/unit/eval_harness/test_fault_profiles.py`；`tests/integration/mock_runtime/test_fault_recovery.py` | M8 |
+| **Mock Fault Injector / Profiles** | `eval_harness/fault_injection/` | `docs/mocks/mock_fault_profiles.md` + `docs/eval_doc/fault_injection.md` | `eval_harness/fixtures/faults/` | `tests/unit/eval_harness/test_fault_profiles.py`；`tests/integration/mock_runtime/test_fault_recovery.py` | M8 |
 
 > 表中的 Mock 只有在 **代码 + 文档 + Fixture + Test** 全部完成后才算交付；Mock 与 Real Runtime 必须共享同一 Contract。
 
@@ -3472,7 +3472,7 @@ docs/mocks/mock_fault_profiles.md
 以及正式 Evaluation 文档：
 
 ```text
-docs/evaluation/fault_injection.md
+docs/eval_doc/fault_injection.md
 ```
 
 ### Fixtures
@@ -3625,7 +3625,7 @@ autonomous-flight-agent/
 │   ├── contracts/
 │   ├── mocks/
 │   ├── mission_sets/
-│   └── evaluation/
+│   └── eval_doc/
 │
 ├── src/flight_agent/
 │   ├── contracts/
