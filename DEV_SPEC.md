@@ -13,9 +13,9 @@
 
 # Progress Management
 
-> **当前阶段**：M0 — Freeze Scope + Eval Spec  
-> **当前真实性状态**：Design / Pre-implementation。尚未进入 PX4 / ROS2 / Gazebo 与 Agent 代码实现。  
-> **当前重点**：先冻结 V1 Scope、Safety Invariants、Evaluation Contract 与初始 Mission Set，再进入运行环境和 Flight Skill 开发。
+> **当前阶段**：M1 — PX4 + ROS2 + Gazebo Runtime  
+> **当前真实性状态**：M0 Scope / Eval Spec 已冻结；尚未进入 PX4 / ROS2 / Gazebo 与 Agent 代码实现。  
+> **当前重点**：搭建可复现 PX4 / ROS2 / Gazebo runtime，并建立 headless health check。
 
 ## Progress Status Rules
 
@@ -48,8 +48,8 @@ Deliverables complete
 
 | Milestone | 内容 | 主要交付物 | 预计时间 | 状态 | 当前说明 |
 |---|---|---|---:|---:|---|
-| **M0** | Scope + Eval Spec | `DEV_SPEC.md`；`MissionEvalCase` Schema；20–30 条 Dev Mission；`EnvironmentManifest`；Safety Invariants；Metric Definition；`docs/milestones/M0.md` | **3–4 天** | **IN_PROGRESS** | DEV_SPEC、V1 Scope、Safety/Eval 设计、Dev Mission Set、EnvironmentManifest 已完成；family-level split 规则与 M0 Review 待完成 |
-| M1 | PX4 + ROS2 + Gazebo Runtime | pinned PX4/`px4_msgs`；ROS2 workspace；uXRCE-DDS；Gazebo x500；headless 启动脚本；health check；bootstrap scripts；`docs/milestones/M1.md` | **7–10 天** | NOT_STARTED | 高风险阶段；版本兼容、DDS、Gazebo、Offboard/Topic 链路容易超期 |
+| **M0** | Scope + Eval Spec | `DEV_SPEC.md`；`MissionEvalCase` Schema；20–30 条 Dev Mission；`EnvironmentManifest`；Safety Invariants；Metric Definition；`docs/milestones/M0.md` | **3–4 天** | **DONE** | Scope、Safety/Eval Contract、Dev Mission Set、EnvironmentManifest、family-level split 规则已冻结；不包含 PX4/ROS2/Gazebo 实现 |
+| M1 | PX4 + ROS2 + Gazebo Runtime | pinned PX4/`px4_msgs`；ROS2 workspace；uXRCE-DDS；Gazebo x500；headless 启动脚本；health check；bootstrap scripts；`docs/milestones/M1.md` | **7–10 天** | IN_PROGRESS | 下一步启动；高风险阶段，版本兼容、DDS、Gazebo、Offboard/Topic 链路容易超期 |
 | M2 | World State + Trace Base | `WorldState`；ROS2 subscriptions；state freshness；frame normalization；Trace Recorder；runtime health；`docs/milestones/M2.md` | **3–4 天** | NOT_STARTED | 依赖 M1 |
 | M3 | Deterministic Flight Skills | Takeoff/GoTo/Hold/RTL/Land；Skill Executor；timeout/ACK/cancel；`MockFlightRuntime`；Mock 文档/Fixture/Tests；`docs/milestones/M3.md` | **6–8 天** | NOT_STARTED | 依赖 M1/M2 |
 | M4 | Mission Contract + Safety Supervisor | `MissionContract`；Schema/State/Sequence/Geofence/Envelope/Authority 校验；Human Approval；`MockHumanApproval`；SafetyDecision reason codes；`docs/milestones/M4.md` | **6–8 天** | NOT_STARTED | 高风险阶段；安全规则必须有边界测试和回归 |
@@ -142,8 +142,8 @@ M9  冻结最终 Mission Set
 因此每个 Milestone 完成时都必须检查是否需要新增 Dev Regression Case。
 
 ---|---|---|---:|---|
-| **M0** | Scope + Eval Spec | `DEV_SPEC.md`；`MissionEvalCase` Schema；20–30 条 Dev Mission；`EnvironmentManifest`；Safety Invariants；Metric Definition；`docs/milestones/M0.md` | **IN_PROGRESS** | DEV_SPEC、V1 Scope、Safety/Eval 设计、Dev Mission Set、EnvironmentManifest 已完成；family-level split 规则与 M0 Review 待完成 |
-| M1 | PX4 + ROS2 + Gazebo Runtime | pinned PX4/`px4_msgs`；ROS2 workspace；uXRCE-DDS；Gazebo x500；headless 启动脚本；health check；bootstrap scripts；`docs/milestones/M1.md` | NOT_STARTED | 尚未开始环境搭建 |
+| **M0** | Scope + Eval Spec | `DEV_SPEC.md`；`MissionEvalCase` Schema；20–30 条 Dev Mission；`EnvironmentManifest`；Safety Invariants；Metric Definition；`docs/milestones/M0.md` | **DONE** | Scope、Safety/Eval Contract、Dev Mission Set、EnvironmentManifest、family-level split 规则已冻结 |
+| M1 | PX4 + ROS2 + Gazebo Runtime | pinned PX4/`px4_msgs`；ROS2 workspace；uXRCE-DDS；Gazebo x500；headless 启动脚本；health check；bootstrap scripts；`docs/milestones/M1.md` | IN_PROGRESS | 下一步启动环境搭建 |
 | M2 | World State + Trace Base | `WorldState`；ROS2 subscriptions；state freshness；frame normalization；Trace Recorder；runtime health；`docs/milestones/M2.md` | NOT_STARTED | 依赖 M1 |
 | M3 | Deterministic Flight Skills | Takeoff/GoTo/Hold/RTL/Land；Skill Executor；timeout/ACK/cancel；`MockFlightRuntime`；Mock 文档/Fixture/Tests；`docs/milestones/M3.md` | NOT_STARTED | 依赖 M1/M2 |
 | M4 | Mission Contract + Safety Supervisor | `MissionContract`；Schema/State/Sequence/Geofence/Envelope/Authority 校验；Human Approval；`MockHumanApproval`；SafetyDecision reason codes；`docs/milestones/M4.md` | NOT_STARTED | 依赖 M2/M3 |
@@ -185,7 +185,7 @@ M9  冻结最终 Mission Set
 - [x] 完成 `MissionEvalCase` schema validation 脚本：`scripts/validate_mission_sets.py`；
 - [x] 定义 `EnvironmentManifest` 强类型 Contract：`manifests/schemas/environment_manifest.py`；
 - [x] 定义 Frozen Mission Set 的 family-level split 规则：`docs/mission_set_docs/split_freeze_rules.md`；
-- [ ] M0 Review 后冻结 DEV_SPEC，进入 M1。
+- [x] M0 Review 后冻结 DEV_SPEC，进入 M1。
 
 ---
 
@@ -218,16 +218,7 @@ Next Milestone:
 
 当前不要直接开始写 LLM Agent。
 
-下一步是完成 M0 剩余项：
-
-```text
-MissionEvalCase Schema
-→ 20–30 Dev Mission Cases
-→ EnvironmentManifest
-→ Dataset split / freeze rules
-```
-
-M0 完成后再进入：
+M0 已完成并冻结。下一步进入：
 
 ```text
 M1 — PX4 + ROS2 + Gazebo Reproducible Runtime
@@ -2142,7 +2133,7 @@ mission_sets/validation/
 mission_sets/frozen_test/
 ```
 
-M0 只填充 `dev/`。`validation/` 和 `frozen_test/` 先保留目录与说明文件，待系统稳定后再按 split / freeze rules 生成。
+M0 填充 `dev/`，并为 `validation/` 和 `frozen_test/` 保留 draft manifest。实际 validation / frozen cases 待系统稳定后再按 split / freeze rules 生成。
 
 第一版目标：
 
@@ -2556,7 +2547,8 @@ Evaluation Contract
 - Safety Invariants；
 - Metric definitions；
 - initial 20–30 EvalCase skeleton；
-- Environment Manifest schema。
+- Environment Manifest schema；
+- family-level split / freeze rules。
 
 ### DoD
 
