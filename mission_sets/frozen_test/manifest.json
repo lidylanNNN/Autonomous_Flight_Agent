@@ -1,0 +1,20 @@
+{
+  "manifest_id": "frozen-test-m0-v1",
+  "spec_version": "v1.6",
+  "taxonomy_doc": "docs/mission_set_docs/mission_taxonomy.md",
+  "schema": "mission_sets/schemas/split_manifest.py",
+  "split": "frozen_test",
+  "status": "draft",
+  "split_method": "manual_family_level",
+  "source_commit": null,
+  "random_seed": null,
+  "environment_manifest": "manifests/environment.yaml",
+  "case_count": 0,
+  "family_count": 0,
+  "family_ids": [],
+  "case_files": [],
+  "notes": [
+    "Reserved in M0. This split becomes reportable only after status is frozen.",
+    "Frozen results must record source commit, environment manifest, model/provider version, and eval harness version."
+  ]
+}

@@ -60,6 +60,11 @@ def main() -> None:
         if manifest is None:
             continue
 
+        if manifest.case_count == 0 and not manifest.case_files:
+            print(f'SKIP {split}: draft split has no mission cases yet')
+            checked_manifests += 1
+            continue
+
         checked_manifests += 1
         split_cases, case_issues = load_cases(split_dir, manifest)
         checked_cases += len(split_cases)

@@ -184,7 +184,7 @@ M9  冻结最终 Mission Set
 
 - [x] 完成 `MissionEvalCase` schema validation 脚本：`scripts/validate_mission_sets.py`；
 - [x] 定义 `EnvironmentManifest` 强类型 Contract：`manifests/schemas/environment_manifest.py`；
-- [ ] 定义 Frozen Mission Set 的 family-level split 规则；
+- [x] 定义 Frozen Mission Set 的 family-level split 规则：`docs/mission_set_docs/split_freeze_rules.md`；
 - [ ] M0 Review 后冻结 DEV_SPEC，进入 M1。
 
 ---

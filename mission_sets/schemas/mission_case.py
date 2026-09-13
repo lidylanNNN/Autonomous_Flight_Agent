@@ -37,15 +37,15 @@ class MissionEvalCase(BaseModel):
 
 
 class MissionSetManifest(BaseModel):
-    '''定义 development mission set manifest。'''
+    '''定义 mission set case manifest 的兼容读取模型。'''
 
-    model_config = ConfigDict(populate_by_name=True)
+    model_config = ConfigDict(populate_by_name=True, extra='allow')
 
     manifest_id: str = Field(min_length=1)
     spec_version: str = Field(min_length=1)
     taxonomy_doc: str = Field(min_length=1)
     schema_path: str = Field(alias='schema', min_length=1)
     split: Literal['dev', 'validation', 'frozen_test']
-    case_count: int = Field(ge=1)
-    case_files: list[str] = Field(min_length=1)
+    case_count: int = Field(ge=0)
+    case_files: list[str]
     notes: list[str] = Field(default_factory=list)
