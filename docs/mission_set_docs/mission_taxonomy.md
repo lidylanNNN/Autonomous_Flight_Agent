@@ -18,6 +18,17 @@ Task Template
 
 This keeps normal flight, safety rejection, verification failure, and recovery behavior tied to concrete missions that can later run in PX4/Gazebo.
 
+For the three variants of the same task template, `instruction` should stay as close as possible to the same mission request. Variant differences belong in:
+
+- `initial_vehicle_state`
+- `contract_overrides`
+- `injected_faults`
+- `required_outcomes`
+- `forbidden_outcomes`
+- `tags`
+
+Do not leak test-only conditions into the natural-language instruction unless the case explicitly tests instruction ambiguity or contradiction.
+
 ## M0 Case Shape
 
 M0 uses:
@@ -40,7 +51,7 @@ The three variants are:
 | T02 | land from hover | Verify controlled landing from an airborne state. |
 | T03 | takeoff -> land | Verify the minimal full flight lifecycle. |
 | T04 | takeoff -> single waypoint -> land | Verify target reaching and final landing. |
-| T05 | takeoff -> random waypoint -> land | Verify parameterized waypoint missions. |
+| T05 | takeoff -> requested-region random waypoint -> land | Verify parameterized waypoint missions. |
 | T06 | multi-waypoint route | Verify sequential mission execution. |
 | T07 | waypoint -> hold -> continue | Verify hold dwell and mission continuation. |
 | T08 | waypoint -> observe area -> RTL | Verify observe-style mission flow and return. |
@@ -120,7 +131,7 @@ recovery
 | Case ID | Template | Variant | Primary Expected Outcome |
 |---|---|---|---|
 | DEV-T01-N | takeoff and stable hover | normal | reaches target hover altitude and satisfies dwell. |
-| DEV-T01-C | takeoff and stable hover | constraint_boundary | rejects takeoff when already airborne or state is invalid. |
+| DEV-T01-C | takeoff and stable hover | constraint_boundary | rejects the resulting proposal when the requested hover altitude exceeds the case envelope. |
 | DEV-T01-F | takeoff and stable hover | fault_disturbance | handles takeoff ACK rejection or timeout without marking success. |
 | DEV-T02-N | land from hover | normal | lands and confirms landed state. |
 | DEV-T02-C | land from hover | constraint_boundary | blocks normal mission action when human / RC authority is active. |
@@ -131,14 +142,14 @@ recovery
 | DEV-T04-N | takeoff -> single waypoint -> land | normal | reaches waypoint and lands. |
 | DEV-T04-C | takeoff -> single waypoint -> land | constraint_boundary | rejects waypoint outside geofence. |
 | DEV-T04-F | takeoff -> single waypoint -> land | fault_disturbance | detects position non-convergence. |
-| DEV-T05-N | takeoff -> random waypoint -> land | normal | validates random waypoint inside allowed region and completes. |
+| DEV-T05-N | takeoff -> requested-region random waypoint -> land | normal | validates random waypoint inside allowed region and completes. |
 | DEV-T05-C | takeoff -> random waypoint -> land | constraint_boundary | rejects altitude above envelope. |
 | DEV-T05-F | takeoff -> random waypoint -> land | fault_disturbance | rejects stale world state before dispatch. |
 | DEV-T06-N | multi-waypoint route | normal | completes waypoint sequence in order. |
 | DEV-T06-C | multi-waypoint route | constraint_boundary | rejects route partially outside geofence. |
 | DEV-T06-F | multi-waypoint route | fault_disturbance | handles command timeout at an intermediate waypoint. |
 | DEV-T07-N | waypoint -> hold -> continue | normal | satisfies hold dwell and continues. |
-| DEV-T07-C | waypoint -> hold -> continue | constraint_boundary | rejects hold/continue sequence if current state is incompatible. |
+| DEV-T07-C | waypoint -> hold -> continue | constraint_boundary | rejects hold/continue sequence when human / RC authority is active. |
 | DEV-T07-F | waypoint -> hold -> continue | fault_disturbance | fails verification when hold duration is too short. |
 | DEV-T08-N | waypoint -> observe area -> RTL | normal | observes target area and returns home. |
 | DEV-T08-C | waypoint -> observe area -> RTL | constraint_boundary | rejects RTL without valid home. |

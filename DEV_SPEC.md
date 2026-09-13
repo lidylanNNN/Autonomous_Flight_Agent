@@ -176,22 +176,15 @@ M9  冻结最终 Mission Set
   - Public UAV Benchmark；
   - PX4/Gazebo Frozen Mission Set；
 - [x] 明确开发顺序与 B0–B4 Ablation。
+- [x] 将 Mission Taxonomy 落成 M0 结构化 Dev Mission Set；
+- [x] 建立第一批 30 条 Dev Mission Case JSON；
+- [x] 为每条 Mission Case 写清 initial state、environment、injected faults、required outcomes、forbidden outcomes、timeout、tags；
 
 ### 待完成
 
-- [ ] 将 Mission Taxonomy 落成真实 `EvalCase` 文件；
-- [ ] 建立第一批 20–30 条 Dev Mission Cases；
+- [ ] 完成 `MissionEvalCase` schema validation 脚本；
 - [ ] 定义 `EnvironmentManifest` 强类型 Contract；
 - [ ] 定义 Frozen Mission Set 的 family-level split 规则；
-- [ ] 为每条 Mission Case 写清：
-  - initial state；
-  - environment；
-  - injected faults；
-  - required outcomes；
-  - forbidden outcomes；
-  - timeout；
-  - tags；
-- [ ] 建立 M0 对应的 schema validation 脚本；
 - [ ] M0 Review 后冻结 DEV_SPEC，进入 M1。
 
 ---
@@ -2115,6 +2108,42 @@ M0 的 30 条 Dev Mission Cases 必须覆盖：
 docs/mission_set_docs/mission_taxonomy.md
 ```
 
+M0 Dev Mission Set 已落地为结构化 JSON：
+
+```text
+mission_sets/dev/manifest.json
+mission_sets/dev/DEV-T01-N.json
+mission_sets/dev/DEV-T01-C.json
+mission_sets/dev/DEV-T01-F.json
+...
+mission_sets/dev/DEV-T10-N.json
+mission_sets/dev/DEV-T10-C.json
+mission_sets/dev/DEV-T10-F.json
+```
+
+对应 schema：
+
+```text
+mission_sets/schemas/mission_case.py
+```
+
+当前 M0 dev set：
+
+```text
+30 case JSON
+= 10 Task Templates × 3 Variants
+```
+
+Mission set split 目录必须在 M0 预留：
+
+```text
+mission_sets/dev/
+mission_sets/validation/
+mission_sets/frozen_test/
+```
+
+M0 只填充 `dev/`。`validation/` 和 `frozen_test/` 先保留目录与说明文件，待系统稳定后再按 split / freeze rules 生成。
+
 第一版目标：
 
 ```text
@@ -3640,6 +3669,8 @@ autonomous-flight-agent/
 │   ├── schemas/
 │   │   └── mission_case.py
 │   ├── dev/
+│   │   ├── manifest.json
+│   │   └── DEV-Txx-*.json
 │   ├── validation/
 │   └── frozen_test/
 │
