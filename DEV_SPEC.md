@@ -48,7 +48,7 @@ Deliverables complete
 
 | Milestone | 内容 | 主要交付物 | 预计时间 | 状态 | 当前说明 |
 |---|---|---|---:|---:|---|
-| **M0** | Scope + Eval Spec | `DEV_SPEC.md`；`MissionEvalCase` Schema；20–30 条 Dev Mission；`EnvironmentManifest`；Safety Invariants；Metric Definition；`docs/milestones/M0.md` | **3–4 天** | **IN_PROGRESS** | DEV_SPEC、V1 Scope、项目价值、Safety/Eval 设计已完成；真实 EvalCase、Manifest 与 split 规则仍需落地 |
+| **M0** | Scope + Eval Spec | `DEV_SPEC.md`；`MissionEvalCase` Schema；20–30 条 Dev Mission；`EnvironmentManifest`；Safety Invariants；Metric Definition；`docs/milestones/M0.md` | **3–4 天** | **IN_PROGRESS** | DEV_SPEC、V1 Scope、Safety/Eval 设计、Dev Mission Set、EnvironmentManifest 已完成；family-level split 规则与 M0 Review 待完成 |
 | M1 | PX4 + ROS2 + Gazebo Runtime | pinned PX4/`px4_msgs`；ROS2 workspace；uXRCE-DDS；Gazebo x500；headless 启动脚本；health check；bootstrap scripts；`docs/milestones/M1.md` | **7–10 天** | NOT_STARTED | 高风险阶段；版本兼容、DDS、Gazebo、Offboard/Topic 链路容易超期 |
 | M2 | World State + Trace Base | `WorldState`；ROS2 subscriptions；state freshness；frame normalization；Trace Recorder；runtime health；`docs/milestones/M2.md` | **3–4 天** | NOT_STARTED | 依赖 M1 |
 | M3 | Deterministic Flight Skills | Takeoff/GoTo/Hold/RTL/Land；Skill Executor；timeout/ACK/cancel；`MockFlightRuntime`；Mock 文档/Fixture/Tests；`docs/milestones/M3.md` | **6–8 天** | NOT_STARTED | 依赖 M1/M2 |
@@ -142,7 +142,7 @@ M9  冻结最终 Mission Set
 因此每个 Milestone 完成时都必须检查是否需要新增 Dev Regression Case。
 
 ---|---|---|---:|---|
-| **M0** | Scope + Eval Spec | `DEV_SPEC.md`；`MissionEvalCase` Schema；20–30 条 Dev Mission；`EnvironmentManifest`；Safety Invariants；Metric Definition；`docs/milestones/M0.md` | **IN_PROGRESS** | DEV_SPEC、V1 Scope、项目价值、Safety/Eval 设计已完成；真实 EvalCase、Manifest 与 split 规则仍需落地 |
+| **M0** | Scope + Eval Spec | `DEV_SPEC.md`；`MissionEvalCase` Schema；20–30 条 Dev Mission；`EnvironmentManifest`；Safety Invariants；Metric Definition；`docs/milestones/M0.md` | **IN_PROGRESS** | DEV_SPEC、V1 Scope、Safety/Eval 设计、Dev Mission Set、EnvironmentManifest 已完成；family-level split 规则与 M0 Review 待完成 |
 | M1 | PX4 + ROS2 + Gazebo Runtime | pinned PX4/`px4_msgs`；ROS2 workspace；uXRCE-DDS；Gazebo x500；headless 启动脚本；health check；bootstrap scripts；`docs/milestones/M1.md` | NOT_STARTED | 尚未开始环境搭建 |
 | M2 | World State + Trace Base | `WorldState`；ROS2 subscriptions；state freshness；frame normalization；Trace Recorder；runtime health；`docs/milestones/M2.md` | NOT_STARTED | 依赖 M1 |
 | M3 | Deterministic Flight Skills | Takeoff/GoTo/Hold/RTL/Land；Skill Executor；timeout/ACK/cancel；`MockFlightRuntime`；Mock 文档/Fixture/Tests；`docs/milestones/M3.md` | NOT_STARTED | 依赖 M1/M2 |
@@ -183,7 +183,7 @@ M9  冻结最终 Mission Set
 ### 待完成
 
 - [x] 完成 `MissionEvalCase` schema validation 脚本：`scripts/validate_mission_sets.py`；
-- [ ] 定义 `EnvironmentManifest` 强类型 Contract；
+- [x] 定义 `EnvironmentManifest` 强类型 Contract：`manifests/schemas/environment_manifest.py`；
 - [ ] 定义 Frozen Mission Set 的 family-level split 规则；
 - [ ] M0 Review 后冻结 DEV_SPEC，进入 M1。
 

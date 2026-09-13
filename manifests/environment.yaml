@@ -1,6 +1,7 @@
 # Defined by DEV_SPEC.md section 3.
-# M0 will turn this into the typed EnvironmentManifest contract.
+# Validated by manifests/schemas/environment_manifest.py.
 manifest_version: "m0-draft"
+schema: "manifests/schemas/environment_manifest.py"
 status: "pending_pin"
 project:
   name: "autonomous-flight-agent"
