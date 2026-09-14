@@ -11,5 +11,14 @@ artifacts/
 ros2_ws/build/
 ros2_ws/install/
 ros2_ws/log/
+ros2_ws/.colcon/
+ros2_ws/compile_commands.json
+
+# Former px4_msgs repository rules; px4_msgs is now source-managed here.
+ros2_ws/src/px4_msgs/build/
+ros2_ws/src/px4_msgs/msg/idl.cc
+ros2_ws/src/px4_msgs/out/
+ros2_ws/src/px4_msgs/debian/
+ros2_ws/src/px4_msgs/.ob*/
 
 .env
