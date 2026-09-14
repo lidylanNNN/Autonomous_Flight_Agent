@@ -1,8 +1,8 @@
 # Defined by DEV_SPEC.md section 3.
 # Validated by manifests/schemas/environment_manifest.py.
-manifest_version: "m1-draft"
+manifest_version: "m1"
 schema: "manifests/schemas/environment_manifest.py"
-status: "pending_pin"
+status: "frozen"
 project:
   name: "autonomous-flight-agent"
   spec_version: "v1.6"
