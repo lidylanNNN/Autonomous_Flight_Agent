@@ -74,7 +74,10 @@ notes
 Field meanings:
 
 - `source_commit`: Git commit hash used when the split was created or frozen.
-- `random_seed`: 随机分组的固定起点；用于保证同一批任务族在未来可以被重复分到相同的 split。
+- `random_seed`: 随机分组的固定起点；仅在 `split_method` 为
+  `family_level_random_split` 时必须填写，用于保证同一批任务族在未来
+  可以被重复分到相同的 split。M0 的 `manual_family_level` split 保留为
+  `null`。
 - `status`: `draft` before the split is final, `frozen` after it becomes a
   reportable benchmark split.
 

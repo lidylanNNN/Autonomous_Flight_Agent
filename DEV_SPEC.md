@@ -182,7 +182,7 @@ M9  冻结最终 Mission Set
 
 ### 待完成
 
-- [x] 完成 `MissionEvalCase` schema validation 脚本：`scripts/validate_mission_sets.py`；
+- [x] 完成 `MissionEvalCase` schema validation 脚本：`scripts/validation/validate_mission_sets.py`；
 - [x] 定义 `EnvironmentManifest` 强类型 Contract：`manifests/schemas/environment_manifest.py`；
 - [x] 定义 Frozen Mission Set 的 family-level split 规则：`docs/mission_set_docs/split_freeze_rules.md`；
 - [x] M0 Review 后冻结 DEV_SPEC，进入 M1。
@@ -580,13 +580,13 @@ eVTOL / VTOL 放到 V2，不在 V1 同时解决飞机动力学与 Agent 系统�
 建议锁定：
 
 ```text
-OS              Ubuntu 22.04 LTS
-ROS2            Humble
-PX4             v1.16.x stable branch / fixed commit
+OS              Ubuntu 24.04 LTS
+ROS2            Jazzy
+PX4             v1.16.2 / 54f0455ffcd755534539a7cf33a09a20bf71d29d
 Gazebo          Harmonic
 Vehicle         x500 multicopter
 Middleware      uXRCE-DDS
-Python          3.10+
+Python          3.12
 ROS2 Python     rclpy
 LLM             provider abstraction
 Container       Docker / Docker Compose
@@ -599,6 +599,14 @@ Container       Docker / Docker Compose
 - Frozen Test Manifest 记录所有 commit / image digest / model version；
 - Agent Service 与 Simulation Runtime 可以分别容器化；
 - Gazebo GUI 非测试依赖，CI / benchmark 使用 headless mode。
+
+M1 version decision:
+
+```text
+Current host is Ubuntu 24.04. PX4 ROS 2 official docs recommend ROS 2 Jazzy on
+Ubuntu 24.04, with Gazebo Harmonic for the simulation path. Ubuntu 22.04 /
+ROS 2 Humble is kept only as a fallback container target if host installation is blocked.
+```
 
 ---
 
@@ -2134,6 +2142,8 @@ mission_sets/frozen_test/
 ```
 
 M0 填充 `dev/`，并为 `validation/` 和 `frozen_test/` 保留 draft manifest。实际 validation / frozen cases 待系统稳定后再按 split / freeze rules 生成。
+
+`random_seed` 字段仅为后续从 master mission pool 随机生成 split 时预留。M0 采用 `manual_family_level` 人工 family-level 划分，因此 `random_seed` 可以为 `null`；若未来使用 `family_level_random_split`，则必须填写固定 seed 以保证 split 可复现。
 
 第一版目标：
 
@@ -4193,6 +4203,8 @@ dev-v1
 validation-v1
 frozen-v1
 ```
+
+Split manifest 可预留 `random_seed` 字段，但它只在从 master mission pool 随机生成 split 时生效。人工划分时保留为 `null`，不得把空 seed 当作已执行随机划分的证据。
 
 Frozen Dataset 对应：
 

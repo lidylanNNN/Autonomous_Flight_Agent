@@ -1,6 +1,6 @@
 # Defined by DEV_SPEC.md section 3.
 # Validated by manifests/schemas/environment_manifest.py.
-manifest_version: "m0-draft"
+manifest_version: "m1-draft"
 schema: "manifests/schemas/environment_manifest.py"
 status: "pending_pin"
 project:
@@ -8,26 +8,26 @@ project:
   spec_version: "v1.6"
 
 host:
-  os: "Ubuntu 22.04 LTS"
+  os: "Ubuntu 24.04 LTS"
 
 python:
-  version: "3.11"
+  version: "3.12"
   package_manager: "uv"
 
 ros2:
-  distro: "Humble"
+  distro: "Jazzy"
   python_client: "rclpy"
 
 px4:
   version_family: "v1.16.x"
-  branch_or_tag: "stable"
-  commit: "pending_pin"
+  branch_or_tag: "v1.16.2"
+  commit: "54f0455ffcd755534539a7cf33a09a20bf71d29d"
 
 px4_msgs:
   commit: "pending_pin"
 
 gazebo:
-  version_family: "Harmonic"
+  version_family: "Harmonic / gz-sim 8.15.0"
   mode: "headless_for_ci_and_benchmark"
 
 vehicle:
