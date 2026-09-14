@@ -2,8 +2,10 @@
 set -euo pipefail
 
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+set +u
 source /opt/ros/jazzy/setup.bash
 source "${PROJECT_ROOT}/ros2_ws/install/setup.bash"
+set -u
 
 topics="$(ros2 topic list --no-daemon)"
 for topic in /fmu/out/vehicle_status_v1 /fmu/out/vehicle_local_position /fmu/out/vehicle_command_ack /fmu/in/vehicle_command; do
