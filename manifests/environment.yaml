@@ -24,7 +24,7 @@ px4:
   commit: "54f0455ffcd755534539a7cf33a09a20bf71d29d"
 
 px4_msgs:
-  commit: "pending_pin"
+  commit: "embedded-from-px4-54f0455ffcd755534539a7cf33a09a20bf71d29d"
 
 gazebo:
   version_family: "Harmonic / gz-sim 8.15.0"

@@ -30,6 +30,24 @@ Run:
 python scripts/runtime/check_runtime_health.py
 ```
 
+## Runtime Smoke Test
+
+Build the workspace once, then start the runtime in one terminal:
+
+```bash
+cd ros2_ws
+source /opt/ros/jazzy/setup.bash
+colcon build --symlink-install --packages-up-to px4_msgs px4_msgs_old translation_node
+cd ..
+scripts/runtime/start_simulation.sh
+```
+
+Run the topic check from another terminal:
+
+```bash
+scripts/runtime/smoke_test_topics.sh
+```
+
 The script checks:
 
 ```text
@@ -50,9 +68,8 @@ ROS 2 Jazzy setup path
 3. Install PX4 development dependencies and Gazebo Harmonic.
 4. Install ROS/Gazebo bridge packages.
 5. Build and run `make px4_sitl gz_x500`.
-6. Start uXRCE-DDS agent.
-7. Source ROS 2 / workspace setup files.
-8. Verify PX4 topics are visible through `ros2 topic list`.
+6. Start uXRCE-DDS agent and PX4 with `scripts/runtime/start_simulation.sh`.
+7. Run `scripts/runtime/smoke_test_topics.sh`.
 
 ## Success Criteria
 
