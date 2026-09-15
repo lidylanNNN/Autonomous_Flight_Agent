@@ -7,7 +7,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from flight_agent.contracts.world_state import WorldState
+from flight_agent.contracts import WorldState
 
 
 class TraceRecorder:

@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from typing import Any
 
-from flight_agent.contracts.world_state import CoordinateFrame, Vector3, WorldState, ned_to_enu
+from flight_agent.contracts import CoordinateFrame, Vector3, WorldState, ned_to_enu
 
 
 class WorldStateAggregator:

@@ -1,4 +1,3 @@
-"""Core contract models defined by DEV_SPEC.md."""
 '''Typed contracts shared by Agent components.'''
 
 from flight_agent.contracts.world_state import (

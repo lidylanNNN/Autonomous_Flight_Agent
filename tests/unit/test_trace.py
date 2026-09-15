@@ -3,8 +3,8 @@
 import json
 from datetime import UTC, datetime
 
-from flight_agent.contracts.world_state import CoordinateFrame, Vector3, WorldState
-from flight_agent.runtime.trace import TraceRecorder
+from flight_agent.contracts import CoordinateFrame, Vector3, WorldState
+from flight_agent.runtime import TraceRecorder
 
 
 def test_trace_recorder_writes_replayable_json_line(tmp_path) -> None:

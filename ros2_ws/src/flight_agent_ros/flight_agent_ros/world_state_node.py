@@ -10,8 +10,7 @@ from px4_msgs.msg import VehicleLandDetected, VehicleLocalPosition, VehicleStatu
 from rclpy.node import Node
 from rclpy.qos import QoSProfile, ReliabilityPolicy
 
-from flight_agent.runtime.trace import TraceRecorder
-from flight_agent.runtime.world_state_aggregator import WorldStateAggregator
+from flight_agent.runtime import TraceRecorder, WorldStateAggregator
 
 
 class WorldStateNode(Node):

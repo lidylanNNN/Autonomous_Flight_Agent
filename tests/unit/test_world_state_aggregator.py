@@ -3,7 +3,7 @@
 from datetime import UTC, datetime
 from types import SimpleNamespace
 
-from flight_agent.runtime.world_state_aggregator import WorldStateAggregator
+from flight_agent.runtime import WorldStateAggregator
 
 
 def test_aggregator_normalizes_px4_samples() -> None:

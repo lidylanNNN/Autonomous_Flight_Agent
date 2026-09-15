@@ -5,7 +5,7 @@ from datetime import UTC, datetime, timedelta
 import pytest
 from pydantic import ValidationError
 
-from flight_agent.contracts.world_state import (
+from flight_agent.contracts import (
     CoordinateFrame,
     Vector3,
     WorldState,
