@@ -48,6 +48,9 @@ Run the topic check from another terminal:
 scripts/runtime/smoke_test_topics.sh
 ```
 
+The ROS 2 node package declares `python3-pydantic` as a runtime dependency so
+the system Python used by ROS 2 can load the shared `WorldState` contract.
+
 The script checks:
 
 ```text

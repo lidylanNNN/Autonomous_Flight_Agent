@@ -1,0 +1,14 @@
+<?xml version="1.0"?>
+<package format="3">
+  <name>flight_agent_ros</name>
+  <version>0.1.0</version>
+  <description>ROS 2 adapter for the Autonomous Flight Agent.</description>
+  <maintainer email="lidylan008@gmail.com">Noah Li</maintainer>
+  <license>MIT</license>
+  <depend>rclpy</depend>
+  <depend>px4_msgs</depend>
+  <exec_depend>python3-pydantic</exec_depend>
+  <export>
+    <build_type>ament_python</build_type>
+  </export>
+</package>
