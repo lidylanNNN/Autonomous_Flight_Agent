@@ -48,8 +48,15 @@ Run the topic check from another terminal:
 scripts/runtime/smoke_test_topics.sh
 ```
 
-The ROS 2 node package declares `python3-pydantic` as a runtime dependency so
-the system Python used by ROS 2 can load the shared `WorldState` contract.
+Run the M2 WorldState node from a separate terminal with:
+
+```bash
+scripts/runtime/run_world_state_node.sh
+```
+
+The launcher exposes the uv-managed Pydantic 2 environment to the ROS 2 system
+Python. Ubuntu Noble's `python3-pydantic` package is Pydantic 1 and is therefore
+not used for the shared `WorldState` contract.
 
 The script checks:
 

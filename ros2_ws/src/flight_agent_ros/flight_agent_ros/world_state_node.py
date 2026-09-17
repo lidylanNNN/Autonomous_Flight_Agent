@@ -6,7 +6,14 @@ import os
 from pathlib import Path
 
 import rclpy
-from px4_msgs.msg import VehicleLandDetected, VehicleLocalPosition, VehicleStatus
+from px4_msgs.msg import (
+    BatteryStatus,
+    HomePosition,
+    VehicleCommandAck,
+    VehicleLandDetected,
+    VehicleLocalPosition,
+    VehicleStatus,
+)
 from rclpy.node import Node
 from rclpy.qos import QoSProfile, ReliabilityPolicy
 
@@ -35,6 +42,17 @@ class WorldStateNode(Node):
             VehicleLandDetected, '/fmu/out/vehicle_land_detected',
             self._aggregator.update_land_detected, px4_qos
         )
+        self.create_subscription(
+            BatteryStatus, '/fmu/out/battery_status', self._aggregator.update_battery, px4_qos
+        )
+        self.create_subscription(
+            HomePosition, '/fmu/out/home_position',
+            self._aggregator.update_home_position, px4_qos
+        )
+        self.create_subscription(
+            VehicleCommandAck, '/fmu/out/vehicle_command_ack',
+            self._aggregator.update_command_ack, px4_qos
+        )
         self.create_timer(0.1, self._record_snapshot)
 
     def _record_snapshot(self) -> None:
@@ -53,9 +71,12 @@ def main() -> None:
     node = WorldStateNode()
     try:
         rclpy.spin(node)
+    except KeyboardInterrupt:
+        pass
     finally:
         node.destroy_node()
-        rclpy.shutdown()
+        if rclpy.ok():
+            rclpy.shutdown()
 
 
 if __name__ == '__main__':
