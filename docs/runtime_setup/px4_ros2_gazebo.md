@@ -58,7 +58,18 @@ The launcher exposes the uv-managed Pydantic 2 environment to the ROS 2 system
 Python. Ubuntu Noble's `python3-pydantic` package is Pydantic 1 and is therefore
 not used for the shared `WorldState` contract.
 
-The script checks:
+Replay the latest WorldState from a recorded JSONL trace with:
+
+```bash
+scripts/runtime/replay_trace.sh artifacts/world_state.jsonl
+```
+
+Use `--record 10`, `--state-id state-123-4`, or
+`--at 2026-09-17T08:44:08+00:00` to locate an earlier snapshot. Record numbers
+start at 1. Invalid JSON, unknown record types, invalid contracts, and timestamp
+ordering errors report the source line number.
+
+The `check_runtime_health.py` script checks:
 
 ```text
 Ubuntu version
