@@ -13,9 +13,9 @@
 
 # Progress Management
 
-> **当前阶段**：M1 — PX4 + ROS2 + Gazebo Runtime  
-> **当前真实性状态**：M0 Scope / Eval Spec 已冻结；尚未进入 PX4 / ROS2 / Gazebo 与 Agent 代码实现。  
-> **当前重点**：搭建可复现 PX4 / ROS2 / Gazebo runtime，并建立 headless health check。
+> **当前阶段**：M2 — World State Aggregator + Trace Base
+> **当前真实性状态**：M0、M1 已完成；M2 正在实现和验收。
+> **当前重点**：完成 WorldState freshness、runtime health、Trace replay 与 M2 DoD。
 
 ## Progress Status Rules
 
@@ -50,7 +50,7 @@ Deliverables complete
 |---|---|---|---:|---:|---|
 | **M0** | Scope + Eval Spec | `DEV_SPEC.md`；`MissionEvalCase` Schema；20–30 条 Dev Mission；`EnvironmentManifest`；Safety Invariants；Metric Definition；`docs/milestones/M0.md` | **3–4 天** | **DONE** | Scope、Safety/Eval Contract、Dev Mission Set、EnvironmentManifest、family-level split 规则已冻结；不包含 PX4/ROS2/Gazebo 实现 |
 | M1 | PX4 + ROS2 + Gazebo Runtime | pinned PX4/`px4_msgs`；ROS2 workspace；uXRCE-DDS；Gazebo x500；headless 启动脚本；health check；bootstrap scripts；`docs/milestones/M1.md` | **7–10 天** | DONE | PX4 v1.16.2、ROS 2 Jazzy、Gazebo Harmonic、uXRCE-DDS 与 PX4 topic 链路已验证 |
-| M2 | World State + Trace Base | `WorldState`；ROS2 subscriptions；state freshness；frame normalization；Trace Recorder；runtime health；`docs/milestones/M2.md` | **3–4 天** | NOT_STARTED | 依赖 M1 |
+| M2 | World State + Trace Base | `WorldState`；ROS2 subscriptions；state freshness；frame normalization；Trace Recorder；runtime health；`docs/milestones/M2.md` | **3–4 天** | IN_PROGRESS | WorldState、ROS2 subscriptions 与 Trace 基础已落地；正在修正 freshness、坐标 Contract 与 runtime health |
 | M3 | Deterministic Flight Skills | Takeoff/GoTo/Hold/RTL/Land；Skill Executor；timeout/ACK/cancel；`MockFlightRuntime`；Mock 文档/Fixture/Tests；`docs/milestones/M3.md` | **6–8 天** | NOT_STARTED | 依赖 M1/M2 |
 | M4 | Mission Contract + Safety Supervisor | `MissionContract`；Schema/State/Sequence/Geofence/Envelope/Authority 校验；Human Approval；`MockHumanApproval`；SafetyDecision reason codes；`docs/milestones/M4.md` | **6–8 天** | NOT_STARTED | 高风险阶段；安全规则必须有边界测试和回归 |
 | M5 | Minimal LLM Planner | Natural-language Mission；LLM Provider；Structured Plan；Function Calling；Agent Loop；Context Builder；`MockLLMProvider`；`docs/milestones/M5.md` | **4–5 天** | NOT_STARTED | 依赖 M3/M4 |
@@ -140,23 +140,6 @@ M9  冻结最终 Mission Set
 ```
 
 因此每个 Milestone 完成时都必须检查是否需要新增 Dev Regression Case。
-
----|---|---|---:|---|
-| **M0** | Scope + Eval Spec | `DEV_SPEC.md`；`MissionEvalCase` Schema；20–30 条 Dev Mission；`EnvironmentManifest`；Safety Invariants；Metric Definition；`docs/milestones/M0.md` | **DONE** | Scope、Safety/Eval Contract、Dev Mission Set、EnvironmentManifest、family-level split 规则已冻结 |
-| M1 | PX4 + ROS2 + Gazebo Runtime | pinned PX4/`px4_msgs`；ROS2 workspace；uXRCE-DDS；Gazebo x500；headless 启动脚本；health check；bootstrap scripts；`docs/milestones/M1.md` | DONE | 端到端 PX4 ROS 2 topic 链路已验证，进入 M2 |
-| M2 | World State + Trace Base | `WorldState`；ROS2 subscriptions；state freshness；frame normalization；Trace Recorder；runtime health；`docs/milestones/M2.md` | NOT_STARTED | 依赖 M1 |
-| M3 | Deterministic Flight Skills | Takeoff/GoTo/Hold/RTL/Land；Skill Executor；timeout/ACK/cancel；`MockFlightRuntime`；Mock 文档/Fixture/Tests；`docs/milestones/M3.md` | NOT_STARTED | 依赖 M1/M2 |
-| M4 | Mission Contract + Safety Supervisor | `MissionContract`；Schema/State/Sequence/Geofence/Envelope/Authority 校验；Human Approval；`MockHumanApproval`；SafetyDecision reason codes；`docs/milestones/M4.md` | NOT_STARTED | 依赖 M2/M3 |
-| M5 | Minimal LLM Planner | Natural-language Mission；LLM Provider；Structured Plan；Function Calling；Agent Loop；Context Builder；`MockLLMProvider`；`docs/milestones/M5.md` | NOT_STARTED | 依赖 M3/M4 |
-| M6 | State Verifier | Verifier Registry；Takeoff/GoTo/Hold/RTL/Land Verifier；dwell/timeout；`VerificationResult`；`docs/milestones/M6.md` | NOT_STARTED | 依赖 M3/M5 |
-| M7 | Recovery / Replanning | Failure Taxonomy；Deterministic Recovery Policy；Retry/Replan Budget；Hold/RTL/Land fallback；Replanner；plan revision trace；`docs/milestones/M7.md` | NOT_STARTED | 依赖 M4/M6 |
-| M8 | Eval Harness + Fault Injection | Episode Runner；Simulator Reset；Seed；Initial State Setup；Fault Injector/Profiles；Graders；Report/Bad Case Export；Mock Fault 文档/Fixture/Tests；`docs/milestones/M8.md` | NOT_STARTED | Eval Contract 先行，完整 Harness 在核心链路后接入 |
-| M9 | Frozen Mission Set | Dev/Validation/Frozen Test；family-level split；`frozen_eval_manifest.yaml`；PX4/Model/Prompt/Safety/Simulator 版本冻结；`docs/milestones/M9.md` | NOT_STARTED | 必须在系统稳定后冻结 |
-| M10 | Ablation | B0 Scripted；B1 Agent Baseline；B2 +Safety；B3 +Verifier；B4 +Replanning；multi-trial report；`docs/milestones/M10.md` | NOT_STARTED | B0–B4 |
-| M11 | Public Benchmark Mapping | UAVBench subset mapping/report；可选 α³-Bench subset；Public vs Closed-loop 对照报告；`docs/milestones/M11.md` | NOT_STARTED | UAVBench 主参考，α³-Bench 可选 |
-| M12 | Docker / CI / Final Report | Agent Dockerfile；headless eval compose；CI；second-machine smoke；README；architecture diagram；Frozen Test/Ablation/Bad Case Final Reports；`docs/milestones/M12.md` | NOT_STARTED | 最终工程化与发布 |
-
----
 
 ## M0 Checklist — Current
 

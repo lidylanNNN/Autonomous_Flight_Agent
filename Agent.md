@@ -7,9 +7,7 @@
 Agent 可以从 `DEV_SPEC.md` 读取以下项：
 
 - 项目定义：Autonomous Flight Agent 是基于 ROS2 + PX4 + Gazebo 的自主飞行机器人任务执行系统。
-- 当前状态：Design / Pre-implementation；尚未进入 PX4 / ROS2 / Gazebo 与 Agent 代码实现。
-- 当前阶段：M0 — Freeze Scope + Eval Spec。
-- 当前下一步：先完成 `MissionEvalCase` Schema、20-30 条 Dev Mission Cases、`EnvironmentManifest`、dataset split / freeze rules。
+- 当前状态、当前阶段和下一步：读取 `DEV_SPEC.md` 的 `Progress Management`、`Current Progress Board` 和对应 Milestone，不在本文档重复定义。
 - V1 目标：可复现 SITL 环境、Flight Skills、Mission Contract、Safety Supervisor、State Verifier、Recovery / Replanning、Trace、Evaluation、Ablation、Docker / CI / Final Report。
 - V1 非目标：LLM 不直接输出 actuator、attitude、body-rate、thrust；不维持实时控制环；不自研 PX4；不做 eVTOL / VTOL、Multi-UAV、真实飞机测试、复杂 UI 等扩展。
 - 架构边界：LLM 只处于 Mission / Skill Level；PX4 保留底层飞控和原生 failsafe；Safety Supervisor 是执行前确定性仲裁层；State Verifier 根据实际状态判定执行结果。
@@ -74,16 +72,5 @@ Agent 可以从 `DEV_SPEC.md` 读取以下项：
 
 1. 开始任何开发前，先读取 `DEV_SPEC.md` 对应章节。
 2. 如果实现会改变 contract、safety、runtime boundary、evaluation schema 或 milestone scope，先更新 `DEV_SPEC.md` 或新增 ADR。
-3. 当前仓库处于 M0，默认不要直接实现 LLM Agent。
-4. M0 优先级为：
-
-```text
-MissionEvalCase Schema
--> 20-30 Dev Mission Cases
--> EnvironmentManifest
--> Dataset split / freeze rules
--> Schema validation script
--> docs/milestones/M0.md
-```
-
-5. 每个 Milestone 只有满足交付物完成、DoD 满足、必要测试通过、trace/eval artifact 生成时，才能标记为 `DONE`。
+3. 当前 Milestone、开发重点和下一步必须从 `DEV_SPEC.md` 读取，不在本文档硬编码。
+4. 每个 Milestone 只有满足交付物完成、DoD 满足、必要测试通过、trace/eval artifact 生成时，才能标记为 `DONE`。

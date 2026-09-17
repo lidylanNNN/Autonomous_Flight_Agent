@@ -40,9 +40,10 @@ class WorldStateNode(Node):
     def _record_snapshot(self) -> None:
         '''记录当前聚合状态。'''
 
+        if not self._aggregator.has_samples:
+            return
         state = self._aggregator.snapshot()
-        if state.connected:
-            self._recorder.record_world_state(state)
+        self._recorder.record_world_state(state)
 
 
 def main() -> None:
