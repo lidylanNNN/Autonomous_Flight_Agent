@@ -21,7 +21,7 @@ Agent 可以从 `DEV_SPEC.md` 读取以下项：
 - State Verifier 规则：Takeoff、GoTo、Hold、RTL、Land 的成功判定必须来自状态观测，而不是相信 LLM 或 PX4 ACK。
 - Recovery / Replanning 设计：紧急安全行为由 deterministic recovery policy 兜底；LLM replanning 只在安全边界内做任务层调整。
 - Trace 要求：完整记录 Mission、Plan、Proposal、Safety Decision、ROS2 Dispatch、PX4 ACK、Skill Result、Verification、Recovery 等事件。
-- Mission Set 策略：测评集从 M0 开始持续建设，不等到 M8；`DEV_SPEC.md` 使用 `mission_sets/` 保存 Dev / Validation / Frozen Test 数据。
+- Mission Set 策略：测评集从 M0 开始持续建设，不等到 M8；`DEV_SPEC.md` 使用 `agent_benchmark_sets/` 保存 Agent 的 Dev / Validation / Frozen Test 测评任务、场景和数据划分。它不是 PX4 Mission 文件，也不是在线任务输入。
 - Evaluation 策略：评估方法和评测执行逻辑与测评集分开，包含 Unit / Contract / Safety、Agent Simulation、PX4/Gazebo E2E 三层。
 - Frozen Mission Set 原则：最终 Task Success、Hard Safety Violation、Recovery Success、Latency 等指标主要来自 PX4/Gazebo Frozen Mission Set。
 - Metrics 定义：Task Success、Hard Safety Violation Rate、Recovery Success、Valid Tool Call Rate、Latency、Safety Intervention Rate、PX4 Reject Rate、LLM Calls / Mission 等。
@@ -74,3 +74,15 @@ Agent 可以从 `DEV_SPEC.md` 读取以下项：
 2. 如果实现会改变 contract、safety、runtime boundary、evaluation schema 或 milestone scope，先更新 `DEV_SPEC.md` 或新增 ADR。
 3. 当前 Milestone、开发重点和下一步必须从 `DEV_SPEC.md` 读取，不在本文档硬编码。
 4. 每个 Milestone 只有满足交付物完成、DoD 满足、必要测试通过、trace/eval artifact 生成时，才能标记为 `DONE`。
+
+## 小步变更与审核
+
+每一批 Agent 改动必须只有一个可独立评审的目的，并且包含该目的所需的测试与文档同步。
+行数是提醒 Agent 停下来拆分的软阈值，不是替代架构判断的硬规则。
+
+- 默认批次不超过 300 行语义改动，且只涉及一个模块边界；完成测试后交由用户审阅。
+- 预计 300–600 行语义改动，或同时影响两个模块边界时，先列出改动目的、文件清单、风险与验证方式，等待用户确认后再实施。
+- 超过 600 行语义改动，或涉及 Contract、Safety、ROS2/PX4、顶层目录、外部依赖或数据集路径时，必须拆为多个可独立验证的批次；先提交结构变更单，等待用户确认。
+- 纯机械改名、文件移动、格式化和生成文件不按其重复行数计入语义改动，但必须与功能、行为或 Contract 改动分开实施和提交。
+- 任何 Contract、Safety Boundary、Interface、依赖方向或 Repository Structure 变更，无论行数多少，都属于结构变更；先说明原因、影响范围、回滚方式和验证方式，等待用户确认。
+- 每一批完成后，Agent 必须报告 `git diff --stat`、改动文件清单、验证命令与结果；未经用户明确要求，不提交或推送。

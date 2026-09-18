@@ -14,9 +14,8 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from mission_sets.schemas.mission_case import MissionEvalCase  # noqa: E402
-from mission_sets.schemas.split_manifest import MissionSplitManifest  # noqa: E402
-
+from agent_benchmark_sets.schemas.mission_case import MissionEvalCase
+from agent_benchmark_sets.schemas.split_manifest import MissionSplitManifest
 
 DEFAULT_SPLITS = ('dev', 'validation', 'frozen_test')
 
@@ -64,8 +63,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         '--root',
         type=Path,
-        default=Path('mission_sets'),
-        help='mission_sets root directory',
+        default=Path('agent_benchmark_sets'),
+        help='Agent benchmark sets root directory',
     )
     parser.add_argument(
         '--splits',

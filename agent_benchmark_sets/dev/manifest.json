@@ -1,8 +1,8 @@
 {
   "manifest_id": "dev-m0-v1",
   "spec_version": "v1.6",
-  "taxonomy_doc": "docs/mission_set_docs/mission_taxonomy.md",
-  "schema": "mission_sets/schemas/split_manifest.py",
+  "taxonomy_doc": "docs/agent_benchmark_docs/mission_taxonomy.md",
+  "schema": "agent_benchmark_sets/schemas/split_manifest.py",
   "split": "dev",
   "status": "draft",
   "split_method": "manual_family_level",

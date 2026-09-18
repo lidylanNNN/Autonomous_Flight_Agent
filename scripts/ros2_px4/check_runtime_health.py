@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-import platform
 import os
+import platform
 import shutil
 import subprocess
 from pathlib import Path

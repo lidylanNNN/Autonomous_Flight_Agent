@@ -165,9 +165,9 @@ M9  冻结最终 Mission Set
 
 ### 待完成
 
-- [x] 完成 `MissionEvalCase` schema validation 脚本：`scripts/validation/validate_mission_sets.py`；
+- [x] 完成 `MissionEvalCase` schema validation 脚本：`scripts/validation/validate_agent_benchmark_sets.py`；
 - [x] 定义 `EnvironmentManifest` 强类型 Contract：`manifests/schemas/environment_manifest.py`；
-- [x] 定义 Frozen Mission Set 的 family-level split 规则：`docs/mission_set_docs/split_freeze_rules.md`；
+- [x] 定义 Frozen Mission Set 的 family-level split 规则：`docs/agent_benchmark_docs/split_freeze_rules.md`；
 - [x] M0 Review 后冻结 DEV_SPEC，进入 M1。
 
 ---
@@ -2087,26 +2087,26 @@ M0 的 30 条 Dev Mission Cases 必须覆盖：
 详细 M0 taxonomy 落地文档见：
 
 ```text
-docs/mission_set_docs/mission_taxonomy.md
+docs/agent_benchmark_docs/mission_taxonomy.md
 ```
 
 M0 Dev Mission Set 已落地为结构化 JSON：
 
 ```text
-mission_sets/dev/manifest.json
-mission_sets/dev/DEV-T01-N.json
-mission_sets/dev/DEV-T01-C.json
-mission_sets/dev/DEV-T01-F.json
+agent_benchmark_sets/dev/manifest.json
+agent_benchmark_sets/dev/DEV-T01-N.json
+agent_benchmark_sets/dev/DEV-T01-C.json
+agent_benchmark_sets/dev/DEV-T01-F.json
 ...
-mission_sets/dev/DEV-T10-N.json
-mission_sets/dev/DEV-T10-C.json
-mission_sets/dev/DEV-T10-F.json
+agent_benchmark_sets/dev/DEV-T10-N.json
+agent_benchmark_sets/dev/DEV-T10-C.json
+agent_benchmark_sets/dev/DEV-T10-F.json
 ```
 
 对应 schema：
 
 ```text
-mission_sets/schemas/mission_case.py
+agent_benchmark_sets/schemas/mission_case.py
 ```
 
 当前 M0 dev set：
@@ -2119,9 +2119,9 @@ mission_sets/schemas/mission_case.py
 Mission set split 目录必须在 M0 预留：
 
 ```text
-mission_sets/dev/
-mission_sets/validation/
-mission_sets/frozen_test/
+agent_benchmark_sets/dev/
+agent_benchmark_sets/validation/
+agent_benchmark_sets/frozen_test/
 ```
 
 M0 填充 `dev/`，并为 `validation/` 和 `frozen_test/` 保留 draft manifest。实际 validation / frozen cases 待系统稳定后再按 split / freeze rules 生成。
@@ -2902,8 +2902,8 @@ src/flight_agent/
 ros2_ws/
 = ROS2 / PX4 Adapter，只负责把核心 Contract 映射到真实飞控通信
 
-mission_sets/
-= 测评集数据，负责保存 EvalCase schema、dev / validation / frozen_test case
+agent_benchmark_sets/
+= Agent 测评集数据，负责保存 EvalCase schema、dev / validation / frozen_test case；不是 PX4 Mission 文件或在线任务输入
 
 eval_harness/
 = 外部裁判系统，负责跑 Episode、故障注入、判分、报告和 bad case 导出
@@ -2936,11 +2936,11 @@ src/flight_agent
     不 import px4_msgs
     不知道 ROS Topic 名
 
-mission_sets
+agent_benchmark_sets
     只能定义测评集数据，不 import flight_agent
 
 eval_harness
-    可以调用 flight_agent 和 mission_sets
+    可以调用 flight_agent 和 agent_benchmark_sets
     flight_agent 不能反向依赖 eval_harness
 ```
 
@@ -2990,7 +2990,7 @@ autonomous-flight-agent/
 │   │   ├── mock_human_approval.md
 │   │   └── mock_fault_profiles.md
 │   │
-│   ├── mission_sets/
+│   ├── agent_benchmark_sets/
 │   │   ├── mission_taxonomy.md
 │   │   ├── mission_set_design.md
 │   │   └── split_rules.md
@@ -3098,7 +3098,7 @@ autonomous-flight-agent/
 │               ├── px4_topics.py
 │               └── frame_transform.py
 │
-├── mission_sets/
+├── agent_benchmark_sets/
 │   │
 │   ├── schemas/
 │   │   └── mission_case.py
@@ -3194,9 +3194,9 @@ autonomous-flight-agent/
 | ROS2/PX4 Flight Execution Runtime | `ros2_ws/src/flight_agent_ros/flight_agent_ros/flight_execution_runtime.py` | `docs/architecture/runtime_boundaries.md` | ROS2 integration / frame / ACK | M1–M3 |
 | World State | `src/flight_agent/state/` | `docs/architecture/system_architecture.md` | topic aggregation / freshness / health | M2 |
 | Trace | `src/flight_agent/tracing/` | `docs/architecture/system_architecture.md` | event schema / ordering / persistence | M2 |
-| Mission Sets | `mission_sets/` | `docs/mission_set_docs/*.md` | schema / fixture validation | M0/M9 |
+| Agent Benchmark Sets | `agent_benchmark_sets/` | `docs/agent_benchmark_docs/*.md` | Agent 测评任务 schema / fixture validation | M0/M9 |
 | Evaluation Harness | `eval_harness/` | `docs/eval_doc/*.md` | grader / runner / fault validation | M8 |
-| Simulation | `sim/` | `docs/mission_set_docs/mission_set_design.md` | reset / deterministic scenario | M1/M8 |
+| Simulation | `sim/` | `docs/agent_benchmark_docs/mission_set_design.md` | reset / deterministic scenario | M1/M8 |
 | Docker/CI | `docker/` + CI | `README.md` + M12 report | smoke / second-machine startup | M12 |
 
 ---
@@ -3571,7 +3571,7 @@ else:
 ## 21.5 Evaluation Harness Is an External Judge
 
 ```text
-mission_sets/
+agent_benchmark_sets/
 ├── schemas/
 ├── dev/
 ├── validation/
@@ -3588,8 +3588,8 @@ eval_harness/
 职责：
 
 ```text
-mission_sets/
-= 考题 / 测评集数据
+agent_benchmark_sets/
+= Agent 的考题 / 测评集数据，不是 PX4 Mission 文件
 
 runner/
 = 组织考试
@@ -3644,7 +3644,7 @@ autonomous-flight-agent/
 ├── docs/
 │   ├── contracts/
 │   ├── mocks/
-│   ├── mission_sets/
+│   ├── agent_benchmark_sets/
 │   └── eval_doc/
 │
 ├── src/flight_agent/
@@ -3662,7 +3662,7 @@ autonomous-flight-agent/
 │       ├── replay.py
 │       └── cli.py
 │
-├── mission_sets/
+├── agent_benchmark_sets/
 │   ├── schemas/
 │   │   └── mission_case.py
 │   ├── dev/
@@ -3780,7 +3780,7 @@ docs/milestones/Mx.md
 | 架构决策 | `docs/adr/ADR-xxx.md` | 记录 Context / Options / Decision / Consequences |
 | Core Contract | `src/flight_agent/contracts/` + `docs/contract_specs/` | 代码与文档同步 |
 | Safety Policy | `configs/safety.yaml` + policy version | 不允许由 Prompt 覆盖 |
-| Mission Set Dataset | `mission_sets/` + dataset manifest | Dev / Validation / Frozen 分离 |
+| Agent Benchmark Dataset | `agent_benchmark_sets/` + dataset manifest | Dev / Validation / Frozen 分离 |
 | 环境 / 依赖版本 | `manifests/environment.yaml` / `dependencies.repos` | PX4/px4_msgs/ROS/Gazebo 固定版本 |
 | 正式实验 | `eval_harness/reports/<run_id>/manifest.yaml` | 每个结果绑定完整环境 |
 | 大型运行 Artifact | 外部 Artifact Storage | Git 只保存 URI + Hash |
@@ -4154,7 +4154,7 @@ LLM 绕过 Safety Supervisor
 目录：
 
 ```text
-mission_sets/
+agent_benchmark_sets/
 ├── dev/
 ├── validation/
 └── frozen_test/

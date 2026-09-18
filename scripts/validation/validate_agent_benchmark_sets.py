@@ -1,4 +1,4 @@
-'''校验 mission_sets 中的 manifest 与 MissionEvalCase JSON。'''
+'''校验 agent_benchmark_sets 中的 Manifest 与 MissionEvalCase JSON。'''
 
 from __future__ import annotations
 
@@ -14,8 +14,10 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from mission_sets.schemas.mission_case import MissionEvalCase, MissionSetManifest  # noqa: E402
-
+from agent_benchmark_sets.schemas.mission_case import (
+    MissionEvalCase,
+    MissionSetManifest,
+)
 
 DEFAULT_SPLITS = ('dev', 'validation', 'frozen_test')
 REQUIRED_DEV_VARIANTS = ('C', 'F', 'N')
@@ -91,8 +93,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         '--root',
         type=Path,
-        default=Path('mission_sets'),
-        help='mission_sets root directory',
+        default=Path('agent_benchmark_sets'),
+        help='Agent benchmark sets root directory',
     )
     parser.add_argument(
         '--splits',

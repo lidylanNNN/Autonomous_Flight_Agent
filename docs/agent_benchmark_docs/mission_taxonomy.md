@@ -1,7 +1,7 @@
 # Mission Taxonomy
 
 本文档定义 M0 Mission Taxonomy，用于生成首批开发测评集。`DEV_SPEC.md` 仍是 Single
-Source of Truth；本文档负责把 Taxonomy 落成 `mission_sets/` 下具体的
+Source of Truth；本文档负责把 Taxonomy 落成 `agent_benchmark_sets/` 下具体的
 `MissionEvalCase` 文件。
 
 ## 原则

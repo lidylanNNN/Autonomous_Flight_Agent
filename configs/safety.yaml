@@ -1,4 +1,4 @@
-# Defined by DEV_SPEC.md.
-# M0 will turn safety invariants into versioned policy configuration.
-policy_version: "m0-draft"
-status: "pending_m0_definition"
+# M4 Safety Supervisor 的预留配置；当前没有代码读取或执行此文件。
+# 安全规则以 DEV_SPEC.md 的 Safety Invariants 为设计依据，M4 才会把它们落成可执行策略。
+policy_version: "reserved-for-m4"
+status: "reserved_not_active"

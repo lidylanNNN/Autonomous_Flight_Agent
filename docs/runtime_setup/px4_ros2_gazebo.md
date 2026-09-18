@@ -27,7 +27,7 @@ ROS 2 Humble。
 执行：
 
 ```bash
-python scripts/runtime/check_runtime_health.py
+python scripts/ros2_px4/check_runtime_health.py
 ```
 
 该脚本检查：
@@ -52,19 +52,19 @@ cd ros2_ws
 source /opt/ros/jazzy/setup.bash
 colcon build --symlink-install --packages-up-to px4_msgs px4_msgs_old translation_node
 cd ..
-scripts/runtime/start_simulation.sh
+scripts/ros2_px4/start_simulation.sh
 ```
 
 在另一个终端检查 Topic：
 
 ```bash
-scripts/runtime/smoke_test_topics.sh
+scripts/ros2_px4/smoke_test_topics.sh
 ```
 
 在单独终端启动 M2 WorldState Node：
 
 ```bash
-scripts/runtime/run_world_state_node.sh
+scripts/ros2_px4/run_world_state_node.sh
 ```
 
 Launcher 会把 uv 管理的 Pydantic 2 环境暴露给 ROS 2 System Python。Ubuntu
@@ -87,8 +87,8 @@ scripts/tracing/replay_trace.sh artifacts/world_state.jsonl
 3. 安装 PX4 开发依赖和 Gazebo Harmonic。
 4. 安装 ROS/Gazebo Bridge Package。
 5. 构建并运行 `make px4_sitl gz_x500`。
-6. 使用 `scripts/runtime/start_simulation.sh` 启动 uXRCE-DDS Agent 和 PX4。
-7. 运行 `scripts/runtime/smoke_test_topics.sh`。
+6. 使用 `scripts/ros2_px4/start_simulation.sh` 启动 uXRCE-DDS Agent 和 PX4。
+7. 运行 `scripts/ros2_px4/smoke_test_topics.sh`。
 
 ## 成功标准
 
