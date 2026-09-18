@@ -3072,12 +3072,12 @@ autonomous-flight-agent/
 │       │   ├── failure.py
 │       │   └── replanner.py
 │       │
-│       ├── flight_execution_runtime/
-│       │   ├── interface.py
-│       │   └── mock.py
-│       │
-│       ├── state/
-│       │   └── world_state_aggregator.py
+│       ├── vehicle/
+│       │   ├── flight_execution/
+│       │   │   ├── interface.py
+│       │   │   └── mock.py
+│       │   └── state/
+│       │       └── world_state_aggregator.py
 │       │
 │       └── tracing/
 │           ├── recorder.py
@@ -3159,7 +3159,8 @@ autonomous-flight-agent/
 │   │   └── recovery/
 │   │
 │   ├── contract/
-│   │   ├── flight_execution_runtime/
+│   │   ├── vehicle/
+│   │   │   └── flight_execution/
 │   │   └── planner/
 │   │
 │   ├── integration/
@@ -3190,9 +3191,9 @@ autonomous-flight-agent/
 | Skills | `src/flight_agent/skills/` | `docs/contract_specs/skill_contract.md` | args / timeout / lifecycle | M3 |
 | Verifier | `src/flight_agent/verifier/` | `docs/contract_specs/verification_contract.md` | success/failure/dwell/timeout | M6 |
 | Recovery | `src/flight_agent/recovery/` | `docs/architecture/runtime_boundaries.md` | failure class / fallback / replan limit | M7 |
-| Flight Execution Interface | `src/flight_agent/flight_execution_runtime/interface.py` | `docs/architecture/runtime_boundaries.md` | interface contract | M0/M3 |
+| Flight Execution Interface | `src/flight_agent/vehicle/flight_execution/interface.py` | `docs/architecture/runtime_boundaries.md` | interface contract | M0/M3 |
 | ROS2/PX4 Flight Execution Runtime | `ros2_ws/src/flight_agent_ros/flight_agent_ros/flight_execution_runtime.py` | `docs/architecture/runtime_boundaries.md` | ROS2 integration / frame / ACK | M1–M3 |
-| World State | `src/flight_agent/state/` | `docs/architecture/system_architecture.md` | topic aggregation / freshness / health | M2 |
+| Vehicle State | `src/flight_agent/vehicle/state/` | `docs/architecture/system_architecture.md` | topic aggregation / freshness / health | M2 |
 | Trace | `src/flight_agent/tracing/` | `docs/architecture/system_architecture.md` | event schema / ordering / persistence | M2 |
 | Agent Benchmark Sets | `agent_benchmark_sets/` | `docs/agent_benchmark_docs/*.md` | Agent 测评任务 schema / fixture validation | M0/M9 |
 | Evaluation Harness | `eval_harness/` | `docs/eval_doc/*.md` | grader / runner / fault validation | M8 |
@@ -3224,7 +3225,7 @@ Mock 不是“临时糊一个假的对象”，而是正式测试基础设施。
 
 | Mock | 实现代码 | 交付文档 | Fixture / Profile | 最低测试 | 首次交付 Milestone |
 |---|---|---|---|---|---|
-| **MockFlightExecutionRuntime** | `src/flight_agent/flight_execution_runtime/mock.py` | `docs/mocks/mock_flight_execution_runtime.md` | `eval_harness/fixtures/mock_flight_execution_runtime/` | `tests/contract/flight_execution_runtime/test_mock_contract.py`；`tests/integration/mock_flight_execution_runtime/test_skill_lifecycle.py` | M3 |
+| **MockFlightExecutionRuntime** | `src/flight_agent/vehicle/flight_execution/mock.py` | `docs/mocks/mock_flight_execution_runtime.md` | `eval_harness/fixtures/mock_flight_execution_runtime/` | `tests/contract/vehicle/flight_execution/test_mock_contract.py`；`tests/integration/mock_flight_execution_runtime/test_skill_lifecycle.py` | M3 |
 | **MockLLMProvider** | `src/flight_agent/planner/mock.py` | `docs/mocks/mock_llm_provider.md` | `eval_harness/fixtures/mock_llm/` | `tests/contract/planner/test_mock_llm_contract.py`；`tests/integration/scripted_agent/test_agent_loop_scripted.py` | M5 |
 | **MockHumanApproval** | `src/flight_agent/safety/approval.py` 中 `MockHumanApproval` | `docs/mocks/mock_human_approval.md` | `eval_harness/fixtures/mock_approval/` | `tests/unit/safety/test_human_approval.py`；`tests/integration/scripted_agent/test_approval_gate.py` | M4 |
 | **Mock Fault Injector / Profiles** | `eval_harness/fault_injection/` | `docs/mocks/mock_fault_profiles.md` + `docs/eval_doc/fault_injection.md` | `eval_harness/fixtures/faults/` | `tests/unit/eval_harness/test_fault_profiles.py`；`tests/integration/scripted_agent/test_fault_recovery.py` | M8 |
@@ -3258,7 +3259,7 @@ timeout/failure
 ### Code
 
 ```text
-src/flight_agent/flight_execution_runtime/mock.py
+src/flight_agent/vehicle/flight_execution/mock.py
 ```
 
 ### Delivery Document
@@ -3297,7 +3298,7 @@ eval_harness/fixtures/mock_flight_execution_runtime/
 ### Tests
 
 ```text
-tests/contract/flight_execution_runtime/test_mock_contract.py
+tests/contract/vehicle/flight_execution/test_mock_contract.py
 tests/integration/mock_flight_execution_runtime/test_skill_lifecycle.py
 ```
 
@@ -3652,11 +3653,12 @@ autonomous-flight-agent/
 │   │   ├── mission.py
 │   │   └── world_state.py
 │   │
-│   ├── flight_execution_runtime/
-│   │   ├── interface.py
-│   │   └── mock.py
-│   ├── state/
-│   │   └── world_state_aggregator.py
+│   ├── vehicle/
+│   │   ├── flight_execution/
+│   │   │   ├── interface.py
+│   │   │   └── mock.py
+│   │   └── state/
+│   │       └── world_state_aggregator.py
 │   └── tracing/
 │       ├── recorder.py
 │       ├── replay.py

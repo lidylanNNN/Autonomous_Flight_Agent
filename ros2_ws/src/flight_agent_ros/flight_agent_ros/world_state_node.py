@@ -17,8 +17,8 @@ from px4_msgs.msg import (
 from rclpy.node import Node
 from rclpy.qos import QoSProfile, ReliabilityPolicy
 
-from flight_agent.state import WorldStateAggregator
 from flight_agent.tracing import TraceRecorder
+from flight_agent.vehicle.state import WorldStateAggregator
 
 
 class WorldStateNode(Node):

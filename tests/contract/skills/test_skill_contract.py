@@ -16,8 +16,8 @@ from flight_agent.contracts import (
     WorldState,
     skill_result_duration_s,
 )
-from flight_agent.flight_execution_runtime import FlightExecutionInterface
 from flight_agent.skills import SKILL_REGISTRY, list_skill_specs
+from flight_agent.vehicle.flight_execution import FlightExecutionInterface
 
 
 def make_success_result() -> SkillResult:
