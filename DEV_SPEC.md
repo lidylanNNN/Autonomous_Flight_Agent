@@ -1,11 +1,11 @@
-# Autonomous Flight Agent — DEV_SPEC v1.6
+# Autonomous Flight Agent — DEV_SPEC v1.7
 
 > **项目**：Autonomous Flight Agent — 飞行机器人智能决策与任务执行系统  
-> **版本**：v1.6  
-> **日期**：2026-09-11  
-> **状态**：Design / Pre-implementation  
+> **版本**：v1.7
+> **日期**：2026-09-17
+> **状态**：Implementation
 > **SSOT**：本文件作为 V1 架构、接口、开发顺序、Evaluation、Ablation 与发布验收的 Single Source of Truth。
-> **v1.6 变更**：在 Progress Management 中新增各 Milestone 预计有效开发时间、阶段工期、Buffer 原则与总体项目工期；明确 Evaluation 贯穿式建设而非到 M8 才开始。  
+> **v1.7 变更**：M2 World State + Trace Base 完成验收并进入 M3；固定 ApprovedSkillCommand、SkillResult、FlightExecutionInterface 与 Skill Registry 的 Contract-first 实现顺序。
 > **真实性边界**：本规格对应 `Noah_AIforRobotics_简历_v24` 中的 Autonomous Flight Agent 目标态设计。当前简历中 Task Success / Safety / Recovery 数字均明确为“占位，待实测替换”，因此本文件不把任何指标写成已实现成果。
 
 ---
@@ -13,9 +13,9 @@
 
 # Progress Management
 
-> **当前阶段**：M2 — World State Aggregator + Trace Base
-> **当前真实性状态**：M0、M1 已完成；M2 正在实现和验收。
-> **当前重点**：完成 WorldState freshness、runtime health、Trace replay 与 M2 DoD。
+> **当前阶段**：M3 — Deterministic Flight Skill Executor
+> **当前真实性状态**：M0、M1、M2 已完成；M3 正在实现。
+> **当前重点**：固定 Skill Contract 与 FlightExecutionInterface，交付 MockFlightExecutionRuntime，再接入 PX4 命令、ACK、超时和取消生命周期。
 
 ## Progress Status Rules
 
@@ -50,8 +50,8 @@ Deliverables complete
 |---|---|---|---:|---:|---|
 | **M0** | Scope + Eval Spec | `DEV_SPEC.md`；`MissionEvalCase` Schema；20–30 条 Dev Mission；`EnvironmentManifest`；Safety Invariants；Metric Definition；`docs/milestones/M0.md` | **3–4 天** | **DONE** | Scope、Safety/Eval Contract、Dev Mission Set、EnvironmentManifest、family-level split 规则已冻结；不包含 PX4/ROS2/Gazebo 实现 |
 | M1 | PX4 + ROS2 + Gazebo Runtime | pinned PX4/`px4_msgs`；ROS2 workspace；uXRCE-DDS；Gazebo x500；headless 启动脚本；health check；bootstrap scripts；`docs/milestones/M1.md` | **7–10 天** | DONE | PX4 v1.16.2、ROS 2 Jazzy、Gazebo Harmonic、uXRCE-DDS 与 PX4 topic 链路已验证 |
-| M2 | World State + Trace Base | `WorldState`；ROS2 subscriptions；state freshness；frame normalization；Trace Recorder；runtime health；`docs/milestones/M2.md` | **3–4 天** | IN_PROGRESS | WorldState、ROS2 subscriptions 与 Trace 基础已落地；正在修正 freshness、坐标 Contract 与 runtime health |
-| M3 | Deterministic Flight Skills | Takeoff/GoTo/Hold/RTL/Land；Skill Executor；timeout/ACK/cancel；`MockFlightRuntime`；Mock 文档/Fixture/Tests；`docs/milestones/M3.md` | **6–8 天** | NOT_STARTED | 依赖 M1/M2 |
+| M2 | World State + Trace Base | `WorldState`；ROS2 subscriptions；state freshness；frame normalization；Trace Recorder；runtime health；`docs/milestones/M2.md` | **3–4 天** | DONE | 2026-09-17 完成；WorldState、freshness、NED/ENU、runtime health、Trace recorder/replay 与 PX4/Gazebo 实测通过 |
+| M3 | Deterministic Flight Skills | Takeoff/GoTo/Hold/RTL/Land；Skill Executor；timeout/ACK/cancel；`MockFlightExecutionRuntime`；Mock 文档/Fixture/Tests；`docs/milestones/M3.md` | **6–8 天** | IN_PROGRESS | 正在交付 Skill Contract、Registry 与 FlightExecutionInterface |
 | M4 | Mission Contract + Safety Supervisor | `MissionContract`；Schema/State/Sequence/Geofence/Envelope/Authority 校验；Human Approval；`MockHumanApproval`；SafetyDecision reason codes；`docs/milestones/M4.md` | **6–8 天** | NOT_STARTED | 高风险阶段；安全规则必须有边界测试和回归 |
 | M5 | Minimal LLM Planner | Natural-language Mission；LLM Provider；Structured Plan；Function Calling；Agent Loop；Context Builder；`MockLLMProvider`；`docs/milestones/M5.md` | **4–5 天** | NOT_STARTED | 依赖 M3/M4 |
 | M6 | State Verifier | Verifier Registry；Takeoff/GoTo/Hold/RTL/Land Verifier；dwell/timeout；`VerificationResult`；`docs/milestones/M6.md` | **3–5 天** | NOT_STARTED | 依赖 M3/M5；M6 完成后应录制第一版完整 Demo |
@@ -199,13 +199,13 @@ Next Milestone:
 
 ## Next Action
 
-当前不要直接开始写 LLM Agent。
-
-M0 已完成并冻结。下一步进入：
+当前不要直接开始写 LLM Agent。M0–M2 已完成，当前进入：
 
 ```text
-M1 — PX4 + ROS2 + Gazebo Reproducible Runtime
+M3 — Deterministic Flight Skill Executor
 ```
+
+先完成 Skill Contract、MockFlightExecutionRuntime 和脚本驱动的 PX4/Gazebo 执行闭环，再进入 M4。
 
 ---
 
@@ -1049,7 +1049,7 @@ Agent Core 不直接依赖 ROS message class。
 # 8.2 Adapter Boundary
 
 ```python
-class FlightRuntime(Protocol):
+class FlightExecutionInterface(Protocol):
 
     async def get_world_state(self) -> WorldState:
         ...
@@ -1070,8 +1070,8 @@ class FlightRuntime(Protocol):
 实现：
 
 ```text
-MockFlightRuntime
-PX4Ros2Runtime
+MockFlightExecutionRuntime
+PX4Ros2FlightExecutionRuntime
 ```
 
 Agent / Safety / Evaluation 不直接 import PX4 topic。
@@ -1963,7 +1963,7 @@ Recovery Policy
 
 ## Layer B — Agent Simulation
 
-MockFlightRuntime：
+MockFlightExecutionRuntime：
 
 ```text
 LLM
@@ -2923,9 +2923,9 @@ Safety
    ↓
 Skill Contract
    ↓
-FlightRuntime Protocol
+FlightExecutionInterface
    ↑
-PX4Ros2Runtime / MockFlightRuntime
+PX4Ros2FlightExecutionRuntime / MockFlightExecutionRuntime
 ```
 
 硬规则：
@@ -2985,7 +2985,7 @@ autonomous-flight-agent/
 │   │   └── verification_contract.md
 │   │
 │   ├── mocks/
-│   │   ├── mock_flight_runtime.md
+│   │   ├── mock_flight_execution_runtime.md
 │   │   ├── mock_llm_provider.md
 │   │   ├── mock_human_approval.md
 │   │   └── mock_fault_profiles.md
@@ -3072,22 +3072,26 @@ autonomous-flight-agent/
 │       │   ├── failure.py
 │       │   └── replanner.py
 │       │
-│       ├── runtime/
-│       │   ├── base.py
+│       ├── flight_execution_runtime/
+│       │   ├── interface.py
 │       │   └── mock.py
+│       │
+│       ├── state/
+│       │   └── world_state_aggregator.py
 │       │
 │       └── tracing/
 │           ├── recorder.py
-│           └── store.py
+│           ├── replay.py
+│           └── cli.py
 │
 ├── ros2_ws/
 │   └── src/
-│       └── flight_agent_ros2/
+│       └── flight_agent_ros/
 │           ├── package.xml
 │           ├── setup.py
 │           │
-│           └── flight_agent_ros2/
-│               ├── runtime.py
+│           └── flight_agent_ros/
+│               ├── flight_execution_runtime.py
 │               ├── world_state_node.py
 │               ├── skill_executor_node.py
 │               ├── px4_commands.py
@@ -3107,7 +3111,7 @@ autonomous-flight-agent/
 ├── eval_harness/
 │   │
 │   ├── fixtures/
-│   │   ├── mock_runtime/
+│   │   ├── mock_flight_execution_runtime/
 │   │   ├── mock_llm/
 │   │   ├── mock_approval/
 │   │   └── faults/
@@ -3155,11 +3159,12 @@ autonomous-flight-agent/
 │   │   └── recovery/
 │   │
 │   ├── contract/
-│   │   ├── runtime/
+│   │   ├── flight_execution_runtime/
 │   │   └── planner/
 │   │
 │   ├── integration/
-│   │   ├── mock_runtime/
+│   │   ├── mock_flight_execution_runtime/
+│   │   ├── scripted_agent/
 │   │   └── ros2/
 │   │
 │   └── e2e/
@@ -3185,8 +3190,9 @@ autonomous-flight-agent/
 | Skills | `src/flight_agent/skills/` | `docs/contract_specs/skill_contract.md` | args / timeout / lifecycle | M3 |
 | Verifier | `src/flight_agent/verifier/` | `docs/contract_specs/verification_contract.md` | success/failure/dwell/timeout | M6 |
 | Recovery | `src/flight_agent/recovery/` | `docs/architecture/runtime_boundaries.md` | failure class / fallback / replan limit | M7 |
-| Runtime Protocol | `src/flight_agent/runtime/base.py` | `docs/architecture/runtime_boundaries.md` | protocol contract | M0/M1 |
-| ROS2/PX4 Runtime | `ros2_ws/.../runtime.py` | `docs/architecture/runtime_boundaries.md` | ROS2 integration / frame / ACK | M1–M3 |
+| Flight Execution Interface | `src/flight_agent/flight_execution_runtime/interface.py` | `docs/architecture/runtime_boundaries.md` | interface contract | M0/M3 |
+| ROS2/PX4 Flight Execution Runtime | `ros2_ws/src/flight_agent_ros/flight_agent_ros/flight_execution_runtime.py` | `docs/architecture/runtime_boundaries.md` | ROS2 integration / frame / ACK | M1–M3 |
+| World State | `src/flight_agent/state/` | `docs/architecture/system_architecture.md` | topic aggregation / freshness / health | M2 |
 | Trace | `src/flight_agent/tracing/` | `docs/architecture/system_architecture.md` | event schema / ordering / persistence | M2 |
 | Mission Sets | `mission_sets/` | `docs/mission_set_docs/*.md` | schema / fixture validation | M0/M9 |
 | Evaluation Harness | `eval_harness/` | `docs/eval_doc/*.md` | grader / runner / fault validation | M8 |
@@ -3218,16 +3224,16 @@ Mock 不是“临时糊一个假的对象”，而是正式测试基础设施。
 
 | Mock | 实现代码 | 交付文档 | Fixture / Profile | 最低测试 | 首次交付 Milestone |
 |---|---|---|---|---|---|
-| **MockFlightRuntime** | `src/flight_agent/runtime/mock.py` | `docs/mocks/mock_flight_runtime.md` | `eval_harness/fixtures/mock_runtime/` | `tests/contract/runtime/test_mock_runtime_contract.py`；`tests/integration/mock_runtime/test_skill_lifecycle.py` | M3 |
-| **MockLLMProvider** | `src/flight_agent/planner/mock.py` | `docs/mocks/mock_llm_provider.md` | `eval_harness/fixtures/mock_llm/` | `tests/contract/planner/test_mock_llm_contract.py`；`tests/integration/mock_runtime/test_agent_loop_scripted.py` | M5 |
-| **MockHumanApproval** | `src/flight_agent/safety/approval.py` 中 `MockHumanApproval` | `docs/mocks/mock_human_approval.md` | `eval_harness/fixtures/mock_approval/` | `tests/unit/safety/test_human_approval.py`；`tests/integration/mock_runtime/test_approval_gate.py` | M4 |
-| **Mock Fault Injector / Profiles** | `eval_harness/fault_injection/` | `docs/mocks/mock_fault_profiles.md` + `docs/eval_doc/fault_injection.md` | `eval_harness/fixtures/faults/` | `tests/unit/eval_harness/test_fault_profiles.py`；`tests/integration/mock_runtime/test_fault_recovery.py` | M8 |
+| **MockFlightExecutionRuntime** | `src/flight_agent/flight_execution_runtime/mock.py` | `docs/mocks/mock_flight_execution_runtime.md` | `eval_harness/fixtures/mock_flight_execution_runtime/` | `tests/contract/flight_execution_runtime/test_mock_contract.py`；`tests/integration/mock_flight_execution_runtime/test_skill_lifecycle.py` | M3 |
+| **MockLLMProvider** | `src/flight_agent/planner/mock.py` | `docs/mocks/mock_llm_provider.md` | `eval_harness/fixtures/mock_llm/` | `tests/contract/planner/test_mock_llm_contract.py`；`tests/integration/scripted_agent/test_agent_loop_scripted.py` | M5 |
+| **MockHumanApproval** | `src/flight_agent/safety/approval.py` 中 `MockHumanApproval` | `docs/mocks/mock_human_approval.md` | `eval_harness/fixtures/mock_approval/` | `tests/unit/safety/test_human_approval.py`；`tests/integration/scripted_agent/test_approval_gate.py` | M4 |
+| **Mock Fault Injector / Profiles** | `eval_harness/fault_injection/` | `docs/mocks/mock_fault_profiles.md` + `docs/eval_doc/fault_injection.md` | `eval_harness/fixtures/faults/` | `tests/unit/eval_harness/test_fault_profiles.py`；`tests/integration/scripted_agent/test_fault_recovery.py` | M8 |
 
 > 表中的 Mock 只有在 **代码 + 文档 + Fixture + Test** 全部完成后才算交付；Mock 与 Real Runtime 必须共享同一 Contract。
 
 ---
 
-## Mock A — MockFlightRuntime
+## Mock A — MockFlightExecutionRuntime
 
 ### Purpose
 
@@ -3252,13 +3258,13 @@ timeout/failure
 ### Code
 
 ```text
-src/flight_agent/runtime/mock.py
+src/flight_agent/flight_execution_runtime/mock.py
 ```
 
 ### Delivery Document
 
 ```text
-docs/mocks/mock_flight_runtime.md
+docs/mocks/mock_flight_execution_runtime.md
 ```
 
 文档必须写清：
@@ -3278,7 +3284,7 @@ What It Does NOT Simulate
 建议：
 
 ```text
-eval_harness/fixtures/mock_runtime/
+eval_harness/fixtures/mock_flight_execution_runtime/
 ├── normal_takeoff.yaml
 ├── normal_goto.yaml
 ├── ack_rejected.yaml
@@ -3291,15 +3297,15 @@ eval_harness/fixtures/mock_runtime/
 ### Tests
 
 ```text
-tests/contract/runtime/test_mock_runtime_contract.py
-tests/integration/mock_runtime/test_skill_lifecycle.py
+tests/contract/flight_execution_runtime/test_mock_contract.py
+tests/integration/mock_flight_execution_runtime/test_skill_lifecycle.py
 ```
 
 ### DoD
 
 - 同一 seed + 同一 input 产生同一结果；
 - 支持 Success / Reject / Timeout / No-progress；
-- 与 `FlightRuntime` Protocol 完全兼容；
+- 与 `FlightExecutionInterface` 完全兼容；
 - Agent 代码从 Mock 切到 PX4 Runtime 不修改业务层。
 
 ---
@@ -3359,7 +3365,7 @@ eval_harness/fixtures/mock_llm/
 
 ```text
 tests/contract/planner/test_mock_llm_contract.py
-tests/integration/mock_runtime/test_agent_loop_scripted.py
+tests/integration/scripted_agent/test_agent_loop_scripted.py
 ```
 
 ### DoD
@@ -3370,7 +3376,7 @@ tests/integration/mock_runtime/test_agent_loop_scripted.py
 Mission
 → Planner
 → Safety
-→ MockFlightRuntime
+→ MockFlightExecutionRuntime
 → Verifier
 → Replan
 → Final Outcome
@@ -3436,7 +3442,7 @@ eval_harness/fixtures/mock_approval/
 
 ```text
 tests/unit/safety/test_human_approval.py
-tests/integration/mock_runtime/test_approval_gate.py
+tests/integration/scripted_agent/test_approval_gate.py
 ```
 
 ### DoD
@@ -3505,7 +3511,7 @@ eval_harness/fixtures/faults/
 
 ```text
 tests/unit/eval_harness/test_fault_profiles.py
-tests/integration/mock_runtime/test_fault_recovery.py
+tests/integration/scripted_agent/test_fault_recovery.py
 ```
 
 ### DoD
@@ -3528,10 +3534,10 @@ Mock 不是另一套业务系统。
 Mock 与 Real 必须共享同一 Contract：
 
 ```text
-                  FlightRuntime
+             FlightExecutionInterface
                   /           \
                  /             \
-       MockFlightRuntime    PX4Ros2Runtime
+MockFlightExecutionRuntime  PX4Ros2FlightExecutionRuntime
 ```
 
 同理：
@@ -3606,7 +3612,7 @@ bad_cases/
 ```text
 eval_harness
     ↓
-FlightAgentService / FlightRuntime / Trace
+FlightAgentService / FlightExecutionInterface / Trace
 
 flight_agent
     ✕
@@ -3646,9 +3652,15 @@ autonomous-flight-agent/
 │   │   ├── mission.py
 │   │   └── world_state.py
 │   │
-│   └── runtime/
-│       ├── base.py
-│       └── mock.py
+│   ├── flight_execution_runtime/
+│   │   ├── interface.py
+│   │   └── mock.py
+│   ├── state/
+│   │   └── world_state_aggregator.py
+│   └── tracing/
+│       ├── recorder.py
+│       ├── replay.py
+│       └── cli.py
 │
 ├── mission_sets/
 │   ├── schemas/
@@ -3670,8 +3682,8 @@ M0 首条开发链：
 MissionEvalCase
 → MissionContract
 → WorldState
-→ FlightRuntime Protocol
-→ MockFlightRuntime
+→ FlightExecutionInterface
+→ MockFlightExecutionRuntime
 ```
 
 LLM 不在 M0 首链路中。
@@ -3819,7 +3831,7 @@ fix: correct ENU to NED transform
 test: add geofence boundary cases
 docs: update M3 delivery report
 eval: add low-battery recovery cases
-refactor: isolate px4 runtime adapter
+refactor: isolate px4 flight execution runtime adapter
 ```
 
 禁止无语义 Commit：
@@ -4249,9 +4261,9 @@ eval_harness/reports/<run_id>/
 Mock 必须与真实实现共享同一 Contract：
 
 ```text
-FlightRuntime
-├── MockFlightRuntime
-└── PX4Ros2Runtime
+FlightExecutionInterface
+├── MockFlightExecutionRuntime
+└── PX4Ros2FlightExecutionRuntime
 
 PlannerPort
 ├── MockLLMProvider

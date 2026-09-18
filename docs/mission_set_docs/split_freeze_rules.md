@@ -1,26 +1,24 @@
-# Mission Set Split And Freeze Rules
+# 测评集拆分与冻结规则
 
-## Purpose
+## 目的
 
-This document defines how mission cases are divided into `dev`, `validation`, and
-`frozen_test` splits.
+本文档定义 Mission Case 如何划分到 `dev`、`validation` 和 `frozen_test`。
 
-In this project, `split` means a mission-set group used for a specific evaluation
-stage.
+本项目中的 `split` 表示用于特定 Evaluation 阶段的一组测评任务。
 
-## Split Roles
+## Split 用途
 
-| Split | Use | Visibility | Can tune against it |
+| Split | 用途 | 可见性 | 是否可以据此调参 |
 |---|---|---|---|
-| `dev` | Daily development, debugging, regression checks | Fully visible | Yes |
-| `validation` | Milestone-level regression and design comparison | Visible after creation | Limited; no case-specific special handling |
-| `frozen_test` | Final report and portfolio-grade metrics | Frozen manifest and results only | No |
+| `dev` | 日常开发、Debug、Regression Check | 完全可见 | 可以 |
+| `validation` | 里程碑级回归和设计比较 | 创建后可见 | 有限；禁止 Case-specific 特殊处理 |
+| `frozen_test` | 最终报告与求职级指标 | 只开放冻结 Manifest 和结果 | 不可以 |
 
-## Family-Level Rule
+## Family-level 规则
 
-The minimum split unit is the task family, not a single case.
+最小 Split 单位是 Task Family，而不是单个 Case。
 
-Example:
+例如：
 
 ```text
 DEV-T01-N
@@ -28,31 +26,26 @@ DEV-T01-C
 DEV-T01-F
 ```
 
-These three cases are one family. They must stay in the same split. A normal
-case, constraint-boundary case, and fault-disturbance case from the same family
-must not be split across `dev`, `validation`, and `frozen_test`.
+这三条属于同一个 Family，必须处于同一个 Split。来自同一 Family 的 Normal、
+Constraint Boundary 和 Fault Disturbance Case 不得拆到不同 Split。
 
-This follows the same principle as group-based dataset splitting: closely related
-samples must not leak across development and test groups.
+该规则与 Group-based Dataset Split 原则一致：高度相关的 Sample 不得在开发组与测试组
+之间泄漏。
 
-## Freeze Rules
+## 冻结规则
 
-`frozen_test` is not a tuning set.
+`frozen_test` 不是调参集。冻结后：
 
-After a frozen split is created:
+- 不得原地修改冻结 Case 文件。
+- 不得针对单条冻结 Case 调整 Prompt、Safety Rule、Recovery Policy 或 Grading Logic。
+- 不得添加 Case ID 专用分支来通过已知冻结 Case。
+- Run 未记录 Source Commit、Environment Manifest、Model/Provider Version 和 Eval
+  Harness Version 时，不得报告 Frozen Result。
+- 冻结 Case 无效时，应创建新 Split Version 并记录原因，不得静默修改旧版本。
 
-- Do not edit frozen case files in place.
-- Do not tune prompts, safety rules, recovery policy, or grading logic against
-  individual frozen cases.
-- Do not add case-id-specific branches to pass known frozen cases.
-- Do not report frozen results unless the run records the source commit,
-  environment manifest, model/provider version, and eval harness version.
-- If a frozen case is invalid, create a new split version and document the reason
-  instead of silently editing the old one.
+## Manifest 必需字段
 
-## Required Manifest Fields
-
-Each split manifest should record:
+每个 Split Manifest 应记录：
 
 ```text
 manifest_id
@@ -71,20 +64,17 @@ case_files
 notes
 ```
 
-Field meanings:
+字段含义：
 
-- `source_commit`: Git commit hash used when the split was created or frozen.
-- `random_seed`: 随机分组的固定起点；仅在 `split_method` 为
-  `family_level_random_split` 时必须填写，用于保证同一批任务族在未来
-  可以被重复分到相同的 split。M0 的 `manual_family_level` split 保留为
-  `null`。
-- `status`: `draft` before the split is final, `frozen` after it becomes a
-  reportable benchmark split.
+- `source_commit`：创建或冻结 Split 时使用的 Git Commit Hash。
+- `random_seed`：随机分组的固定起点；仅当 `split_method` 为
+  `family_level_random_split` 时必须填写，用于保证同一批 Task Family 未来仍能得到
+  相同 Split。M0 的 `manual_family_level` Split 保留为 `null`。
+- `status`：Split 完成前为 `draft`；成为可报告 Benchmark 后为 `frozen`。
 
 ## M0 Policy
 
-M0 defines the split contract and reserves `validation` / `frozen_test` manifests.
+M0 定义 Split Contract，并预留 `validation` 和 `frozen_test` Manifest。
 
-Actual validation and frozen cases should be populated after the first runnable
-PX4/Gazebo evaluation loop exists, so that final splits are not frozen before the
-runtime and grading path are known.
+实际 Validation 与 Frozen Case 应在第一版可运行 PX4/Gazebo Evaluation Loop 建成后
+填充，避免在 Runtime 和 Grading 路径确定前过早冻结最终测评集。

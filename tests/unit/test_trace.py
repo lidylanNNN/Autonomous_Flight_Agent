@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 
 from flight_agent.contracts import Vector3, WorldState
-from flight_agent.runtime import TraceRecorder, TraceReplay, TraceReplayError
+from flight_agent.tracing import TraceRecorder, TraceReplay, TraceReplayError
 
 
 def make_world_state(sequence: int) -> WorldState:

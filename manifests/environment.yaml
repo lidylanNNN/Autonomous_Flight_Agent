@@ -5,7 +5,7 @@ schema: "manifests/schemas/environment_manifest.py"
 status: "frozen"
 project:
   name: "autonomous-flight-agent"
-  spec_version: "v1.6"
+  spec_version: "v1.7"
 
 host:
   os: "Ubuntu 24.04 LTS"

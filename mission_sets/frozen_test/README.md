@@ -1,7 +1,8 @@
-# Frozen Test Mission Set
+# Frozen Test 测评集
 
-This directory is reserved for the final frozen mission cases.
+此目录为最终冻结测评任务预留。
 
-Frozen test cases are used for final reporting, ablation, and portfolio-grade metrics. After freeze, they must not be used for prompt tuning, safety threshold tuning, recovery policy tuning, or implementation debugging.
+Frozen Test Case 用于最终报告、Ablation 和求职级指标。冻结后，不得用于 Prompt、
+Safety Threshold、Recovery Policy 调参或实现 Debug。
 
-Status: reserved for M9 freeze.
+状态：预留给 M9 冻结。

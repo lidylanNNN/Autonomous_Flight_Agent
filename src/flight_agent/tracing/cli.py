@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import NoReturn
 
 from flight_agent.contracts import WorldState
-from flight_agent.runtime.trace import TraceReplay, TraceReplayError
+from flight_agent.tracing import TraceReplay, TraceReplayError
 
 
 def main() -> None:

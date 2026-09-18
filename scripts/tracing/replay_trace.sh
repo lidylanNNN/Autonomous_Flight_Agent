@@ -10,4 +10,4 @@ VENV_PYTHON="${PROJECT_ROOT}/.venv/bin/python"
 }
 
 export PYTHONPATH="${PROJECT_ROOT}/src:${PYTHONPATH:-}"
-exec "${VENV_PYTHON}" -m flight_agent.runtime.trace_cli "$@"
+exec "${VENV_PYTHON}" -m flight_agent.tracing.cli "$@"

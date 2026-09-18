@@ -1,8 +1,8 @@
-# PX4 ROS2 Gazebo Runtime Setup
+# PX4 ROS2 Gazebo Runtime 配置
 
-## Target Stack
+## 目标技术栈
 
-This project targets the following M1 runtime stack:
+项目使用以下 M1 Runtime 技术栈：
 
 ```text
 Ubuntu 24.04 LTS
@@ -13,26 +13,39 @@ uXRCE-DDS
 x500 multicopter SITL
 ```
 
-## Why This Stack
+## 选择原因
 
-The local host is Ubuntu 24.04. PX4's ROS 2 guide recommends ROS 2 Jazzy for
-Ubuntu 24.04 and Gazebo Harmonic for this simulation path. Gazebo Harmonic also
-ships binary packages for Ubuntu Noble.
+本地主机为 Ubuntu 24.04。PX4 ROS 2 Guide 推荐该系统使用 ROS 2 Jazzy，并在
+这条仿真路线中使用 Gazebo Harmonic。Gazebo Harmonic 同时为 Ubuntu Noble 提供
+Binary Package。
 
-Ubuntu 22.04 / ROS 2 Humble remains a fallback only if M1 hits a blocker that is
-cheaper to solve with a container than on the host.
+只有当 M1 出现使用 Container 更容易解决的阻塞时，才考虑回退到 Ubuntu 22.04 /
+ROS 2 Humble。
 
-## Health Check
+## 健康检查
 
-Run:
+执行：
 
 ```bash
 python scripts/runtime/check_runtime_health.py
 ```
 
-## Runtime Smoke Test
+该脚本检查：
 
-Build the workspace once, then start the runtime in one terminal:
+```text
+Ubuntu 版本
+Python 版本
+uv
+ROS 2 命令是否可用
+Gazebo 命令是否可用
+MicroXRCEAgent 是否可用
+PX4 Source Checkout
+ROS 2 Jazzy Setup Path
+```
+
+## Runtime 冒烟测试
+
+首次构建 Workspace 后，在一个终端启动 Runtime：
 
 ```bash
 cd ros2_ws
@@ -42,83 +55,68 @@ cd ..
 scripts/runtime/start_simulation.sh
 ```
 
-Run the topic check from another terminal:
+在另一个终端检查 Topic：
 
 ```bash
 scripts/runtime/smoke_test_topics.sh
 ```
 
-Run the M2 WorldState node from a separate terminal with:
+在单独终端启动 M2 WorldState Node：
 
 ```bash
 scripts/runtime/run_world_state_node.sh
 ```
 
-The launcher exposes the uv-managed Pydantic 2 environment to the ROS 2 system
-Python. Ubuntu Noble's `python3-pydantic` package is Pydantic 1 and is therefore
-not used for the shared `WorldState` contract.
+Launcher 会把 uv 管理的 Pydantic 2 环境暴露给 ROS 2 System Python。Ubuntu
+Noble 的 `python3-pydantic` 是 Pydantic 1，因此不用于共享 `WorldState` Contract。
 
-Replay the latest WorldState from a recorded JSONL trace with:
+从 JSONL Trace 回放最新 WorldState：
 
 ```bash
-scripts/runtime/replay_trace.sh artifacts/world_state.jsonl
+scripts/tracing/replay_trace.sh artifacts/world_state.jsonl
 ```
 
-Use `--record 10`, `--state-id state-123-4`, or
-`--at 2026-09-17T08:44:08+00:00` to locate an earlier snapshot. Record numbers
-start at 1. Invalid JSON, unknown record types, invalid contracts, and timestamp
-ordering errors report the source line number.
+可使用 `--record 10`、`--state-id state-123-4` 或
+`--at 2026-09-17T08:44:08+00:00` 定位历史快照。记录序号从 1 开始。无效 JSON、
+未知记录类型、无效 Contract 或 Timestamp 倒序都会报告源文件行号。
 
-The `check_runtime_health.py` script checks:
+## 安装顺序
+
+1. 安装 ROS 2 Jazzy。
+2. Clone PX4-Autopilot v1.16.2 及递归 Submodule。
+3. 安装 PX4 开发依赖和 Gazebo Harmonic。
+4. 安装 ROS/Gazebo Bridge Package。
+5. 构建并运行 `make px4_sitl gz_x500`。
+6. 使用 `scripts/runtime/start_simulation.sh` 启动 uXRCE-DDS Agent 和 PX4。
+7. 运行 `scripts/runtime/smoke_test_topics.sh`。
+
+## 成功标准
+
+M1 完成时，新终端必须能够：
 
 ```text
-Ubuntu version
-Python version
-uv
-ROS 2 command availability
-Gazebo command availability
-MicroXRCEAgent availability
-PX4 source checkout
-ROS 2 Jazzy setup path
+使用 Gazebo x500 启动 PX4 SITL
+启动或确认 uXRCE-DDS Transport
+列出 PX4 暴露给 ROS 2 的 Topic
+执行可重复的健康检查
+记录准确的 PX4 Commit 和 Environment Manifest
 ```
 
-## Planned Install Order
+## 本机验证
 
-1. Install ROS 2 Jazzy.
-2. Clone PX4-Autopilot v1.16.2 with recursive submodules.
-3. Install PX4 development dependencies and Gazebo Harmonic.
-4. Install ROS/Gazebo bridge packages.
-5. Build and run `make px4_sitl gz_x500`.
-6. Start uXRCE-DDS agent and PX4 with `scripts/runtime/start_simulation.sh`.
-7. Run `scripts/runtime/smoke_test_topics.sh`.
-
-## Success Criteria
-
-M1 is complete when a cold terminal can:
-
-```text
-start PX4 SITL with Gazebo x500
-start or verify uXRCE-DDS transport
-list ROS 2 topics from PX4
-run a repeatable health check
-document the exact PX4 commit and environment manifest
-```
-
-## Verified Locally
-
-The following checks pass on the current M1 host:
+当前 M1 主机已通过：
 
 ```bash
 make px4_sitl
 timeout 25s env HEADLESS=1 make px4_sitl gz_x500
 ```
 
-The bounded smoke test reaches a ready Gazebo world, spawns `x500_0`, starts
-PX4 successfully, and initializes the uXRCE-DDS client for UDP port 8888. The
-timeout exit is intentional and prevents the simulator from remaining active.
+有界冒烟测试能进入已就绪的 Gazebo World、生成 `x500_0`、成功启动 PX4，并在
+UDP 8888 初始化 uXRCE-DDS Client。Timeout 退出是有意设计，用于避免 Simulator
+在测试后继续驻留。
 
-## References
+## 参考资料
 
-- PX4 ROS 2 User Guide: https://docs.px4.io/main/en/ros2/user_guide
-- PX4 uXRCE-DDS Guide: https://docs.px4.io/main/en/middleware/uxrce_dds
-- Gazebo Harmonic Ubuntu install: https://gazebosim.org/docs/harmonic/install_ubuntu/
+- PX4 ROS 2 User Guide：https://docs.px4.io/main/en/ros2/user_guide
+- PX4 uXRCE-DDS Guide：https://docs.px4.io/main/en/middleware/uxrce_dds
+- Gazebo Harmonic Ubuntu Install：https://gazebosim.org/docs/harmonic/install_ubuntu/

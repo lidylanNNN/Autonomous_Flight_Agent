@@ -3,7 +3,7 @@
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 
-from flight_agent.runtime import WorldStateAggregator
+from flight_agent.state import WorldStateAggregator
 
 
 def update_required_topics(aggregator: WorldStateAggregator, received_at: datetime) -> None:
