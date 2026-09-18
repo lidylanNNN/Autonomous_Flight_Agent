@@ -25,7 +25,7 @@ The system is not intended to replace PX4 or low-level flight control. PX4 remai
 - **Simulator:** Gazebo Harmonic
 - **Vehicle target:** x500 multicopter
 - **ROS integration:** `rclpy`, `px4_msgs`, ROS2 adapter boundary
-- **Agent core:** Python 3.11, Pydantic contracts, typed runtime protocols
+- **Agent core:** Python 3.12, Pydantic contracts, typed runtime protocols
 - **Planning:** LLM provider abstraction with structured skill proposals
 - **Safety:** deterministic Mission Contract and Safety Supervisor
 - **Verification:** state-based verifier for flight skill outcomes

@@ -1,11 +1,11 @@
-from setuptools import setup
+from setuptools import find_packages, setup
 
 package_name = 'flight_agent_ros'
 
 setup(
     name=package_name,
     version='0.1.0',
-    packages=[package_name],
+    packages=find_packages(exclude=['test']),
     data_files=[
         ('share/ament_index/resource_index/packages', ['resource/' + package_name]),
         ('share/' + package_name, ['package.xml']),
@@ -14,7 +14,7 @@ setup(
     zip_safe=True,
     entry_points={
         'console_scripts': [
-            'world_state_node = flight_agent_ros.world_state_node:main',
+            'world_state_node = flight_agent_ros.nodes.world_state_node:main',
         ],
     },
 )

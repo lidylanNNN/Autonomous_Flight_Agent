@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import timedelta
 from enum import StrEnum
-from typing import Any, TypeAlias
+from typing import Any
 
 from pydantic import (
     AwareDatetime,
@@ -79,7 +79,7 @@ class LandArgs(StrictFrozenModel):
     '''在当前位置执行降落的无参数请求。'''
 
 
-SkillArguments: TypeAlias = TakeoffArgs | GoToArgs | HoldArgs | RTLArgs | LandArgs
+type SkillArguments = TakeoffArgs | GoToArgs | HoldArgs | RTLArgs | LandArgs
 
 _ARGUMENT_MODEL_BY_SKILL: dict[SkillName, type[StrictFrozenModel]] = {
     SkillName.TAKEOFF: TakeoffArgs,
