@@ -1,4 +1,4 @@
-'''Deterministic in-memory flight execution runtime for Agent-level tests.'''
+'''Deterministic in-memory flight execution backend for Agent-level tests.'''
 
 from __future__ import annotations
 
@@ -20,7 +20,7 @@ from flight_agent.contracts import (
 
 
 class MockExecutionOutcome(StrEnum):
-    '''Mock runtime 可以按 execution_id 注入的终态。'''
+    '''Mock backend 可以按 execution_id 注入的终态。'''
 
     SUCCEEDED = 'succeeded'
     REJECTED = 'rejected'
@@ -29,7 +29,7 @@ class MockExecutionOutcome(StrEnum):
     CANCELLED = 'cancelled'
 
 
-class MockFlightExecutionRuntime:
+class MockFlightExecutionBackend:
     '''用虚拟时钟执行批准命令的确定性飞行器替身。'''
 
     def __init__(
@@ -38,7 +38,7 @@ class MockFlightExecutionRuntime:
         outcomes: Mapping[str, MockExecutionOutcome] | None = None,
         execution_duration_s: float = 1.0,
     ) -> None:
-        '''以初始状态、结果注入表和固定成功耗时建立运行时。'''
+        '''以初始状态、结果注入表和固定成功耗时建立后端。'''
 
         if execution_duration_s <= 0.0:
             raise ValueError('execution_duration_s must be positive')

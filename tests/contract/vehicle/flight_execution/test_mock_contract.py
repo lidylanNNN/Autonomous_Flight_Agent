@@ -1,4 +1,4 @@
-'''MockFlightExecutionRuntime contract tests.'''
+'''MockFlightExecutionBackend contract tests.'''
 
 import asyncio
 from datetime import UTC, datetime
@@ -6,12 +6,12 @@ from datetime import UTC, datetime
 import pytest
 
 from flight_agent.components.vehicle.flight_execution import (
-    FlightExecutionInterface,
     MockExecutionOutcome,
-    MockFlightExecutionRuntime,
+    MockFlightExecutionBackend,
 )
 from flight_agent.contracts import (
     ApprovedSkillCommand,
+    FlightExecutionInterface,
     SkillExecutionStatus,
     WorldState,
 )
@@ -40,8 +40,8 @@ def test_success_is_deterministic_and_transitions_state() -> None:
 
 async def _assert_success_is_deterministic() -> None:
     command = make_takeoff_command()
-    first = MockFlightExecutionRuntime(make_state())
-    second = MockFlightExecutionRuntime(make_state())
+    first = MockFlightExecutionBackend(make_state())
+    second = MockFlightExecutionBackend(make_state())
     first_result = await first.execute(command)
     second_result = await second.execute(command)
     state = await first.get_world_state()
@@ -75,13 +75,13 @@ async def _assert_injected_failure(
     outcome: MockExecutionOutcome, status: SkillExecutionStatus, failure_code: str,
 ) -> None:
     command = make_takeoff_command()
-    runtime = MockFlightExecutionRuntime(make_state(), {command.execution_id: outcome})
-    result = await runtime.execute(command)
+    backend = MockFlightExecutionBackend(make_state(), {command.execution_id: outcome})
+    result = await backend.execute(command)
 
     assert result.status is status
     assert result.failure_code == failure_code
     assert result.end_state_id == 'mock-initial'
-    assert await runtime.get_world_state() == make_state()
+    assert await backend.get_world_state() == make_state()
     if outcome is MockExecutionOutcome.TIMED_OUT:
         assert (result.ended_at - result.started_at).total_seconds() == command.timeout_s
 
@@ -92,12 +92,12 @@ def test_cancelled_in_flight_command_is_cancelled() -> None:
 
 async def _assert_cancelled_in_flight_command() -> None:
     command = make_takeoff_command()
-    runtime = MockFlightExecutionRuntime(make_state())
-    task = asyncio.create_task(runtime.execute(command))
+    backend = MockFlightExecutionBackend(make_state())
+    task = asyncio.create_task(backend.execute(command))
     await asyncio.sleep(0)
-    await runtime.cancel(command.execution_id)
+    await backend.cancel(command.execution_id)
     result = await task
 
     assert result.status is SkillExecutionStatus.CANCELLED
     assert result.failure_code == 'CANCELLED_BY_REQUEST'
-    assert await runtime.get_world_state() == make_state()
+    assert await backend.get_world_state() == make_state()

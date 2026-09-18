@@ -1,6 +1,6 @@
-# Mock Flight Execution Runtime
+# Mock Flight Execution Backend
 
-`MockFlightExecutionRuntime` 是 Agent 层的确定性飞行器替身。它接收与真实 PX4 Adapter 相同的 `ApprovedSkillCommand`，返回 `SkillResult`，但不连接 ROS2、PX4 或 Gazebo。
+`MockFlightExecutionBackend` 是 Agent 层的确定性飞行器替身。它接收与真实 PX4 Adapter 相同的 `ApprovedSkillCommand`，返回 `SkillResult`，但不连接 ROS2、PX4 或 Gazebo。
 
 ## 行为
 

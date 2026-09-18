@@ -88,6 +88,6 @@ Timeout。`required_state` 只是供 M4 使用的声明式元数据，本身不�
 
 ## 兼容性规则
 
-`MockFlightExecutionRuntime` 和 `PX4Ros2FlightExecutionRuntime` 必须同时满足
+`MockFlightExecutionBackend` 和 `PX4Ros2FlightExecutionBackend` 必须同时满足
 `FlightExecutionInterface`，且切换
 Runtime 时不得修改 Skill、Safety、Verifier 或 Agent 业务代码。

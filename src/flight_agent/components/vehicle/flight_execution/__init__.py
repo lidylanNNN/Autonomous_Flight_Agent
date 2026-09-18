@@ -1,13 +1,11 @@
-'''飞行技能执行接口及其运行时实现。'''
+'''飞行技能执行后端的具体实现。'''
 
-from flight_agent.components.vehicle.flight_execution.interface import FlightExecutionInterface
-from flight_agent.components.vehicle.flight_execution.mock_runtime import (
+from flight_agent.components.vehicle.flight_execution.mock_backend import (
     MockExecutionOutcome,
-    MockFlightExecutionRuntime,
+    MockFlightExecutionBackend,
 )
 
 __all__ = [
-    'FlightExecutionInterface',
     'MockExecutionOutcome',
-    'MockFlightExecutionRuntime',
+    'MockFlightExecutionBackend',
 ]

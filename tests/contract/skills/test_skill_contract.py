@@ -6,9 +6,9 @@ import pytest
 from pydantic import ValidationError
 
 from flight_agent.components.skills import SKILL_REGISTRY, list_skill_specs
-from flight_agent.components.vehicle.flight_execution import FlightExecutionInterface
 from flight_agent.contracts import (
     ApprovedSkillCommand,
+    FlightExecutionInterface,
     GoToArgs,
     LandArgs,
     SkillExecutionStatus,
