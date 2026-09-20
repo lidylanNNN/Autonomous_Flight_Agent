@@ -25,6 +25,16 @@ class Vector3(BaseModel):
     z: float
 
 
+class GlobalPosition(BaseModel):
+    '''WGS84 全局位置和平均海平面高度。'''
+
+    model_config = ConfigDict(extra='forbid', frozen=True, allow_inf_nan=False)
+
+    latitude_deg: float = Field(ge=-90.0, le=90.0)
+    longitude_deg: float = Field(ge=-180.0, le=180.0)
+    altitude_amsl_m: float
+
+
 class WorldState(BaseModel):
     '''Agent 使用的 NED 世界状态快照。'''
 
@@ -43,6 +53,7 @@ class WorldState(BaseModel):
     nav_state: str | None = None
     position_valid: bool = False
     home_valid: bool = False
+    home_position_wgs84: GlobalPosition | None = None
     failsafe_active: bool = False
     link_healthy: bool = False
     last_command_ack: str | None = None

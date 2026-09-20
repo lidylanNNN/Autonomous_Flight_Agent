@@ -172,7 +172,15 @@ def test_home_ack_and_failsafe_are_mapped_to_runtime_health() -> None:
     aggregator = WorldStateAggregator()
     update_required_topics(aggregator, now)
     aggregator.update_home_position(
-        SimpleNamespace(timestamp=14, valid_hpos=True, valid_alt=True), now
+        SimpleNamespace(
+            timestamp=14,
+            lat=30.123,
+            lon=120.456,
+            alt=42.5,
+            valid_hpos=True,
+            valid_alt=True,
+        ),
+        now,
     )
     aggregator.update_command_ack(
         SimpleNamespace(timestamp=15, command=400, result=0), now
@@ -195,12 +203,51 @@ def test_home_ack_and_failsafe_are_mapped_to_runtime_health() -> None:
     state = aggregator.snapshot(now)
 
     assert state.home_valid is True
+    assert state.home_position_wgs84 is not None
+    assert state.home_position_wgs84.latitude_deg == 30.123
+    assert state.home_position_wgs84.longitude_deg == 120.456
+    assert state.home_position_wgs84.altitude_amsl_m == 42.5
     assert state.last_command_ack == '400:ACCEPTED'
     assert state.flight_mode == 'AUTO_RTL'
     assert state.failsafe_active is True
     assert state.health_flags['gcs_connection_healthy'] is False
     assert state.health_flags['failure_detector_clear'] is False
     assert state.health_flags['runtime_healthy'] is False
+
+
+def test_invalid_home_sample_clears_previous_reference() -> None:
+    '''验证无效 Home 样本不会保留先前可能过期的全局参考。'''
+
+    now = datetime(2026, 1, 1, tzinfo=UTC)
+    aggregator = WorldStateAggregator()
+    update_required_topics(aggregator, now)
+    aggregator.update_home_position(
+        SimpleNamespace(
+            timestamp=14,
+            lat=30.0,
+            lon=120.0,
+            alt=50.0,
+            valid_hpos=True,
+            valid_alt=True,
+        ),
+        now,
+    )
+    aggregator.update_home_position(
+        SimpleNamespace(
+            timestamp=15,
+            lat=float('nan'),
+            lon=120.0,
+            alt=50.0,
+            valid_hpos=False,
+            valid_alt=True,
+        ),
+        now,
+    )
+
+    state = aggregator.snapshot(now)
+
+    assert state.home_valid is False
+    assert state.home_position_wgs84 is None
 
 
 def test_optional_event_age_does_not_make_required_state_stale() -> None:

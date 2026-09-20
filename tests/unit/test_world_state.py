@@ -5,7 +5,13 @@ from datetime import UTC, datetime, timedelta
 import pytest
 from pydantic import ValidationError
 
-from flight_agent.contracts import Vector3, WorldState, enu_to_ned, ned_to_enu
+from flight_agent.contracts import (
+    GlobalPosition,
+    Vector3,
+    WorldState,
+    enu_to_ned,
+    ned_to_enu,
+)
 
 
 def make_state(received_at: datetime, state_age_ms: int = 0) -> WorldState:
@@ -58,3 +64,25 @@ def test_world_state_requires_timezone() -> None:
 
     with pytest.raises(ValidationError, match='timezone'):
         make_state(datetime(2026, 1, 1))  # noqa: DTZ001
+
+
+def test_global_position_validates_wgs84_ranges_and_finite_altitude() -> None:
+    '''验证 Home 参考拒绝越界经纬度和非有限 AMSL 高度。'''
+
+    with pytest.raises(ValidationError):
+        GlobalPosition(latitude_deg=91.0, longitude_deg=120.0, altitude_amsl_m=30.0)
+    with pytest.raises(ValidationError):
+        GlobalPosition(
+            latitude_deg=30.0,
+            longitude_deg=120.0,
+            altitude_amsl_m=float('nan'),
+        )
+
+
+def test_world_state_accepts_trace_without_optional_home_reference() -> None:
+    '''验证新增可选字段不会破坏旧 WorldState Trace。'''
+
+    payload = make_state(datetime(2026, 1, 1, tzinfo=UTC)).model_dump(mode='json')
+    payload.pop('home_position_wgs84')
+
+    assert WorldState.model_validate(payload).home_position_wgs84 is None

@@ -6,7 +6,7 @@ from datetime import UTC, datetime
 from math import isfinite
 from typing import Any
 
-from flight_agent.contracts import Vector3, WorldState
+from flight_agent.contracts import GlobalPosition, Vector3, WorldState
 
 _REQUIRED_TOPICS = ('local_position', 'status', 'land_detected', 'battery')
 
@@ -77,6 +77,7 @@ class WorldStateAggregator:
         self._nav_state: str | None = None
         self._position_valid = False
         self._home_valid = False
+        self._home_position_wgs84: GlobalPosition | None = None
         self._failsafe_active = False
         self._gcs_connection_healthy = True
         self._preflight_checks_pass = False
@@ -156,9 +157,29 @@ class WorldStateAggregator:
     def update_home_position(
         self, message: Any, received_at: datetime | None = None
     ) -> None:
-        '''接收 PX4 HomePosition 并记录 RTL 所需的全局 Home 有效性。'''
+        '''接收 PX4 HomePosition 并保存有效的 WGS84 Home 参考。'''
 
-        self._home_valid = bool(message.valid_hpos and message.valid_alt)
+        latitude_deg = float(getattr(message, 'lat', float('nan')))
+        longitude_deg = float(getattr(message, 'lon', float('nan')))
+        altitude_amsl_m = float(getattr(message, 'alt', float('nan')))
+        self._home_valid = bool(
+            message.valid_hpos
+            and message.valid_alt
+            and isfinite(latitude_deg)
+            and isfinite(longitude_deg)
+            and isfinite(altitude_amsl_m)
+            and -90.0 <= latitude_deg <= 90.0
+            and -180.0 <= longitude_deg <= 180.0
+        )
+        self._home_position_wgs84 = (
+            GlobalPosition(
+                latitude_deg=latitude_deg,
+                longitude_deg=longitude_deg,
+                altitude_amsl_m=altitude_amsl_m,
+            )
+            if self._home_valid
+            else None
+        )
         self._update_source_timestamp(message.timestamp)
         self._mark_received('home_position', received_at)
 
@@ -225,6 +246,7 @@ class WorldStateAggregator:
             nav_state=self._nav_state,
             position_valid=self._position_valid,
             home_valid=self._home_valid,
+            home_position_wgs84=self._home_position_wgs84,
             failsafe_active=self._failsafe_active,
             link_healthy=link_healthy,
             last_command_ack=self._last_command_ack,

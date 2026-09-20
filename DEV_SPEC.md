@@ -1,11 +1,11 @@
-# Autonomous Flight Agent — DEV_SPEC v1.15
+# Autonomous Flight Agent — DEV_SPEC v1.16
 
 > **项目**：Autonomous Flight Agent — 飞行机器人智能决策与任务执行系统  
-> **版本**：v1.15
+> **版本**：v1.16
 > **日期**：2026-09-20
 > **状态**：Implementation
 > **SSOT**：本文件作为 V1 架构、接口、开发顺序、Evaluation、Ablation 与发布验收的 Single Source of Truth。
-> **v1.15 变更**：按运行职责重排源码：共享 Contract 独立；可复用领域能力收敛至 `components/`；Python 启动入口收敛至 `entrypoints/`；ROS Node 收敛至 ROS 包的 `nodes/`。Contract 源码按 `models/` 和 `protocols/` 分目录，文件名分别以 `_model.py` 和 `_protocol.py` 标明其职责，对外仍以领域对象名称导出。`FlightExecutionBackendProtocol` 是跨边界行为契约，具体实现统一使用 `Backend`，不再使用容易误解为整体运行环境的 `Runtime`。当前没有跨组件 Workflow，因此不创建空的 `workflows/`。同步将 uv、Ruff 与 mypy 固定为 Python 3.12，与冻结环境和 ROS 2 Jazzy 的 Python ABI 对齐。ADR-002 固定 M3 的 PX4 自动模式与 Offboard 混合执行路线。
+> **v1.16 变更**：`WorldState` 增加可选的 WGS84 Home Reference，供真实 PX4 Backend 将业务侧相对 Home 起飞高度转换为 `NAV_TAKEOFF.param7` 所需的 AMSL 高度；无效 Home 样本必须清空旧参考，已有 Trace 因字段可选而保持兼容。Contract 源码继续按 `models/` 和 `protocols/` 分目录，对外领域对象导出名称不变。
 > **真实性边界**：本规格对应 `Noah_AIforRobotics_简历_v24` 中的 Autonomous Flight Agent 目标态设计。当前简历中 Task Success / Safety / Recovery 数字均明确为“占位，待实测替换”，因此本文件不把任何指标写成已实现成果。
 
 ---
@@ -835,6 +835,12 @@ class MissionContract(BaseModel):
 # 7.3 World State
 
 ```python
+class GlobalPosition(BaseModel):
+    latitude_deg: float
+    longitude_deg: float
+    altitude_amsl_m: float
+
+
 class WorldState(BaseModel):
     state_id: str
 
@@ -855,6 +861,7 @@ class WorldState(BaseModel):
 
     position_valid: bool
     home_valid: bool
+    home_position_wgs84: GlobalPosition | None
 
     failsafe_active: bool
     link_healthy: bool

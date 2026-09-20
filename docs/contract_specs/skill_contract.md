@@ -30,6 +30,10 @@ land
 业务 Contract 使用便于人理解的正高度。PX4 Adapter 负责转换为 NED 向下轴数值，
 调用方不得把原始 NED `z` 值当作 `altitude_m` 传入。
 
+PX4 `NAV_TAKEOFF.param7` 使用 AMSL 高度。真实 Backend 只能在
+`WorldState.home_position_wgs84` 有效时，按 `Home AMSL + target_altitude_m` 构造目标；
+不得把相对高度直接写入 `param7`。
+
 所有模型禁止未知字段、NaN 和无穷数。Geofence、最大高度、Authority、命令顺序和
 当前状态审批仍由 M4 Safety 负责。
 

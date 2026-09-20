@@ -17,6 +17,7 @@ from flight_agent.contracts.models.skill_model import (
 )
 from flight_agent.contracts.models.world_state_model import (
     CoordinateFrame,
+    GlobalPosition,
     Vector3,
     WorldState,
     enu_to_ned,
@@ -30,6 +31,7 @@ __all__ = [
     'ApprovedSkillCommand',
     'CoordinateFrame',
     'FlightExecutionBackendProtocol',
+    'GlobalPosition',
     'GoToArgs',
     'HoldArgs',
     'LandArgs',
