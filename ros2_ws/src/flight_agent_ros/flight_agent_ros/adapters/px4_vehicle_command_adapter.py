@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 from dataclasses import dataclass
 from enum import StrEnum
+from threading import Lock
 
 from px4_msgs.msg import VehicleCommand, VehicleCommandAck
 from rclpy.node import Node
@@ -52,9 +53,18 @@ class _PendingCommand:
 
     execution_id: str
     command_id: int
-    loop: asyncio.AbstractEventLoop
     resolved: asyncio.Event
     outcome: Px4CommandAck | None = None
+
+
+@dataclass(frozen=True)
+class _AckNotification:
+    '''Immutable ACK data transferred from the ROS thread to the Agent event loop.'''
+
+    command_id: int
+    result: int
+    result_param1: int
+    result_param2: int
 
 
 _ACK_NAMES = {
@@ -96,6 +106,8 @@ class Px4VehicleCommandAdapter(Node):
         self._source_component = source_component
         self._pending: _PendingCommand | None = None
         self._submission_lock = asyncio.Lock()
+        self._agent_loop: asyncio.AbstractEventLoop | None = None
+        self._agent_loop_lock = Lock()
         px4_qos = QoSProfile(depth=10, reliability=ReliabilityPolicy.BEST_EFFORT)
         self._command_publisher = self.create_publisher(
             VehicleCommand, '/fmu/in/vehicle_command', px4_qos
@@ -129,11 +141,11 @@ class Px4VehicleCommandAdapter(Node):
         if timeout_s <= 0.0:
             raise ValueError('timeout_s must be positive')
 
+        self._bind_agent_loop()
         async with self._submission_lock:
             pending = _PendingCommand(
                 execution_id=execution_id,
                 command_id=command_id,
-                loop=asyncio.get_running_loop(),
                 resolved=asyncio.Event(),
             )
             self._pending = pending
@@ -164,6 +176,7 @@ class Px4VehicleCommandAdapter(Node):
         Backend must issue its explicit hold or safety-mode command in M3-4/M3-5.
         '''
 
+        self._bind_agent_loop()
         pending = self._pending
         if (
             pending is None
@@ -178,16 +191,34 @@ class Px4VehicleCommandAdapter(Node):
             ack_name=None,
             failure_code='CANCELLED_BY_REQUEST',
         )
-        pending.loop.call_soon_threadsafe(pending.resolved.set)
+        pending.resolved.set()
         return True
 
     def _handle_command_ack(self, message: VehicleCommandAck) -> None:
-        '''Resolve the active request only when PX4 emits its terminal ACK for that command.'''
+        '''Transfer an ACK from the ROS executor thread to the Agent event loop.'''
+
+        notification = _AckNotification(
+            command_id=int(message.command),
+            result=int(message.result),
+            result_param1=int(message.result_param1),
+            result_param2=int(message.result_param2),
+        )
+        with self._agent_loop_lock:
+            agent_loop = self._agent_loop
+        if agent_loop is None or agent_loop.is_closed():
+            return
+        try:
+            agent_loop.call_soon_threadsafe(self._resolve_command_ack, notification)
+        except RuntimeError:
+            return
+
+    def _resolve_command_ack(self, notification: _AckNotification) -> None:
+        '''Resolve a matching ACK while running exclusively on the Agent event loop.'''
 
         pending = self._pending
-        if pending is None or int(message.command) != pending.command_id:
+        if pending is None or notification.command_id != pending.command_id:
             return
-        result = int(message.result)
+        result = notification.result
         if result == VehicleCommandAck.VEHICLE_CMD_RESULT_IN_PROGRESS:
             return
         ack_name = _ACK_NAMES.get(result, f'UNKNOWN_{result}')
@@ -205,10 +236,20 @@ class Px4VehicleCommandAdapter(Node):
             status=status,
             ack_name=ack_name,
             failure_code=failure_code,
-            result_param1=int(message.result_param1),
-            result_param2=int(message.result_param2),
+            result_param1=notification.result_param1,
+            result_param2=notification.result_param2,
         )
-        pending.loop.call_soon_threadsafe(pending.resolved.set)
+        pending.resolved.set()
+
+    def _bind_agent_loop(self) -> None:
+        '''Bind mutable command lifecycle state to exactly one asyncio event loop.'''
+
+        current_loop = asyncio.get_running_loop()
+        with self._agent_loop_lock:
+            if self._agent_loop is None:
+                self._agent_loop = current_loop
+            elif self._agent_loop is not current_loop:
+                raise RuntimeError('adapter command lifecycle belongs to another event loop')
 
     def _make_command(
         self, command_id: int, parameters: VehicleCommandParameters

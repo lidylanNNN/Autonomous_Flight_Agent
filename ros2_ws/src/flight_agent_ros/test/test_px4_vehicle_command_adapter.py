@@ -33,13 +33,14 @@ async def _assert_accepted_ack_is_correlated() -> None:
             )
         )
         await asyncio.sleep(0)
-        adapter._handle_command_ack(
+        await asyncio.to_thread(
+            adapter._handle_command_ack,
             SimpleNamespace(
                 command=VehicleCommand.VEHICLE_CMD_NAV_RETURN_TO_LAUNCH,
                 result=VehicleCommandAck.VEHICLE_CMD_RESULT_ACCEPTED,
                 result_param1=0,
                 result_param2=0,
-            )
+            ),
         )
         outcome = await task
         assert outcome.execution_id == 'exec-1'
