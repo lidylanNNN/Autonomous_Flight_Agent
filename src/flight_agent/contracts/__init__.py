@@ -1,7 +1,6 @@
 '''Typed contracts shared by Agent components.'''
 
-from flight_agent.contracts.flight_execution import FlightExecutionBackendProtocol
-from flight_agent.contracts.skill import (
+from flight_agent.contracts.models.skill_model import (
     ApprovedSkillCommand,
     GoToArgs,
     HoldArgs,
@@ -16,12 +15,15 @@ from flight_agent.contracts.skill import (
     TakeoffArgs,
     skill_result_duration_s,
 )
-from flight_agent.contracts.world_state import (
+from flight_agent.contracts.models.world_state_model import (
     CoordinateFrame,
     Vector3,
     WorldState,
     enu_to_ned,
     ned_to_enu,
+)
+from flight_agent.contracts.protocols.flight_execution_protocol import (
+    FlightExecutionBackendProtocol,
 )
 
 __all__ = [

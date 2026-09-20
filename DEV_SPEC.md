@@ -1,11 +1,11 @@
-# Autonomous Flight Agent — DEV_SPEC v1.14
+# Autonomous Flight Agent — DEV_SPEC v1.15
 
 > **项目**：Autonomous Flight Agent — 飞行机器人智能决策与任务执行系统  
-> **版本**：v1.14
+> **版本**：v1.15
 > **日期**：2026-09-20
 > **状态**：Implementation
 > **SSOT**：本文件作为 V1 架构、接口、开发顺序、Evaluation、Ablation 与发布验收的 Single Source of Truth。
-> **v1.14 变更**：按运行职责重排源码：共享 Contract 独立；可复用领域能力收敛至 `components/`；Python 启动入口收敛至 `entrypoints/`；ROS Node 收敛至 ROS 包的 `nodes/`。`FlightExecutionBackendProtocol` 作为跨边界行为契约迁至 `contracts/flight_execution.py`；其具体实现统一使用 `Backend`，不再使用容易误解为整体运行环境的 `Runtime`。当前没有跨组件 Workflow，因此不创建空的 `workflows/`。同步将 uv、Ruff 与 mypy 固定为 Python 3.12，与冻结环境和 ROS 2 Jazzy 的 Python ABI 对齐。ADR-002 固定 M3 的 PX4 自动模式与 Offboard 混合执行路线。
+> **v1.15 变更**：按运行职责重排源码：共享 Contract 独立；可复用领域能力收敛至 `components/`；Python 启动入口收敛至 `entrypoints/`；ROS Node 收敛至 ROS 包的 `nodes/`。Contract 源码按 `models/` 和 `protocols/` 分目录，文件名分别以 `_model.py` 和 `_protocol.py` 标明其职责，对外仍以领域对象名称导出。`FlightExecutionBackendProtocol` 是跨边界行为契约，具体实现统一使用 `Backend`，不再使用容易误解为整体运行环境的 `Runtime`。当前没有跨组件 Workflow，因此不创建空的 `workflows/`。同步将 uv、Ruff 与 mypy 固定为 Python 3.12，与冻结环境和 ROS 2 Jazzy 的 Python ABI 对齐。ADR-002 固定 M3 的 PX4 自动模式与 Offboard 混合执行路线。
 > **真实性边界**：本规格对应 `Noah_AIforRobotics_简历_v24` 中的 Autonomous Flight Agent 目标态设计。当前简历中 Task Success / Safety / Recovery 数字均明确为“占位，待实测替换”，因此本文件不把任何指标写成已实现成果。
 
 ---
@@ -3019,14 +3019,16 @@ autonomous-flight-agent/
 │   └── flight_agent/
 │       │
 │       ├── contracts/
-│       │   ├── mission.py
-│       │   ├── world_state.py
-│       │   ├── flight_execution.py
-│       │   ├── proposal.py
-│       │   ├── skill.py
-│       │   ├── safety.py
-│       │   ├── verification.py
-│       │   └── trace.py
+│       │   ├── models/
+│       │   │   ├── mission_model.py
+│       │   │   ├── world_state_model.py
+│       │   │   ├── proposal_model.py
+│       │   │   ├── skill_model.py
+│       │   │   ├── safety_model.py
+│       │   │   ├── verification_model.py
+│       │   │   └── trace_model.py
+│       │   └── protocols/
+│       │       └── flight_execution_protocol.py
 │       │
 │       ├── components/
 │       │   ├── planner/
@@ -3187,7 +3189,7 @@ autonomous-flight-agent/
 | Skills | `src/flight_agent/components/skills/` | `docs/contract_specs/skill_contract.md` | args / timeout / lifecycle | M3 |
 | Verifier | `src/flight_agent/components/verifier/` | `docs/contract_specs/verification_contract.md` | success/failure/dwell/timeout | M6 |
 | Recovery | `src/flight_agent/components/recovery/` | `docs/architecture/runtime_boundaries.md` | failure class / fallback / replan limit | M7 |
-| Flight Execution Backend Protocol | `src/flight_agent/contracts/flight_execution.py` | `docs/architecture/runtime_boundaries.md` | method-shape contract | M0/M3 |
+| Flight Execution Backend Protocol | `src/flight_agent/contracts/protocols/flight_execution_protocol.py` | `docs/architecture/runtime_boundaries.md` | method-shape contract | M0/M3 |
 | ROS2/PX4 Flight Execution Backend | `ros2_ws/src/flight_agent_ros/flight_agent_ros/adapters/flight_execution_backend.py` | `docs/architecture/runtime_boundaries.md` | ROS2 integration / frame / ACK | M1–M3 |
 | Vehicle State | `src/flight_agent/components/vehicle/state/` | `docs/architecture/system_architecture.md` | topic aggregation / freshness / health | M2 |
 | Trace | `src/flight_agent/components/tracing/` | `docs/architecture/system_architecture.md` | event schema / ordering / persistence | M2 |
@@ -3650,8 +3652,11 @@ autonomous-flight-agent/
 │
 ├── src/flight_agent/
 │   ├── contracts/
-│   │   ├── mission.py
-│   │   └── world_state.py
+│   │   ├── models/
+│   │   │   ├── mission_model.py
+│   │   │   └── world_state_model.py
+│   │   └── protocols/
+│   │       └── flight_execution_protocol.py
 │   │
 │   ├── components/
 │   │   ├── vehicle/

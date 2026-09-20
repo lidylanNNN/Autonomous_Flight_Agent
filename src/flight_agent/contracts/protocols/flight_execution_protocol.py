@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from typing import Protocol, runtime_checkable
 
-from flight_agent.contracts.skill import ApprovedSkillCommand, SkillResult
-from flight_agent.contracts.world_state import WorldState
+from flight_agent.contracts.models.skill_model import ApprovedSkillCommand, SkillResult
+from flight_agent.contracts.models.world_state_model import WorldState
 
 
 @runtime_checkable
