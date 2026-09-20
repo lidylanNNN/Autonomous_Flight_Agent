@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 from dataclasses import dataclass
 from enum import StrEnum
+from math import nan
 from threading import Lock
 
 from px4_msgs.msg import VehicleCommand, VehicleCommandAck
@@ -25,13 +26,13 @@ class Px4CommandAckStatus(StrEnum):
 class VehicleCommandParameters:
     '''PX4 VehicleCommand parameters, kept at the ROS adapter boundary.'''
 
-    param1: float = 0.0
-    param2: float = 0.0
-    param3: float = 0.0
-    param4: float = 0.0
-    param5: float = 0.0
-    param6: float = 0.0
-    param7: float = 0.0
+    param1: float = nan
+    param2: float = nan
+    param3: float = nan
+    param4: float = nan
+    param5: float = nan
+    param6: float = nan
+    param7: float = nan
 
 
 @dataclass(frozen=True)
