@@ -9,8 +9,8 @@ from flight_agent.contracts.world_state import WorldState
 
 
 @runtime_checkable
-class FlightExecutionInterface(Protocol):
-    '''隔离飞行技能执行层与 ROS2/PX4 消息类型的异步接口。'''
+class FlightExecutionBackendProtocol(Protocol):
+    '''飞行执行后端必须满足的异步方法形状。'''
 
     async def get_world_state(self) -> WorldState:
         '''返回飞行执行后端当前的强类型状态快照。'''

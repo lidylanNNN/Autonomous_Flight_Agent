@@ -91,7 +91,7 @@ _ARGUMENT_MODEL_BY_SKILL: dict[SkillName, type[StrictFrozenModel]] = {
 
 
 class ApprovedSkillCommand(StrictFrozenModel):
-    '''经过 Safety 批准后才允许交给 FlightExecutionInterface 实现的命令。'''
+    '''经过 Safety 批准后才允许交给 FlightExecutionBackendProtocol 实现的命令。'''
 
     execution_id: str = Field(min_length=1)
     proposal_id: str = Field(min_length=1)

@@ -1,11 +1,11 @@
-# Autonomous Flight Agent — DEV_SPEC v1.7
+# Autonomous Flight Agent — DEV_SPEC v1.14
 
 > **项目**：Autonomous Flight Agent — 飞行机器人智能决策与任务执行系统  
-> **版本**：v1.13
-> **日期**：2026-09-17
+> **版本**：v1.14
+> **日期**：2026-09-20
 > **状态**：Implementation
 > **SSOT**：本文件作为 V1 架构、接口、开发顺序、Evaluation、Ablation 与发布验收的 Single Source of Truth。
-> **v1.13 变更**：按运行职责重排源码：共享 Contract 独立；可复用领域能力收敛至 `components/`；Python 启动入口收敛至 `entrypoints/`；ROS Node 收敛至 ROS 包的 `nodes/`。`FlightExecutionInterface` 作为跨边界行为契约迁至 `contracts/flight_execution.py`；其具体实现统一使用 `Backend`，不再使用容易误解为整体运行环境的 `Runtime`。当前没有跨组件 Workflow，因此不创建空的 `workflows/`。同步将 uv、Ruff 与 mypy 固定为 Python 3.12，与冻结环境和 ROS 2 Jazzy 的 Python ABI 对齐。
+> **v1.14 变更**：按运行职责重排源码：共享 Contract 独立；可复用领域能力收敛至 `components/`；Python 启动入口收敛至 `entrypoints/`；ROS Node 收敛至 ROS 包的 `nodes/`。`FlightExecutionBackendProtocol` 作为跨边界行为契约迁至 `contracts/flight_execution.py`；其具体实现统一使用 `Backend`，不再使用容易误解为整体运行环境的 `Runtime`。当前没有跨组件 Workflow，因此不创建空的 `workflows/`。同步将 uv、Ruff 与 mypy 固定为 Python 3.12，与冻结环境和 ROS 2 Jazzy 的 Python ABI 对齐。ADR-002 固定 M3 的 PX4 自动模式与 Offboard 混合执行路线。
 > **真实性边界**：本规格对应 `Noah_AIforRobotics_简历_v24` 中的 Autonomous Flight Agent 目标态设计。当前简历中 Task Success / Safety / Recovery 数字均明确为“占位，待实测替换”，因此本文件不把任何指标写成已实现成果。
 
 ---
@@ -15,7 +15,7 @@
 
 > **当前阶段**：M3 — Deterministic Flight Skill Executor
 > **当前真实性状态**：M0、M1、M2 已完成；M3 正在实现。
-> **当前重点**：将 FlightExecutionInterface 接入 PX4 命令下发、ACK、分 Skill Timeout 与取消生命周期。
+> **当前重点**：将 FlightExecutionBackendProtocol 接入 PX4 命令下发、ACK、分 Skill Timeout 与取消生命周期。
 
 ## Progress Status Rules
 
@@ -1049,7 +1049,7 @@ Agent Core 不直接依赖 ROS message class。
 # 8.2 Adapter Boundary
 
 ```python
-class FlightExecutionInterface(Protocol):
+class FlightExecutionBackendProtocol(Protocol):
 
     async def get_world_state(self) -> WorldState:
         ...
@@ -2923,7 +2923,7 @@ Safety
    ↓
 Skill Contract
    ↓
-FlightExecutionInterface
+FlightExecutionBackendProtocol
    ↑
 PX4Ros2FlightExecutionBackend / MockFlightExecutionBackend
 ```
@@ -3087,7 +3087,7 @@ autonomous-flight-agent/
 │           ├── setup.py
 │           │
 │           └── flight_agent_ros/
-│               ├── flight_execution_runtime.py
+│               ├── flight_execution_backend.py
 │               ├── world_state_node.py
 │               ├── skill_executor_node.py
 │               ├── px4_commands.py
@@ -3187,8 +3187,8 @@ autonomous-flight-agent/
 | Skills | `src/flight_agent/components/skills/` | `docs/contract_specs/skill_contract.md` | args / timeout / lifecycle | M3 |
 | Verifier | `src/flight_agent/components/verifier/` | `docs/contract_specs/verification_contract.md` | success/failure/dwell/timeout | M6 |
 | Recovery | `src/flight_agent/components/recovery/` | `docs/architecture/runtime_boundaries.md` | failure class / fallback / replan limit | M7 |
-| Flight Execution Interface | `src/flight_agent/contracts/flight_execution.py` | `docs/architecture/runtime_boundaries.md` | interface contract | M0/M3 |
-| ROS2/PX4 Flight Execution Runtime | `ros2_ws/src/flight_agent_ros/flight_agent_ros/adapters/flight_execution_runtime.py` | `docs/architecture/runtime_boundaries.md` | ROS2 integration / frame / ACK | M1–M3 |
+| Flight Execution Backend Protocol | `src/flight_agent/contracts/flight_execution.py` | `docs/architecture/runtime_boundaries.md` | method-shape contract | M0/M3 |
+| ROS2/PX4 Flight Execution Backend | `ros2_ws/src/flight_agent_ros/flight_agent_ros/adapters/flight_execution_backend.py` | `docs/architecture/runtime_boundaries.md` | ROS2 integration / frame / ACK | M1–M3 |
 | Vehicle State | `src/flight_agent/components/vehicle/state/` | `docs/architecture/system_architecture.md` | topic aggregation / freshness / health | M2 |
 | Trace | `src/flight_agent/components/tracing/` | `docs/architecture/system_architecture.md` | event schema / ordering / persistence | M2 |
 | Agent Benchmark Sets | `agent_benchmark_sets/` | `docs/agent_benchmark_docs/*.md` | Agent 测评任务 schema / fixture validation | M0/M9 |
@@ -3227,7 +3227,7 @@ Mock 不是“临时糊一个假的对象”，而是正式测试基础设施。
 | **Mock Fault Injector / Profiles** | `eval_harness/fault_injection/` | `docs/mocks/mock_fault_profiles.md` + `docs/eval_doc/fault_injection.md` | `eval_harness/fixtures/faults/` | `tests/unit/eval_harness/test_fault_profiles.py`；`tests/integration/scripted_agent/test_fault_recovery.py` | M8 |
 
 > Mock 的代码、文档与最低测试在其首次 Milestone 交付；需要评测执行器消费的 Fixture/Profile
-> 与 Runner 在 M8 一起交付。Mock 与 Real Runtime 必须共享同一 Contract。
+> 与 Runner 在 M8 一起交付。Mock 与 Real Backend 必须共享同一 Contract。
 
 ---
 
@@ -3306,8 +3306,8 @@ tests/integration/mock_flight_execution_backend/test_skill_lifecycle.py
 
 - 同一 seed + 同一 input 产生同一结果；
 - 支持 Success / Reject / Timeout / No-progress；
-- 与 `FlightExecutionInterface` 完全兼容；
-- Agent 代码从 Mock 切到 PX4 Runtime 不修改业务层。
+- 与 `FlightExecutionBackendProtocol` 完全兼容；
+- Agent 代码从 Mock 切到 PX4 Backend 不修改业务层。
 
 ---
 
@@ -3524,7 +3524,7 @@ tests/integration/scripted_agent/test_fault_recovery.py
 
 ---
 
-## 21.4 Mock vs Real Runtime Consistency Rule
+## 21.4 Mock vs Real Backend Consistency Rule
 
 最关键要求：
 
@@ -3535,7 +3535,7 @@ Mock 不是另一套业务系统。
 Mock 与 Real 必须共享同一 Contract：
 
 ```text
-             FlightExecutionInterface
+             FlightExecutionBackendProtocol
                   /           \
                  /             \
 MockFlightExecutionBackend  PX4Ros2FlightExecutionBackend
@@ -3613,7 +3613,7 @@ bad_cases/
 ```text
 eval_harness
     ↓
-FlightAgentService / FlightExecutionInterface / Trace
+FlightAgentService / FlightExecutionBackendProtocol / Trace
 
 flight_agent
     ✕
@@ -3686,7 +3686,7 @@ M0 首条开发链：
 MissionEvalCase
 → MissionContract
 → WorldState
-→ FlightExecutionInterface
+→ FlightExecutionBackendProtocol
 → MockFlightExecutionBackend
 ```
 
@@ -4083,7 +4083,7 @@ Contract 修改顺序：
 ↓
 检查 Mock
 ↓
-检查 PX4 Runtime
+检查 PX4 Backend
 ↓
 检查 Safety / Verifier
 ↓
@@ -4265,7 +4265,7 @@ eval_harness/reports/<run_id>/
 Mock 必须与真实实现共享同一 Contract：
 
 ```text
-FlightExecutionInterface
+FlightExecutionBackendProtocol
 ├── MockFlightExecutionBackend
 └── PX4Ros2FlightExecutionBackend
 
@@ -4283,7 +4283,7 @@ else:
     另一套业务逻辑
 ```
 
-任何 Real Runtime Contract 变化：
+任何 Real Backend Protocol 变化：
 
 ```text
 必须同步检查 Mock
@@ -4296,7 +4296,7 @@ else:
 还是现实系统真的存在该行为
 ```
 
-Mock 不允许比 Real Runtime 过度理想化，例如：
+Mock 不允许比 Real Backend 过度理想化，例如：
 
 ```text
 goto() → 瞬间 teleport → 永远成功

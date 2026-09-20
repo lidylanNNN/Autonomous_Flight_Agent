@@ -8,7 +8,7 @@ from pydantic import ValidationError
 from flight_agent.components.skills import SKILL_REGISTRY, list_skill_specs
 from flight_agent.contracts import (
     ApprovedSkillCommand,
-    FlightExecutionInterface,
+    FlightExecutionBackendProtocol,
     GoToArgs,
     LandArgs,
     SkillExecutionStatus,
@@ -150,11 +150,11 @@ def test_registry_contains_exact_v1_skills_with_approval_boundary() -> None:
     )
 
 
-def test_flight_runtime_protocol_is_structural() -> None:
+def test_flight_backend_protocol_is_structural() -> None:
     '''验证 Mock 与 PX4 Adapter 可通过同一结构化接口接入。'''
 
-    class RuntimeDouble:
-        '''仅用于接口结构检查的测试替身。'''
+    class BackendDouble:
+        '''仅用于 Protocol 结构检查的测试替身。'''
 
         async def get_world_state(self) -> WorldState:
             '''实现状态读取签名。'''
@@ -171,4 +171,4 @@ def test_flight_runtime_protocol_is_structural() -> None:
 
             raise NotImplementedError
 
-    assert isinstance(RuntimeDouble(), FlightExecutionInterface)
+    assert isinstance(BackendDouble(), FlightExecutionBackendProtocol)

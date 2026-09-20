@@ -2,7 +2,7 @@
 
 Autonomous Flight Agent is a mission-level robotics agent for autonomous UAV tasks. It is designed around ROS2, PX4, and Gazebo, with an LLM planner operating above deterministic flight control rather than inside the real-time control loop.
 
-The project is currently in **M0 — Freeze Scope + Eval Spec**. `DEV_SPEC.md` is the single source of truth for scope, architecture, repository structure, milestones, evaluation, versioning, and release gates.
+The project is currently in **M3 — Deterministic Flight Skill Executor**. `DEV_SPEC.md` is the single source of truth for scope, architecture, repository structure, milestones, evaluation, versioning, and release gates.
 
 ## Project Value
 
@@ -25,7 +25,7 @@ The system is not intended to replace PX4 or low-level flight control. PX4 remai
 - **Simulator:** Gazebo Harmonic
 - **Vehicle target:** x500 multicopter
 - **ROS integration:** `rclpy`, `px4_msgs`, ROS2 adapter boundary
-- **Agent core:** Python 3.12, Pydantic contracts, typed runtime protocols
+- **Agent core:** Python 3.12, Pydantic contracts, typed backend protocols
 - **Planning:** LLM provider abstraction with structured skill proposals
 - **Safety:** deterministic Mission Contract and Safety Supervisor
 - **Verification:** state-based verifier for flight skill outcomes

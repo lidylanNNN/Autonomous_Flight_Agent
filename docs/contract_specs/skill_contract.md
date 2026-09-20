@@ -14,8 +14,8 @@ rtl
 land
 ```
 
-业务模块不得导入 ROS 2 或 PX4 Message Class。Mock Runtime 和 PX4 Runtime
-都通过相同的 `FlightExecutionInterface` 与业务模块通信。
+业务模块不得导入 ROS 2 或 PX4 Message Class。Mock Backend 和 PX4 Backend
+都通过相同的 `FlightExecutionBackendProtocol` 与业务模块通信。
 
 ## 参数
 
@@ -35,7 +35,7 @@ land
 
 ## 已批准命令
 
-`FlightExecutionInterface.execute()` 只接收 `ApprovedSkillCommand`，其中包含：
+`FlightExecutionBackendProtocol.execute()` 只接收 `ApprovedSkillCommand`，其中包含：
 
 ```text
 execution_id
@@ -89,5 +89,5 @@ Timeout。`required_state` 只是供 M4 使用的声明式元数据，本身不�
 ## 兼容性规则
 
 `MockFlightExecutionBackend` 和 `PX4Ros2FlightExecutionBackend` 必须同时满足
-`FlightExecutionInterface`，且切换
+`FlightExecutionBackendProtocol`，且切换
 Runtime 时不得修改 Skill、Safety、Verifier 或 Agent 业务代码。

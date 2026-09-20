@@ -11,7 +11,7 @@ from flight_agent.components.vehicle.flight_execution import (
 )
 from flight_agent.contracts import (
     ApprovedSkillCommand,
-    FlightExecutionInterface,
+    FlightExecutionBackendProtocol,
     SkillExecutionStatus,
     WorldState,
 )
@@ -46,7 +46,7 @@ async def _assert_success_is_deterministic() -> None:
     second_result = await second.execute(command)
     state = await first.get_world_state()
 
-    assert isinstance(first, FlightExecutionInterface)
+    assert isinstance(first, FlightExecutionBackendProtocol)
     assert first_result == second_result
     assert first_result.status is SkillExecutionStatus.SUCCEEDED
     assert first_result.end_state_id == 'mock-state-1'
