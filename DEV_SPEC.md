@@ -1,11 +1,11 @@
-# Autonomous Flight Agent — DEV_SPEC v1.17
+# Autonomous Flight Agent — DEV_SPEC v1.18
 
 > **项目**：Autonomous Flight Agent — 飞行机器人智能决策与任务执行系统  
-> **版本**：v1.17
-> **日期**：2026-09-20
+> **版本**：v1.18
+> **日期**：2026-09-21
 > **状态**：Implementation
 > **SSOT**：本文件作为 V1 架构、接口、开发顺序、Evaluation、Ablation 与发布验收的 Single Source of Truth。
-> **v1.17 变更**：M3-3 已完成 PX4 命令下发、ACK 关联、共享超时预算与取消生命周期；当前进入 M3-4，组装真实 `PX4Ros2FlightExecutionBackend`，并以实际 `WorldState` 判定 Takeoff、Land 和 RTL 的基础终态。
+> **v1.18 变更**：统一执行链路术语：`Skill` 仅表示 Agent Flight Skill；PX4 侧使用 Command Plan、VehicleCommand、Flight Mode 与 Setpoint，不再称为 PX4 Skill。
 > **真实性边界**：本规格对应 `Noah_AIforRobotics_简历_v24` 中的 Autonomous Flight Agent 目标态设计。当前简历中 Task Success / Safety / Recovery 数字均明确为“占位，待实测替换”，因此本文件不把任何指标写成已实现成果。
 
 ---
@@ -1813,7 +1813,7 @@ Verifier 为什么判失败？
 公开 Benchmark 不直接证明：
 
 - ROS2 节点正确；
-- PX4 Skill 真能执行；
+- Agent Flight Skill 真能通过 PX4 执行；
 - Gazebo 中飞机真的飞到目标；
 - Safety Supervisor 真能拦截；
 - Recovery 真能从实际失败恢复。

@@ -1,4 +1,4 @@
-'''Tests for deterministic native PX4 Skill command mapping.'''
+'''Tests for deterministic Agent Flight Skill to PX4 command-plan mapping.'''
 
 from __future__ import annotations
 
@@ -6,9 +6,9 @@ from datetime import UTC, datetime
 from math import isnan
 
 import pytest
-from flight_agent_ros.adapters.px4_native_skill_mapper import (
-    Px4NativeSkillMappingError,
-    build_native_skill_plan,
+from flight_agent_ros.adapters.px4_command_plan_mapper import (
+    Px4CommandPlanMappingError,
+    build_px4_command_plan,
 )
 from px4_msgs.msg import VehicleCommand
 
@@ -78,7 +78,7 @@ def make_command(skill_name: SkillName) -> ApprovedSkillCommand:
 def test_takeoff_maps_relative_home_height_to_mode_then_arm_sequence() -> None:
     '''验证起飞高度转换为 AMSL，并固定先切起飞模式再解锁。'''
 
-    plan = build_native_skill_plan(make_command(SkillName.TAKEOFF), make_state())
+    plan = build_px4_command_plan(make_command(SkillName.TAKEOFF), make_state())
 
     assert [item.command_id for item in plan.commands] == [
         VehicleCommand.VEHICLE_CMD_NAV_TAKEOFF,
@@ -97,12 +97,12 @@ def test_takeoff_maps_relative_home_height_to_mode_then_arm_sequence() -> None:
         (SkillName.LAND, VehicleCommand.VEHICLE_CMD_NAV_LAND),
     ],
 )
-def test_single_native_command_skills_use_px4_mode_commands(
+def test_mode_based_skills_use_single_px4_commands(
     skill_name: SkillName, command_id: int
 ) -> None:
     '''验证 RTL 与 Land 映射为单条 PX4 原生模式命令。'''
 
-    plan = build_native_skill_plan(make_command(skill_name), make_state())
+    plan = build_px4_command_plan(make_command(skill_name), make_state())
 
     assert len(plan.commands) == 1
     assert plan.commands[0].command_id == command_id
@@ -116,9 +116,9 @@ def test_home_dependent_skills_reject_missing_home_reference(
     '''验证缺少 Home 经纬高时不会构造 Takeoff 或 RTL 命令。'''
 
     with pytest.raises(
-        Px4NativeSkillMappingError, match='HOME_REFERENCE_UNAVAILABLE'
+        Px4CommandPlanMappingError, match='HOME_REFERENCE_UNAVAILABLE'
     ):
-        build_native_skill_plan(make_command(skill_name), make_state(with_home=False))
+        build_px4_command_plan(make_command(skill_name), make_state(with_home=False))
 
 
 @pytest.mark.parametrize('skill_name', [SkillName.GOTO, SkillName.HOLD])
@@ -127,5 +127,5 @@ def test_offboard_skills_are_not_mapped_to_native_vehicle_commands(
 ) -> None:
     '''验证 GoTo 与 Hold 不会误用 PX4 原生导航命令。'''
 
-    with pytest.raises(Px4NativeSkillMappingError, match='SKILL_REQUIRES_OFFBOARD'):
-        build_native_skill_plan(make_command(skill_name), make_state())
+    with pytest.raises(Px4CommandPlanMappingError, match='SKILL_REQUIRES_OFFBOARD'):
+        build_px4_command_plan(make_command(skill_name), make_state())

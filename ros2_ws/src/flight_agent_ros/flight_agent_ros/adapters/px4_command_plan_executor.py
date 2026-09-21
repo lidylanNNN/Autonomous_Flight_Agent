@@ -1,4 +1,4 @@
-'''Execute mapped native PX4 command plans without claiming Skill completion.'''
+'''Execute PX4 command plans without claiming Agent Flight Skill completion.'''
 
 from __future__ import annotations
 
@@ -6,7 +6,7 @@ import asyncio
 from dataclasses import dataclass
 from typing import Protocol
 
-from flight_agent_ros.adapters.px4_native_skill_mapper import Px4NativeSkillPlan
+from flight_agent_ros.adapters.px4_command_plan_mapper import Px4CommandPlan
 from flight_agent_ros.adapters.px4_vehicle_command_adapter import (
     Px4CommandAck,
     Px4CommandAckStatus,
@@ -30,8 +30,8 @@ class _VehicleCommandSubmitter(Protocol):
 
 
 @dataclass(frozen=True)
-class Px4NativePlanReceipt:
-    '''Transport evidence collected while submitting one native Skill plan.'''
+class Px4CommandPlanReceipt:
+    '''Transport evidence collected while submitting one PX4 command plan.'''
 
     execution_id: str
     acknowledgements: tuple[Px4CommandAck, ...]
@@ -52,8 +52,8 @@ class Px4NativePlanReceipt:
         )
 
 
-class Px4NativePlanExecutor:
-    '''Submit native PX4 commands serially under one Skill timeout budget.'''
+class Px4CommandPlanExecutor:
+    '''Submit PX4 commands serially under one Agent Flight Skill timeout budget.'''
 
     def __init__(self, command_submitter: _VehicleCommandSubmitter) -> None:
         '''Bind the executor to one serialized PX4 command transport.'''
@@ -61,14 +61,14 @@ class Px4NativePlanExecutor:
         self._command_submitter = command_submitter
 
     async def execute(
-        self, plan: Px4NativeSkillPlan, *, timeout_s: float
-    ) -> Px4NativePlanReceipt:
+        self, plan: Px4CommandPlan, *, timeout_s: float
+    ) -> Px4CommandPlanReceipt:
         '''Submit commands in order and stop at the first non-accepted ACK.'''
 
         if timeout_s <= 0.0:
             raise ValueError('timeout_s must be positive')
         if not plan.commands:
-            raise ValueError('native Skill plan must include at least one command')
+            raise ValueError('PX4 command plan must include at least one command')
 
         loop = asyncio.get_running_loop()
         deadline = loop.time() + timeout_s
@@ -94,7 +94,7 @@ class Px4NativePlanExecutor:
             if ack.status is not Px4CommandAckStatus.ACCEPTED:
                 break
 
-        return Px4NativePlanReceipt(
+        return Px4CommandPlanReceipt(
             execution_id=plan.execution_id,
             acknowledgements=tuple(acknowledgements),
         )

@@ -1,4 +1,4 @@
-'''Tests for native PX4/ROS2 flight execution results.'''
+'''Tests for Agent Flight Skill execution through PX4/ROS2.'''
 
 from __future__ import annotations
 
@@ -9,8 +9,8 @@ import pytest
 from flight_agent_ros.adapters.flight_execution_backend import (
     Px4Ros2FlightExecutionBackend,
 )
-from flight_agent_ros.adapters.px4_native_plan_executor import Px4NativePlanReceipt
-from flight_agent_ros.adapters.px4_native_skill_mapper import Px4NativeSkillPlan
+from flight_agent_ros.adapters.px4_command_plan_executor import Px4CommandPlanReceipt
+from flight_agent_ros.adapters.px4_command_plan_mapper import Px4CommandPlan
 from flight_agent_ros.adapters.px4_vehicle_command_adapter import (
     Px4CommandAck,
     Px4CommandAckStatus,
@@ -64,8 +64,8 @@ class ScriptedPlanExecutor:
         self.cancelled: list[str] = []
 
     async def execute(
-        self, plan: Px4NativeSkillPlan, *, timeout_s: float
-    ) -> Px4NativePlanReceipt:
+        self, plan: Px4CommandPlan, *, timeout_s: float
+    ) -> Px4CommandPlanReceipt:
         del timeout_s
         execution_id = plan.execution_id
         accepted = self._status is Px4CommandAckStatus.ACCEPTED
@@ -74,7 +74,7 @@ class ScriptedPlanExecutor:
             ack_name='ACCEPTED' if accepted else 'DENIED',
             failure_code=None if accepted else 'PX4_ACK_DENIED',
         )
-        return Px4NativePlanReceipt(execution_id=execution_id, acknowledgements=(ack,))
+        return Px4CommandPlanReceipt(execution_id=execution_id, acknowledgements=(ack,))
 
     async def cancel(self, execution_id: str) -> bool:
         self.cancelled.append(execution_id)
@@ -95,7 +95,7 @@ class ScriptedPlanExecutor:
                  make_state('state-home', flight_mode='AUTO_RTL')]),
     ],
 )
-def test_native_skill_success_requires_vehicle_state(
+def test_skill_success_requires_px4_vehicle_state(
     skill_name: str, states: list[WorldState]
 ) -> None:
     async def scenario() -> None:

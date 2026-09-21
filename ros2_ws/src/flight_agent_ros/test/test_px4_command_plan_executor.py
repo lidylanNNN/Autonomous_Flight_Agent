@@ -1,13 +1,13 @@
-'''Tests for serialized native PX4 command plan submission.'''
+'''Tests for serialized PX4 command-plan submission.'''
 
 from __future__ import annotations
 
 import asyncio
 
-from flight_agent_ros.adapters.px4_native_plan_executor import Px4NativePlanExecutor
-from flight_agent_ros.adapters.px4_native_skill_mapper import (
-    Px4NativeCommand,
-    Px4NativeSkillPlan,
+from flight_agent_ros.adapters.px4_command_plan_executor import Px4CommandPlanExecutor
+from flight_agent_ros.adapters.px4_command_plan_mapper import (
+    Px4CommandPlan,
+    Px4PlannedCommand,
 )
 from flight_agent_ros.adapters.px4_vehicle_command_adapter import (
     Px4CommandAck,
@@ -55,15 +55,15 @@ class ScriptedCommandSubmitter:
         return True
 
 
-def make_plan() -> Px4NativeSkillPlan:
+def make_plan() -> Px4CommandPlan:
     '''Construct a two-command takeoff transport plan.'''
 
-    return Px4NativeSkillPlan(
+    return Px4CommandPlan(
         execution_id='exec-takeoff',
         skill_name=SkillName.TAKEOFF,
         commands=(
-            Px4NativeCommand(22, VehicleCommandParameters(param7=50.0)),
-            Px4NativeCommand(400, VehicleCommandParameters(param1=1.0)),
+            Px4PlannedCommand(22, VehicleCommandParameters(param7=50.0)),
+            Px4PlannedCommand(400, VehicleCommandParameters(param1=1.0)),
         ),
     )
 
@@ -78,7 +78,7 @@ async def _assert_commands_are_submitted_in_order() -> None:
     submitter = ScriptedCommandSubmitter(
         [Px4CommandAckStatus.ACCEPTED, Px4CommandAckStatus.ACCEPTED]
     )
-    receipt = await Px4NativePlanExecutor(submitter).execute(make_plan(), timeout_s=1.0)
+    receipt = await Px4CommandPlanExecutor(submitter).execute(make_plan(), timeout_s=1.0)
 
     assert [command_id for command_id, _ in submitter.submissions] == [22, 400]
     assert 0.0 < submitter.submissions[1][1] <= submitter.submissions[0][1] <= 1.0
@@ -91,7 +91,7 @@ def test_rejected_ack_stops_the_remaining_plan() -> None:
 
     async def scenario() -> None:
         submitter = ScriptedCommandSubmitter([Px4CommandAckStatus.REJECTED])
-        receipt = await Px4NativePlanExecutor(submitter).execute(
+        receipt = await Px4CommandPlanExecutor(submitter).execute(
             make_plan(), timeout_s=1.0
         )
 
@@ -109,7 +109,7 @@ def test_expired_shared_budget_stops_before_the_next_submission() -> None:
         submitter = ScriptedCommandSubmitter(
             [Px4CommandAckStatus.ACCEPTED], delay_s=0.01
         )
-        receipt = await Px4NativePlanExecutor(submitter).execute(
+        receipt = await Px4CommandPlanExecutor(submitter).execute(
             make_plan(), timeout_s=0.001
         )
 
@@ -126,7 +126,7 @@ def test_cancel_is_delegated_to_the_active_transport() -> None:
 
     async def scenario() -> None:
         submitter = ScriptedCommandSubmitter([])
-        executor = Px4NativePlanExecutor(submitter)
+        executor = Px4CommandPlanExecutor(submitter)
 
         assert await executor.cancel('exec-takeoff') is True
         assert submitter.cancelled_execution_ids == ['exec-takeoff']
