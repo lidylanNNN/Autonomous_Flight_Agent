@@ -1,11 +1,11 @@
-# Autonomous Flight Agent — DEV_SPEC v1.18
+# Autonomous Flight Agent — DEV_SPEC v1.19
 
 > **项目**：Autonomous Flight Agent — 飞行机器人智能决策与任务执行系统  
-> **版本**：v1.18
+> **版本**：v1.19
 > **日期**：2026-09-21
 > **状态**：Implementation
 > **SSOT**：本文件作为 V1 架构、接口、开发顺序、Evaluation、Ablation 与发布验收的 Single Source of Truth。
-> **v1.18 变更**：统一执行链路术语：`Skill` 仅表示 Agent Flight Skill；PX4 侧使用 Command Plan、VehicleCommand、Flight Mode 与 Setpoint，不再称为 PX4 Skill。
+> **v1.19 变更**：M3-4 已完成 Takeoff、Land 和 RTL 的 PX4 命令映射、ACK 处理与基础状态闭环；当前进入 M3-5，实现 GoTo 和 Hold 的 Offboard 执行。
 > **真实性边界**：本规格对应 `Noah_AIforRobotics_简历_v24` 中的 Autonomous Flight Agent 目标态设计。当前简历中 Task Success / Safety / Recovery 数字均明确为“占位，待实测替换”，因此本文件不把任何指标写成已实现成果。
 
 ---
@@ -15,7 +15,7 @@
 
 > **当前阶段**：M3 — Deterministic Flight Skill Executor
 > **当前真实性状态**：M0、M1、M2 已完成；M3 正在实现。
-> **当前重点**：完成 Takeoff、Land 和 RTL 的真实 PX4 Backend 与状态闭环。
+> **当前重点**：完成 GoTo 和 Hold 的 PX4 Offboard 执行与基础状态闭环。
 
 ## Progress Status Rules
 
@@ -51,7 +51,7 @@ Deliverables complete
 | **M0** | Scope + Eval Spec | `DEV_SPEC.md`；`MissionEvalCase` Schema；20–30 条 Dev Mission；`EnvironmentManifest`；Safety Invariants；Metric Definition；`docs/milestones/M0.md` | **3–4 天** | **DONE** | Scope、Safety/Eval Contract、Dev Mission Set、EnvironmentManifest、family-level split 规则已冻结；不包含 PX4/ROS2/Gazebo 实现 |
 | M1 | PX4 + ROS2 + Gazebo Runtime | pinned PX4/`px4_msgs`；ROS2 workspace；uXRCE-DDS；Gazebo x500；headless 启动脚本；health check；bootstrap scripts；`docs/milestones/M1.md` | **7–10 天** | DONE | PX4 v1.16.2、ROS 2 Jazzy、Gazebo Harmonic、uXRCE-DDS 与 PX4 topic 链路已验证 |
 | M2 | World State + Trace Base | `WorldState`；ROS2 subscriptions；state freshness；frame normalization；Trace Recorder；runtime health；`docs/milestones/M2.md` | **3–4 天** | DONE | 2026-09-17 完成；WorldState、freshness、NED/ENU、runtime health、Trace recorder/replay 与 PX4/Gazebo 实测通过 |
-| M3 | Deterministic Flight Skills | Takeoff/GoTo/Hold/RTL/Land；Skill Executor；timeout/ACK/cancel；`MockFlightExecutionBackend`；Mock 文档/Tests；`docs/milestones/M3.md` | **6–8 天** | IN_PROGRESS | M3-3 命令与 ACK 生命周期已完成；正在实现 Takeoff、Land 和 RTL 的真实 Backend 状态闭环 |
+| M3 | Deterministic Flight Skills | Takeoff/GoTo/Hold/RTL/Land；Skill Executor；timeout/ACK/cancel；`MockFlightExecutionBackend`；Mock 文档/Tests；`docs/milestones/M3.md` | **6–8 天** | IN_PROGRESS | M3-4 已完成 Takeoff、Land 和 RTL；正在实现 GoTo 和 Hold 的 Offboard 执行 |
 | M4 | Mission Contract + Safety Supervisor | `MissionContract`；Schema/State/Sequence/Geofence/Envelope/Authority 校验；Human Approval；`MockHumanApproval`；SafetyDecision reason codes；`docs/milestones/M4.md` | **6–8 天** | NOT_STARTED | 高风险阶段；安全规则必须有边界测试和回归 |
 | M5 | Minimal LLM Planner | Natural-language Mission；LLM Provider；Structured Plan；Function Calling；Agent Loop；Context Builder；`MockLLMProvider`；`docs/milestones/M5.md` | **4–5 天** | NOT_STARTED | 依赖 M3/M4 |
 | M6 | State Verifier | Verifier Registry；Takeoff/GoTo/Hold/RTL/Land Verifier；dwell/timeout；`VerificationResult`；`docs/milestones/M6.md` | **3–5 天** | NOT_STARTED | 依赖 M3/M5；M6 完成后应录制第一版完整 Demo |
