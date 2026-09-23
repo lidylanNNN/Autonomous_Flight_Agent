@@ -11,6 +11,7 @@ from flight_agent_ros.adapters.flight_execution_backend import (
 )
 from flight_agent_ros.adapters.px4_command_plan_executor import Px4CommandPlanReceipt
 from flight_agent_ros.adapters.px4_command_plan_mapper import Px4CommandPlan
+from flight_agent_ros.adapters.px4_offboard_setpoint_adapter import PositionSetpointNed
 from flight_agent_ros.adapters.px4_vehicle_command_adapter import (
     Px4CommandAck,
     Px4CommandAckStatus,
@@ -38,12 +39,20 @@ def make_state(state_id: str, **updates: object) -> WorldState:
     return base.model_copy(update=updates)
 
 
-def make_command(skill_name: str) -> ApprovedSkillCommand:
-    arguments = {'target_altitude_m': 10.0} if skill_name == 'takeoff' else {}
+def make_command(
+    skill_name: str,
+    *,
+    arguments: dict[str, float | None] | None = None,
+    timeout_s: float = 0.02,
+) -> ApprovedSkillCommand:
+    '''Build one approved command with concise per-Skill defaults.'''
+
+    if arguments is None:
+        arguments = {'target_altitude_m': 10.0} if skill_name == 'takeoff' else {}
     return ApprovedSkillCommand.model_validate({
         'execution_id': f'exec-{skill_name}', 'proposal_id': 'proposal-1',
         'decision_id': 'decision-1', 'skill_name': skill_name,
-        'arguments': arguments, 'timeout_s': 0.02,
+        'arguments': arguments, 'timeout_s': timeout_s,
         'approved_state_id': 'state-start',
     })
 
@@ -62,11 +71,13 @@ class ScriptedPlanExecutor:
     def __init__(self, status: Px4CommandAckStatus) -> None:
         self._status = status
         self.cancelled: list[str] = []
+        self.plans: list[Px4CommandPlan] = []
 
     async def execute(
         self, plan: Px4CommandPlan, *, timeout_s: float
     ) -> Px4CommandPlanReceipt:
         del timeout_s
+        self.plans.append(plan)
         execution_id = plan.execution_id
         accepted = self._status is Px4CommandAckStatus.ACCEPTED
         ack = Px4CommandAck(
@@ -79,6 +90,28 @@ class ScriptedPlanExecutor:
     async def cancel(self, execution_id: str) -> bool:
         self.cancelled.append(execution_id)
         return True
+
+
+class RecordingOffboardSetpointAdapter:
+    '''Record Offboard target lifecycle without starting a ROS executor.'''
+
+    def __init__(self) -> None:
+        self.active = False
+        self.targets: list[PositionSetpointNed] = []
+        self.stop_count = 0
+
+    def start_position_stream(self, target: PositionSetpointNed) -> None:
+        self.active = True
+        self.targets.append(target)
+
+    def update_position_target(self, target: PositionSetpointNed) -> None:
+        self.targets.append(target)
+
+    def stop_position_stream(self) -> bool:
+        was_active = self.active
+        self.active = False
+        self.stop_count += 1
+        return was_active
 
 
 @pytest.mark.parametrize(
@@ -155,5 +188,129 @@ def test_cancel_stops_state_completion_wait() -> None:
         assert result.status is SkillExecutionStatus.CANCELLED
         assert result.failure_code == 'CANCELLED_BY_REQUEST'
         assert executor.cancelled == [command.execution_id]
+
+    asyncio.run(scenario())
+
+
+def test_goto_enters_offboard_and_waits_for_target_convergence() -> None:
+    '''GoTo succeeds only after PX4 reports Offboard at the requested NED point.'''
+
+    async def scenario() -> None:
+        start = make_state(
+            'state-start', armed=True, landed=False, flight_mode='AUTO_LOITER'
+        )
+        target = make_state(
+            'state-target', armed=True, landed=False, flight_mode='OFFBOARD',
+            position_ned_m=Vector3(x=10.0, y=5.0, z=-20.0),
+        )
+        executor = ScriptedPlanExecutor(Px4CommandAckStatus.ACCEPTED)
+        offboard_adapter = RecordingOffboardSetpointAdapter()
+        backend = Px4Ros2FlightExecutionBackend(
+            StateSequence([start, start, target]), executor, offboard_adapter,
+            poll_interval_s=0.0, offboard_warmup_s=0.0,
+        )
+        command = make_command(
+            'goto',
+            arguments={
+                'north_m': 10.0, 'east_m': 5.0, 'altitude_m': 20.0,
+                'acceptance_radius_m': 1.0,
+            },
+        )
+
+        result = await backend.execute(command)
+
+        assert result.status is SkillExecutionStatus.SUCCEEDED
+        assert offboard_adapter.targets == [PositionSetpointNed(10.0, 5.0, -20.0)]
+        assert executor.plans[0].commands[0].parameters.param2 == 6.0
+
+    asyncio.run(scenario())
+
+
+def test_hold_uses_current_position_and_continuous_dwell() -> None:
+    '''Finite Hold keeps the starting point until its dwell duration elapses.'''
+
+    async def scenario() -> None:
+        state = make_state(
+            'state-hold', armed=True, landed=False, flight_mode='OFFBOARD',
+            position_ned_m=Vector3(x=3.0, y=4.0, z=-8.0),
+        )
+        executor = ScriptedPlanExecutor(Px4CommandAckStatus.ACCEPTED)
+        offboard_adapter = RecordingOffboardSetpointAdapter()
+        backend = Px4Ros2FlightExecutionBackend(
+            lambda: state, executor, offboard_adapter,
+            poll_interval_s=0.001, offboard_warmup_s=0.0,
+        )
+
+        result = await backend.execute(make_command(
+            'hold', arguments={'duration_s': 0.001}, timeout_s=0.05
+        ))
+
+        assert result.status is SkillExecutionStatus.SUCCEEDED
+        assert offboard_adapter.targets == [PositionSetpointNed(3.0, 4.0, -8.0)]
+        assert executor.plans == []
+
+    asyncio.run(scenario())
+
+
+def test_cancelling_indefinite_hold_hands_over_to_auto_loiter() -> None:
+    '''Cancellation requests PX4 Auto Loiter before stopping the target stream.'''
+
+    async def scenario() -> None:
+        state = make_state(
+            'state-hold', armed=True, landed=False, flight_mode='OFFBOARD'
+        )
+        executor = ScriptedPlanExecutor(Px4CommandAckStatus.ACCEPTED)
+        offboard_adapter = RecordingOffboardSetpointAdapter()
+        backend = Px4Ros2FlightExecutionBackend(
+            lambda: state, executor, offboard_adapter,
+            poll_interval_s=0.0, offboard_warmup_s=0.0,
+        )
+        command = make_command(
+            'hold', arguments={'duration_s': None}, timeout_s=0.05
+        )
+
+        task = asyncio.create_task(backend.execute(command))
+        await asyncio.sleep(0)
+        await backend.cancel(command.execution_id)
+        result = await task
+
+        assert result.status is SkillExecutionStatus.CANCELLED
+        assert executor.plans[-1].execution_id == f'{command.execution_id}:cancel'
+        assert executor.plans[-1].commands[0].parameters.param2 == 4.0
+        assert executor.plans[-1].commands[0].parameters.param3 == 3.0
+        assert offboard_adapter.active is False
+
+    asyncio.run(scenario())
+
+
+def test_timed_out_goto_hands_over_before_stopping_target_stream() -> None:
+    '''A timed-out GoTo must not keep publishing its stale Offboard target.'''
+
+    async def scenario() -> None:
+        state = make_state(
+            'state-away', armed=True, landed=False, flight_mode='OFFBOARD'
+        )
+        executor = ScriptedPlanExecutor(Px4CommandAckStatus.ACCEPTED)
+        offboard_adapter = RecordingOffboardSetpointAdapter()
+        backend = Px4Ros2FlightExecutionBackend(
+            lambda: state, executor, offboard_adapter,
+            poll_interval_s=0.001, offboard_warmup_s=0.0,
+        )
+        command = make_command(
+            'goto',
+            arguments={
+                'north_m': 10.0, 'east_m': 5.0, 'altitude_m': 20.0,
+                'acceptance_radius_m': 1.0,
+            },
+            timeout_s=0.002,
+        )
+
+        result = await backend.execute(command)
+
+        assert result.status is SkillExecutionStatus.TIMED_OUT
+        assert executor.plans[-1].execution_id == f'{command.execution_id}:timeout'
+        assert executor.plans[-1].commands[0].parameters.param2 == 4.0
+        assert executor.plans[-1].commands[0].parameters.param3 == 3.0
+        assert offboard_adapter.active is False
 
     asyncio.run(scenario())

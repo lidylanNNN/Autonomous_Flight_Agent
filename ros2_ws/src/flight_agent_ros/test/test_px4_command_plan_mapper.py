@@ -8,7 +8,9 @@ from math import isnan
 import pytest
 from flight_agent_ros.adapters.px4_command_plan_mapper import (
     Px4CommandPlanMappingError,
+    build_px4_auto_loiter_handover_plan,
     build_px4_command_plan,
+    build_px4_offboard_mode_plan,
 )
 from px4_msgs.msg import VehicleCommand
 
@@ -100,7 +102,7 @@ def test_takeoff_maps_relative_home_height_to_mode_then_arm_sequence() -> None:
 def test_mode_based_skills_use_single_px4_commands(
     skill_name: SkillName, command_id: int
 ) -> None:
-    '''验证 RTL 与 Land 映射为单条 PX4 原生模式命令。'''
+    '''验证 RTL 与 Land 映射为单条 PX4 自动模式命令。'''
 
     plan = build_px4_command_plan(make_command(skill_name), make_state())
 
@@ -122,10 +124,47 @@ def test_home_dependent_skills_reject_missing_home_reference(
 
 
 @pytest.mark.parametrize('skill_name', [SkillName.GOTO, SkillName.HOLD])
-def test_offboard_skills_are_not_mapped_to_native_vehicle_commands(
+def test_offboard_skills_are_not_mapped_to_px4_navigation_commands(
     skill_name: SkillName,
 ) -> None:
-    '''验证 GoTo 与 Hold 不会误用 PX4 原生导航命令。'''
+    '''验证 GoTo 与 Hold 不会误用 PX4 自动导航命令。'''
 
     with pytest.raises(Px4CommandPlanMappingError, match='SKILL_REQUIRES_OFFBOARD'):
         build_px4_command_plan(make_command(skill_name), make_state())
+
+
+@pytest.mark.parametrize('skill_name', [SkillName.GOTO, SkillName.HOLD])
+def test_agent_flight_skills_map_to_px4_offboard_mode(skill_name: SkillName) -> None:
+    '''验证 GoTo 与 Hold 使用 PX4 Offboard 自定义模式。'''
+
+    plan = build_px4_offboard_mode_plan(make_command(skill_name))
+    command = plan.commands[0]
+
+    assert command.command_id == VehicleCommand.VEHICLE_CMD_DO_SET_MODE
+    assert command.parameters.param1 == 1.0
+    assert command.parameters.param2 == 6.0
+    assert command.parameters.param3 == 0.0
+
+
+def test_cancel_handover_maps_to_px4_auto_loiter_mode() -> None:
+    '''验证 Offboard 取消后明确移交给 PX4 Auto Loiter。'''
+
+    plan = build_px4_auto_loiter_handover_plan('exec-goto', SkillName.GOTO)
+    command = plan.commands[0]
+
+    assert plan.execution_id == 'exec-goto:cancel'
+    assert plan.skill_name is SkillName.GOTO
+    assert command.command_id == VehicleCommand.VEHICLE_CMD_DO_SET_MODE
+    assert command.parameters.param1 == 1.0
+    assert command.parameters.param2 == 4.0
+    assert command.parameters.param3 == 3.0
+
+
+def test_timeout_handover_has_a_distinct_execution_id() -> None:
+    '''验证超时移交不会被错误记录成取消操作。'''
+
+    plan = build_px4_auto_loiter_handover_plan(
+        'exec-goto', SkillName.GOTO, reason='timeout'
+    )
+
+    assert plan.execution_id == 'exec-goto:timeout'

@@ -50,7 +50,7 @@ class Px4CommandAck:
 
 @dataclass
 class _PendingCommand:
-    '''Internal waiter for the one native PX4 command currently in flight.'''
+    '''Internal waiter for the one PX4 VehicleCommand currently in flight.'''
 
     execution_id: str
     command_id: int
@@ -128,7 +128,7 @@ class Px4VehicleCommandAdapter(Node):
         timeout_s: float,
         parameters: VehicleCommandParameters | None = None,
     ) -> Px4CommandAck:
-        '''Publish one native command and wait for its terminal PX4 ACK result.
+        '''Publish one PX4 VehicleCommand and wait for its terminal ACK result.
 
         PX4's VehicleCommandAck has no caller-generated request ID. The adapter therefore
         serializes submissions, so a terminal ACK for ``command_id`` maps to exactly one

@@ -15,7 +15,7 @@ from flight_agent_ros.adapters.px4_vehicle_command_adapter import (
 
 
 class _VehicleCommandSubmitter(Protocol):
-    '''PX4 command transport shape consumed by the native plan executor.'''
+    '''PX4 command transport shape consumed by the command-plan executor.'''
 
     async def submit_and_wait(
         self,

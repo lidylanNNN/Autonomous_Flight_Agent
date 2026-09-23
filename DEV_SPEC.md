@@ -1,11 +1,11 @@
-# Autonomous Flight Agent — DEV_SPEC v1.19
+# Autonomous Flight Agent — DEV_SPEC v1.20
 
 > **项目**：Autonomous Flight Agent — 飞行机器人智能决策与任务执行系统  
-> **版本**：v1.19
-> **日期**：2026-09-21
+> **版本**：v1.20
+> **日期**：2026-09-23
 > **状态**：Implementation
 > **SSOT**：本文件作为 V1 架构、接口、开发顺序、Evaluation、Ablation 与发布验收的 Single Source of Truth。
-> **v1.19 变更**：M3-4 已完成 Takeoff、Land 和 RTL 的 PX4 命令映射、ACK 处理与基础状态闭环；当前进入 M3-5，实现 GoTo 和 Hold 的 Offboard 执行。
+> **v1.20 变更**：M3-5 已完成 GoTo 和 Hold 的 Offboard 目标流、模式切换、基础状态闭环与取消后 Auto Loiter 移交；明确 Agent asyncio loop、Flight Execution Backend、ROS2 Node 与 PX4 的运行边界；当前进入 M3-6，打通 PX4/Gazebo 脚本化全链路。
 > **真实性边界**：本规格对应 `Noah_AIforRobotics_简历_v24` 中的 Autonomous Flight Agent 目标态设计。当前简历中 Task Success / Safety / Recovery 数字均明确为“占位，待实测替换”，因此本文件不把任何指标写成已实现成果。
 
 ---
@@ -15,7 +15,7 @@
 
 > **当前阶段**：M3 — Deterministic Flight Skill Executor
 > **当前真实性状态**：M0、M1、M2 已完成；M3 正在实现。
-> **当前重点**：完成 GoTo 和 Hold 的 PX4 Offboard 执行与基础状态闭环。
+> **当前重点**：完成 PX4/Gazebo 脚本化 `takeoff -> goto -> hold -> rtl/land` 全链路运行。
 
 ## Progress Status Rules
 
@@ -51,7 +51,7 @@ Deliverables complete
 | **M0** | Scope + Eval Spec | `DEV_SPEC.md`；`MissionEvalCase` Schema；20–30 条 Dev Mission；`EnvironmentManifest`；Safety Invariants；Metric Definition；`docs/milestones/M0.md` | **3–4 天** | **DONE** | Scope、Safety/Eval Contract、Dev Mission Set、EnvironmentManifest、family-level split 规则已冻结；不包含 PX4/ROS2/Gazebo 实现 |
 | M1 | PX4 + ROS2 + Gazebo Runtime | pinned PX4/`px4_msgs`；ROS2 workspace；uXRCE-DDS；Gazebo x500；headless 启动脚本；health check；bootstrap scripts；`docs/milestones/M1.md` | **7–10 天** | DONE | PX4 v1.16.2、ROS 2 Jazzy、Gazebo Harmonic、uXRCE-DDS 与 PX4 topic 链路已验证 |
 | M2 | World State + Trace Base | `WorldState`；ROS2 subscriptions；state freshness；frame normalization；Trace Recorder；runtime health；`docs/milestones/M2.md` | **3–4 天** | DONE | 2026-09-17 完成；WorldState、freshness、NED/ENU、runtime health、Trace recorder/replay 与 PX4/Gazebo 实测通过 |
-| M3 | Deterministic Flight Skills | Takeoff/GoTo/Hold/RTL/Land；Skill Executor；timeout/ACK/cancel；`MockFlightExecutionBackend`；Mock 文档/Tests；`docs/milestones/M3.md` | **6–8 天** | IN_PROGRESS | M3-4 已完成 Takeoff、Land 和 RTL；正在实现 GoTo 和 Hold 的 Offboard 执行 |
+| M3 | Deterministic Flight Skills | Takeoff/GoTo/Hold/RTL/Land；Skill Executor；timeout/ACK/cancel；`MockFlightExecutionBackend`；Mock 文档/Tests；`docs/milestones/M3.md` | **6–8 天** | IN_PROGRESS | M3-5 已完成全部五类 Skill 的基础执行闭环；下一步进行 PX4/Gazebo 全链路运行 |
 | M4 | Mission Contract + Safety Supervisor | `MissionContract`；Schema/State/Sequence/Geofence/Envelope/Authority 校验；Human Approval；`MockHumanApproval`；SafetyDecision reason codes；`docs/milestones/M4.md` | **6–8 天** | NOT_STARTED | 高风险阶段；安全规则必须有边界测试和回归 |
 | M5 | Minimal LLM Planner | Natural-language Mission；LLM Provider；Structured Plan；Function Calling；Agent Loop；Context Builder；`MockLLMProvider`；`docs/milestones/M5.md` | **4–5 天** | NOT_STARTED | 依赖 M3/M4 |
 | M6 | State Verifier | Verifier Registry；Takeoff/GoTo/Hold/RTL/Land Verifier；dwell/timeout；`VerificationResult`；`docs/milestones/M6.md` | **3–5 天** | NOT_STARTED | 依赖 M3/M5；M6 完成后应录制第一版完整 Demo |
@@ -727,7 +727,7 @@ Observe
 
 ## 6.2 Skill Execution Loop
 
-确定性 ROS2 Node：
+由确定性 Flight Execution Backend 与 ROS2 Adapter / Node 协作：
 
 - maintain command lifecycle；
 - publish required setpoints；
@@ -1082,6 +1082,97 @@ PX4Ros2FlightExecutionBackend
 ```
 
 Agent / Safety / Evaluation 不直接 import PX4 topic。
+
+---
+
+# 8.2.1 Key Runtime Components and Node Flow
+
+关键组件的逻辑调用链：
+
+```text
+MissionRequest
+    ↓
+Agent Runtime / Planner
+    ↓ SkillProposal
+Safety Supervisor
+    ↓ ApprovedSkillCommand
+FlightExecutionBackendProtocol
+    ├─ MockFlightExecutionBackend
+    └─ PX4Ros2FlightExecutionBackend
+           ├─ px4_command_plan_mapper functions
+           ├─ Px4CommandPlanExecutor
+           ├─ Px4VehicleCommandAdapter (ROS2 Node)
+           ├─ Px4OffboardSetpointAdapter (ROS2 Node)
+           └─ WorldState reader
+                    ↑
+              WorldStateAggregator snapshot
+                    ↑
+              WorldStateNode (ROS2 Node)
+                    ↑
+                   PX4
+```
+
+组件职责与运行属性：
+
+| 组件 | 是否 ROS2 Node | 主要职责 | 运行位置 |
+|---|---:|---|---|
+| Agent Runtime | 否 | 任务理解、规划、Skill 选择与流程推进 | Agent asyncio event loop |
+| Safety Supervisor | 否 | 将合法的 `SkillProposal` 审批为 `ApprovedSkillCommand` | Agent asyncio event loop |
+| `PX4Ros2FlightExecutionBackend` | 否 | 统一执行入口；组织 Command Plan、Offboard、ACK、状态闭环、超时和取消 | 调用方的 Agent asyncio event loop；无独立线程 |
+| `px4_command_plan_mapper` 纯函数 | 否 | 将 Agent Flight Skill 翻译为有序 PX4 Command Plan | Backend 调用栈 |
+| `Px4CommandPlanExecutor` | 否 | 在统一超时预算内顺序提交 PX4 Command，并在首个失败 ACK 后停止 | Backend 调用栈 |
+| `Px4VehicleCommandAdapter` | 是 | 发布 `VehicleCommand`、订阅 `VehicleCommandAck`，并关联 `execution_id` | ROS Executor callback + Agent asyncio waiter |
+| `Px4OffboardSetpointAdapter` | 是 | 按固定频率发布 `OffboardControlMode` 心跳和位置目标 | ROS Executor timer callback |
+| `WorldStateNode` | 是 | 订阅 PX4 状态 Topic，更新 `WorldStateAggregator` 并生成强类型快照 | ROS Executor subscription / timer callback |
+
+目录归属不等于线程归属。`PX4Ros2FlightExecutionBackend` 位于 ROS2 Package，是因为它依赖
+ROS2 / PX4 Adapter；其异步方法由 Agent 调用，因此协程运行在 Agent asyncio loop，而不是
+长期占用 ROS Executor。
+
+推荐运行时至少分离以下两个执行环境：
+
+```text
+Agent asyncio thread
+├─ Agent Runtime
+├─ Safety Supervisor
+└─ PX4Ros2FlightExecutionBackend async workflow
+
+ROS Executor thread(s)
+├─ WorldState subscription callbacks
+├─ VehicleCommandAck subscription callbacks
+└─ Offboard heartbeat / setpoint timer callbacks
+```
+
+ACK 跨线程返回路径：
+
+```text
+Agent loop: await backend.execute(command)
+    ↓
+Px4VehicleCommandAdapter publishes VehicleCommand
+    ↓
+ROS Executor receives VehicleCommandAck
+    ↓ call_soon_threadsafe(...)
+Agent loop resolves the pending waiter
+    ↓
+Backend continues and checks WorldState completion
+```
+
+不同 Skill 的执行路线：
+
+```text
+Takeoff / RTL / Land:
+Backend → Mapper → CommandPlanExecutor → VehicleCommandAdapter → PX4
+
+GoTo / Hold:
+Backend → OffboardSetpointAdapter → continuous heartbeat + position target
+        → Mapper → CommandPlanExecutor → VehicleCommandAdapter → Offboard mode
+
+Offboard cancel / timeout:
+Backend → Auto Loiter Command Plan → PX4 accepted ACK
+        → stop Offboard target stream
+```
+
+Agent Runtime 在 M5 交付；M3 只实现 Backend、ROS2 Adapter 与脚本驱动的执行闭环。
 
 ---
 

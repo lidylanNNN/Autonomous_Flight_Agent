@@ -16,6 +16,10 @@ from flight_agent_ros.adapters.px4_vehicle_command_adapter import (
     VehicleCommandParameters,
 )
 
+_PX4_CUSTOM_MAIN_MODE_AUTO = 4.0
+_PX4_CUSTOM_MAIN_MODE_OFFBOARD = 6.0
+_PX4_CUSTOM_SUB_MODE_AUTO_LOITER = 3.0
+
 
 @dataclass(frozen=True)
 class Px4PlannedCommand:
@@ -27,7 +31,7 @@ class Px4PlannedCommand:
 
 @dataclass(frozen=True)
 class Px4CommandPlan:
-    '''Ordered PX4 commands required to start one approved Agent Flight Skill.'''
+    '''PX4 commands associated with one approved Agent Flight Skill execution.'''
 
     execution_id: str
     skill_name: SkillName
@@ -77,6 +81,38 @@ def build_px4_command_plan(
     )
 
 
+def build_px4_offboard_mode_plan(command: ApprovedSkillCommand) -> Px4CommandPlan:
+    '''Build the PX4 custom-mode command that enters Offboard control.'''
+
+    if command.skill_name not in {SkillName.GOTO, SkillName.HOLD}:
+        raise Px4CommandPlanMappingError('SKILL_DOES_NOT_USE_OFFBOARD')
+    return _build_px4_mode_change_plan(
+        execution_id=command.execution_id,
+        skill_name=command.skill_name,
+        main_mode=_PX4_CUSTOM_MAIN_MODE_OFFBOARD,
+    )
+
+
+def build_px4_auto_loiter_handover_plan(
+    execution_id: str,
+    skill_name: SkillName,
+    *,
+    reason: str = 'cancel',
+) -> Px4CommandPlan:
+    '''Build a PX4 Auto Loiter handover after an Offboard execution stops.'''
+
+    if skill_name not in {SkillName.GOTO, SkillName.HOLD}:
+        raise Px4CommandPlanMappingError('SKILL_DOES_NOT_USE_OFFBOARD')
+    if reason not in {'cancel', 'timeout'}:
+        raise ValueError('handover reason must be cancel or timeout')
+    return _build_px4_mode_change_plan(
+        execution_id=f'{execution_id}:{reason}',
+        skill_name=skill_name,
+        main_mode=_PX4_CUSTOM_MAIN_MODE_AUTO,
+        sub_mode=_PX4_CUSTOM_SUB_MODE_AUTO_LOITER,
+    )
+
+
 def _build_takeoff_commands(
     command: ApprovedSkillCommand, state: WorldState
 ) -> tuple[Px4PlannedCommand, ...]:
@@ -100,6 +136,31 @@ def _build_takeoff_commands(
             command_id=VehicleCommand.VEHICLE_CMD_COMPONENT_ARM_DISARM,
             parameters=VehicleCommandParameters(
                 param1=float(VehicleCommand.ARMING_ACTION_ARM)
+            ),
+        ),
+    )
+
+
+def _build_px4_mode_change_plan(
+    *,
+    execution_id: str,
+    skill_name: SkillName,
+    main_mode: float,
+    sub_mode: float = 0.0,
+) -> Px4CommandPlan:
+    '''Build one PX4 custom-mode command with stable numeric mode values.'''
+
+    return Px4CommandPlan(
+        execution_id=execution_id,
+        skill_name=skill_name,
+        commands=(
+            Px4PlannedCommand(
+                command_id=VehicleCommand.VEHICLE_CMD_DO_SET_MODE,
+                parameters=VehicleCommandParameters(
+                    param1=1.0,
+                    param2=main_mode,
+                    param3=sub_mode,
+                ),
             ),
         ),
     )
