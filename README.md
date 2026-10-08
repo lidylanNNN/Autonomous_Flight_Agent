@@ -2,7 +2,7 @@
 
 Autonomous Flight Agent is a mission-level robotics agent for autonomous UAV tasks. It is designed around ROS2, PX4, and Gazebo, with an LLM planner operating above deterministic flight control rather than inside the real-time control loop.
 
-The project is currently in **M3 — Deterministic Flight Skill Executor**. `DEV_SPEC.md` is the single source of truth for scope, architecture, repository structure, milestones, evaluation, versioning, and release gates.
+The project has completed **M3 — Deterministic Flight Skill Executor** and is entering **M4 — Mission Contract + Safety Supervisor**. `DEV_SPEC.md` is the single source of truth for scope, architecture, repository structure, milestones, evaluation, versioning, and release gates.
 
 ## Project Value
 

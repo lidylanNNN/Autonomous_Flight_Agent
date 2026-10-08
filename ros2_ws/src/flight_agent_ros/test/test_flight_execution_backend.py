@@ -283,6 +283,36 @@ def test_cancelling_indefinite_hold_hands_over_to_auto_loiter() -> None:
     asyncio.run(scenario())
 
 
+def test_rejected_cancel_handover_keeps_offboard_stream_active() -> None:
+    '''移交被 PX4 拒绝时保留目标流，避免在无接管模式时直接切断心跳。'''
+
+    async def scenario() -> None:
+        state = make_state(
+            'state-hold', armed=True, landed=False, flight_mode='OFFBOARD'
+        )
+        executor = ScriptedPlanExecutor(Px4CommandAckStatus.REJECTED)
+        offboard_adapter = RecordingOffboardSetpointAdapter()
+        backend = Px4Ros2FlightExecutionBackend(
+            lambda: state, executor, offboard_adapter,
+            poll_interval_s=0.0, offboard_warmup_s=0.0,
+        )
+        command = make_command(
+            'hold', arguments={'duration_s': None}, timeout_s=0.05
+        )
+
+        task = asyncio.create_task(backend.execute(command))
+        await asyncio.sleep(0)
+        await backend.cancel(command.execution_id)
+        result = await task
+
+        assert result.status is SkillExecutionStatus.CANCELLED
+        assert executor.plans[-1].execution_id == f'{command.execution_id}:cancel'
+        assert offboard_adapter.active is True
+        assert offboard_adapter.stop_count == 0
+
+    asyncio.run(scenario())
+
+
 def test_timed_out_goto_hands_over_before_stopping_target_stream() -> None:
     '''A timed-out GoTo must not keep publishing its stale Offboard target.'''
 

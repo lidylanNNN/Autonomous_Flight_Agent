@@ -53,7 +53,8 @@ Offboard heartbeat 由 `Px4OffboardSetpointAdapter` 的 ROS2 定时器以 10 Hz 
 - `Px4Ros2FlightExecutionBackend` 组织命令与 Offboard 生命周期；
   `Px4VehicleCommandAdapter` 负责 ACK 关联，`Px4OffboardSetpointAdapter` 负责定时发布。
 - Backend 必须将业务侧正高度与 PX4 NED 向下轴明确转换，并记录使用的坐标参考。
-- 真实 PX4/Gazebo 测试必须覆盖 Offboard 信号丢失、ACK 拒绝、超时与取消。
+- M3 用单元/集成测试覆盖 ACK 拒绝、超时、取消和移交生命周期；真实 PX4/Gazebo 的
+  Offboard 信号丢失、通信中断和多轮故障注入由 M8 E2E Harness 覆盖。
 - M3 不引入视觉、VLA 或自主选点降落；它们若接入，只能经由后续感知事实和 Safety 边界。
 
 ## 依据
