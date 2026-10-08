@@ -1,11 +1,11 @@
-# Autonomous Flight Agent — DEV_SPEC v1.22
+# Autonomous Flight Agent — DEV_SPEC v1.23
 
 > **项目**：Autonomous Flight Agent — 飞行机器人智能决策与任务执行系统  
-> **版本**：v1.22
+> **版本**：v1.23
 > **日期**：2026-10-08
 > **状态**：Implementation
 > **SSOT**：本文件作为 V1 架构、接口、开发顺序、Evaluation、Ablation 与发布验收的 Single Source of Truth。
-> **v1.22 变更**：M3 已完成确定性 Flight Skill、PX4/ROS2 Backend、脚本化 Gazebo 闭环和 Bad Case Review；开放问题已分配到 M4、M6、M7 和 M8，主线进入 M4。
+> **v1.23 变更**：M4-1 已冻结 Mission Contract、Skill Proposal、Safety Decision 与稳定 reason codes；Safety Supervisor 和具体检查器尚未实现。
 > **真实性边界**：本规格对应 `Noah_AIforRobotics_简历_v24` 中的 Autonomous Flight Agent 目标态设计。当前简历中 Task Success / Safety / Recovery 数字均明确为“占位，待实测替换”，因此本文件不把任何指标写成已实现成果。
 
 ---
@@ -14,8 +14,8 @@
 # Progress Management
 
 > **当前阶段**：M4 — Mission Contract + Safety Supervisor
-> **当前真实性状态**：M0–M3 已完成；M4 尚未开始实现。
-> **当前重点**：冻结 M4 Mission Contract、SafetyDecision 和确定性校验边界。
+> **当前真实性状态**：M0–M3 已完成；M4-1 契约冻结已完成，运行时安全拦截尚未实现。
+> **当前重点**：实现 M4-2 Schema、State Freshness 和 State ID 确定性检查。
 
 ## Progress Status Rules
 
@@ -52,7 +52,7 @@ Deliverables complete
 | M1 | PX4 + ROS2 + Gazebo Runtime | pinned PX4/`px4_msgs`；ROS2 workspace；uXRCE-DDS；Gazebo x500；headless 启动脚本；health check；bootstrap scripts；`docs/milestones/M1.md` | **7–10 天** | DONE | PX4 v1.16.2、ROS 2 Jazzy、Gazebo Harmonic、uXRCE-DDS 与 PX4 topic 链路已验证 |
 | M2 | World State + Trace Base | `WorldState`；ROS2 subscriptions；state freshness；frame normalization；Trace Recorder；runtime health；`docs/milestones/M2.md` | **3–4 天** | DONE | 2026-09-17 完成；WorldState、freshness、NED/ENU、runtime health、Trace recorder/replay 与 PX4/Gazebo 实测通过 |
 | M3 | Deterministic Flight Skills | Takeoff/GoTo/Hold/RTL/Land；Skill Executor；timeout/ACK/cancel；`MockFlightExecutionBackend`；Mock 文档/Tests；`docs/milestones/M3.md` | **6–8 天** | DONE | 2026-10-08 完成；真实 PX4/Gazebo 四 Skill 闭环、40 项 ROS 测试和 Bad Case Review 已收口 |
-| M4 | Mission Contract + Safety Supervisor | `MissionContract`；Schema/State/Sequence/Geofence/Envelope/Authority 校验；Human Approval；`MockHumanApproval`；SafetyDecision reason codes；`docs/milestones/M4.md` | **6–8 天** | NOT_STARTED | 高风险阶段；安全规则必须有边界测试和回归 |
+| M4 | Mission Contract + Safety Supervisor | `MissionContract`；Schema/State/Sequence/Geofence/Envelope/Authority 校验；Human Approval；`MockHumanApproval`；SafetyDecision reason codes；`docs/milestones/M4.md` | **6–8 天** | IN_PROGRESS | M4-1 契约冻结完成；下一步实现 Schema、Freshness 和 State ID 检查 |
 | M5 | Minimal LLM Planner | Natural-language Mission；LLM Provider；Structured Plan；Function Calling；Agent Loop；Context Builder；`MockLLMProvider`；`docs/milestones/M5.md` | **4–5 天** | NOT_STARTED | 依赖 M3/M4 |
 | M6 | State Verifier | Verifier Registry；Takeoff/GoTo/Hold/RTL/Land Verifier；dwell/timeout；`VerificationResult`；`docs/milestones/M6.md` | **3–5 天** | NOT_STARTED | 依赖 M3/M5；M6 完成后应录制第一版完整 Demo |
 | M7 | Recovery / Replanning | Failure Taxonomy；Deterministic Recovery Policy；Retry/Replan Budget；Hold/RTL/Land fallback；Replanner；plan revision trace；`docs/milestones/M7.md` | **5–7 天** | NOT_STARTED | 依赖 M4/M6 |
@@ -205,8 +205,9 @@ Next Milestone:
 M4 — Mission Contract + Safety Supervisor
 ```
 
-先冻结 Mission Contract、SafetyDecision、校验顺序与 reason code，再实现 Schema、State、
-Sequence、Geofence、Flight Envelope、Authority 和 Human Approval 校验。
+Mission Contract、SafetyDecision、校验顺序与 reason code 已在 M4-1 冻结。下一步实现
+Schema、State Freshness 和 State ID 检查，再按顺序实现 Sequence、Geofence、Flight
+Envelope、Authority 和 Human Approval 校验。
 
 ---
 
@@ -794,22 +795,16 @@ Allowed Skill Set
 共同形成。
 
 ```python
-class GeoPointNED(BaseModel):
-    north_m: float
-    east_m: float
-    down_m: float
-
-
 class MissionConstraints(BaseModel):
     max_altitude_m: float
     max_horizontal_speed_mps: float
-
-    allowed_area_id: str
+    max_mission_radius_m: float
     min_battery_percent: float
-
-    allowed_skills: list[str]
-
-    human_approval_skills: list[str]
+    max_state_age_ms: int
+    geofence: NedGeofence
+    allowed_skills: tuple[SkillName, ...]
+    human_approval_skills: tuple[SkillName, ...]
+    requires_home_position: bool
 
 
 class MissionContract(BaseModel):
@@ -819,8 +814,8 @@ class MissionContract(BaseModel):
     objective: str
     constraints: MissionConstraints
 
-    completion_criteria: list[str]
-    abort_criteria: list[str]
+    completion_criteria: tuple[str, ...]
+    abort_criteria: tuple[str, ...]
 ```
 
 关键规则：
@@ -971,6 +966,13 @@ class SafetyDecision(BaseModel):
     checked_state_id: str
     policy_version: str
 ```
+
+`SafetyDecision.reason_codes` 必须使用
+`src/flight_agent/contracts/models/safety_model.py` 中冻结的 `SafetyReasonCode`，并遵守：
+
+- `APPROVE` 只能携带 `CHECKS_PASSED`；
+- `HUMAN_APPROVAL` 只能携带 `HUMAN_APPROVAL_REQUIRED`；
+- `REJECT` 至少携带一个拒绝原因，不能携带上述两个通过/等待原因。
 
 ---
 
@@ -2739,7 +2741,7 @@ takeoff
 ### Deliverables
 
 - MissionContract；
-- hard/soft constraints；
+- hard safety constraints；
 - Schema check；
 - state freshness；
 - command sequence；
