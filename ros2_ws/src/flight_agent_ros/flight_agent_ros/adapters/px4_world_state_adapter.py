@@ -23,7 +23,7 @@ from flight_agent.components.vehicle.state import WorldStateAggregator
 from flight_agent.contracts import WorldState
 
 
-class WorldStateNode(Node):
+class Px4WorldStateAdapter(Node):
     '''订阅 PX4 状态并周期性写入 WorldState trace。'''
 
     def __init__(
@@ -34,7 +34,7 @@ class WorldStateNode(Node):
     ) -> None:
         '''初始化 PX4 状态订阅和 trace 定时器。'''
 
-        super().__init__('world_state_node')
+        super().__init__('px4_world_state_adapter')
         resolved_trace_path = trace_path or Path(
             os.environ.get('FLIGHT_AGENT_TRACE_PATH', 'artifacts/world_state.jsonl')
         )
@@ -98,7 +98,7 @@ def main() -> None:
     '''启动 WorldState ROS 2 节点。'''
 
     rclpy.init()
-    node = WorldStateNode()
+    node = Px4WorldStateAdapter()
     try:
         rclpy.spin(node)
     except KeyboardInterrupt:

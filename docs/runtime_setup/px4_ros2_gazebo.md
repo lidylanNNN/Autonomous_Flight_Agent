@@ -64,7 +64,7 @@ scripts/ros2_px4/smoke_test_topics.sh
 在单独终端启动 M2 WorldState Node：
 
 ```bash
-scripts/ros2_px4/run_world_state_node.sh
+scripts/ros2_px4/run_px4_world_state_adapter.sh
 ```
 
 Launcher 会把 uv 管理的 Pydantic 2 环境暴露给 ROS 2 System Python。Ubuntu

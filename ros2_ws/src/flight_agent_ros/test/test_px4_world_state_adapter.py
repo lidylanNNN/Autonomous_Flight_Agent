@@ -8,7 +8,7 @@ from types import SimpleNamespace
 
 import pytest
 import rclpy
-from flight_agent_ros.nodes.world_state_node import WorldStateNode
+from flight_agent_ros.adapters.px4_world_state_adapter import Px4WorldStateAdapter
 
 from flight_agent.components.vehicle.state import WorldStateAggregator
 
@@ -18,7 +18,7 @@ def test_node_exposes_its_latest_immutable_snapshot(tmp_path: Path) -> None:
 
     rclpy.init()
     aggregator = WorldStateAggregator()
-    node = WorldStateNode(
+    node = Px4WorldStateAdapter(
         aggregator=aggregator,
         trace_path=tmp_path / 'world_state.jsonl',
     )

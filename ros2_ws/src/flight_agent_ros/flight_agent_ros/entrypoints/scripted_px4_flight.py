@@ -37,7 +37,7 @@ from flight_agent_ros.adapters.px4_vehicle_command_adapter import (
     Px4VehicleCommandAdapter,
     VehicleCommandParameters,
 )
-from flight_agent_ros.nodes.world_state_node import WorldStateNode
+from flight_agent_ros.adapters.px4_world_state_adapter import Px4WorldStateAdapter
 
 
 @dataclass(frozen=True)
@@ -58,18 +58,18 @@ def main() -> None:
 
     parameters, startup_timeout_s, set_home_to_current = _parse_arguments()
     rclpy.init()
-    world_state_node = WorldStateNode()
+    world_state_adapter = Px4WorldStateAdapter()
     command_adapter = Px4VehicleCommandAdapter()
     offboard_adapter = Px4OffboardSetpointAdapter()
     executor = SingleThreadedExecutor()
-    nodes = (world_state_node, command_adapter, offboard_adapter)
+    nodes = (world_state_adapter, command_adapter, offboard_adapter)
     for node in nodes:
         executor.add_node(node)
     ros_thread = Thread(target=executor.spin, name='flight-agent-ros', daemon=True)
     ros_thread.start()
 
     backend = Px4Ros2FlightExecutionBackend(
-        state_reader=world_state_node.read_world_state,
+        state_reader=world_state_adapter.read_world_state,
         plan_executor=Px4CommandPlanExecutor(command_adapter),
         offboard_adapter=offboard_adapter,
     )
@@ -78,7 +78,7 @@ def main() -> None:
         results = asyncio.run(
             _run_when_vehicle_ready(
                 backend,
-                world_state_node,
+                world_state_adapter,
                 command_adapter,
                 parameters,
                 startup_timeout_s=startup_timeout_s,
@@ -134,7 +134,7 @@ def _parse_arguments() -> tuple[ScriptedFlightParameters, float, bool]:
 
 async def _run_when_vehicle_ready(
     backend: FlightExecutionBackendProtocol,
-    world_state_node: WorldStateNode,
+    world_state_adapter: Px4WorldStateAdapter,
     command_adapter: Px4VehicleCommandAdapter,
     parameters: ScriptedFlightParameters,
     *,
@@ -144,7 +144,7 @@ async def _run_when_vehicle_ready(
     '''等待 PX4 状态满足脚本启动条件后运行任务。'''
 
     state = await _wait_for_vehicle_ready(
-        world_state_node, startup_timeout_s, require_home=False
+        world_state_adapter, startup_timeout_s, require_home=False
     )
     if not state.home_valid and set_home_to_current:
         _print_json({'type': 'home_sync_started', 'state_id': state.state_id})
@@ -157,12 +157,12 @@ async def _run_when_vehicle_ready(
         _print_json({'type': 'home_sync_ack', 'status': ack.status})
         if ack.status is not Px4CommandAckStatus.ACCEPTED:
             raise RuntimeError(ack.failure_code or 'PX4_HOME_SYNC_FAILED')
-    await _wait_for_vehicle_ready(world_state_node, startup_timeout_s, require_home=True)
+    await _wait_for_vehicle_ready(world_state_adapter, startup_timeout_s, require_home=True)
     return await run_scripted_px4_flight(backend, parameters)
 
 
 async def _wait_for_vehicle_ready(
-    world_state_node: WorldStateNode,
+    world_state_adapter: Px4WorldStateAdapter,
     timeout_s: float,
     *,
     require_home: bool,
@@ -175,8 +175,8 @@ async def _wait_for_vehicle_ready(
     deadline = loop.time() + timeout_s
     latest_state: WorldState | None = None
     while loop.time() < deadline:
-        if world_state_node.ready:
-            latest_state = world_state_node.read_world_state()
+        if world_state_adapter.ready:
+            latest_state = world_state_adapter.read_world_state()
             if _vehicle_is_ready(latest_state, require_home=require_home):
                 return latest_state
         await asyncio.sleep(0.1)

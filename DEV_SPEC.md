@@ -1108,7 +1108,7 @@ FlightExecutionBackendProtocol
                     ↑
               WorldStateAggregator snapshot
                     ↑
-              WorldStateNode (ROS2 Node)
+              Px4WorldStateAdapter (ROS2 Node)
                     ↑
                    PX4
 ```
@@ -1124,7 +1124,7 @@ FlightExecutionBackendProtocol
 | `Px4CommandPlanExecutor` | 否 | 在统一超时预算内顺序提交 PX4 Command，并在首个失败 ACK 后停止 | Backend 调用栈 |
 | `Px4VehicleCommandAdapter` | 是 | 发布 `VehicleCommand`、订阅 `VehicleCommandAck`，并关联 `execution_id` | ROS Executor callback + Agent asyncio waiter |
 | `Px4OffboardSetpointAdapter` | 是 | 按固定频率发布 `OffboardControlMode` 心跳和位置目标 | ROS Executor timer callback |
-| `WorldStateNode` | 是 | 订阅 PX4 状态 Topic，更新 `WorldStateAggregator` 并生成强类型快照 | ROS Executor subscription / timer callback |
+| `Px4WorldStateAdapter` | 是 | 订阅 PX4 状态 Topic，更新 `WorldStateAggregator` 并生成强类型快照 | ROS Executor subscription / timer callback |
 
 目录归属不等于线程归属。`PX4Ros2FlightExecutionBackend` 位于 ROS2 Package，是因为它依赖
 ROS2 / PX4 Adapter；其异步方法由 Agent 调用，因此协程运行在 Agent asyncio loop，而不是
@@ -3189,7 +3189,7 @@ autonomous-flight-agent/
 │           │
 │           └── flight_agent_ros/
 │               ├── flight_execution_backend.py
-│               ├── world_state_node.py
+│               ├── adapters/px4_world_state_adapter.py
 │               ├── skill_executor_node.py
 │               ├── px4_commands.py
 │               ├── px4_topics.py

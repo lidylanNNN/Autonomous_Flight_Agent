@@ -25,4 +25,4 @@ venv_site_packages="$(
 )"
 export PYTHONPATH="${venv_site_packages}:${PROJECT_ROOT}/src:${PYTHONPATH:-}"
 
-exec "${PROJECT_ROOT}/ros2_ws/install/flight_agent_ros/lib/flight_agent_ros/world_state_node"
+exec "${PROJECT_ROOT}/ros2_ws/install/flight_agent_ros/lib/flight_agent_ros/px4_world_state_adapter"
