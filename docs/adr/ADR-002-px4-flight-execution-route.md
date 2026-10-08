@@ -26,9 +26,10 @@ v1.16.2 `px4_msgs`。选择必须同时满足本地坐标任务、PX4 原生 fai
 | `rtl` | PX4 原生 Return 模式 / 命令 | 返航、返航高度、原生 failsafe 与最终降落由 PX4 管理。 |
 | `land` | PX4 原生 Land 模式 / 命令 | PX4 负责下降、落地检测和自动解锁。 |
 
-Offboard heartbeat 由 `Px4Ros2FlightExecutionBackend` 的确定性定时器以 10 Hz 持续
-发布 `OffboardControlMode`；缓存的 `TrajectorySetpoint` 也以相同频率发布。LLM、Planner
-或单次 Skill 调用不得承担周期发送责任。
+Offboard heartbeat 由 `Px4OffboardSetpointAdapter` 的 ROS2 定时器以 10 Hz 持续发布
+`OffboardControlMode`；缓存的 `TrajectorySetpoint` 也以相同频率发布。
+`Px4Ros2FlightExecutionBackend` 只负责目标流生命周期，LLM、Planner 或单次 Skill 调用
+不得承担周期发送责任。
 
 ## 原因
 
@@ -49,7 +50,8 @@ Offboard heartbeat 由 `Px4Ros2FlightExecutionBackend` 的确定性定时器以 
 
 ## 后果
 
-- `Px4Ros2FlightExecutionBackend` 必须同时维护命令 ACK 关联和 Offboard 定时器。
+- `Px4Ros2FlightExecutionBackend` 组织命令与 Offboard 生命周期；
+  `Px4VehicleCommandAdapter` 负责 ACK 关联，`Px4OffboardSetpointAdapter` 负责定时发布。
 - Backend 必须将业务侧正高度与 PX4 NED 向下轴明确转换，并记录使用的坐标参考。
 - 真实 PX4/Gazebo 测试必须覆盖 Offboard 信号丢失、ACK 拒绝、超时与取消。
 - M3 不引入视觉、VLA 或自主选点降落；它们若接入，只能经由后续感知事实和 Safety 边界。

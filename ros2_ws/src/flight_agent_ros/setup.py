@@ -14,6 +14,8 @@ setup(
     zip_safe=True,
     entry_points={
         'console_scripts': [
+            'scripted_px4_flight = '
+            'flight_agent_ros.entrypoints.scripted_px4_flight:main',
             'world_state_node = flight_agent_ros.nodes.world_state_node:main',
         ],
     },

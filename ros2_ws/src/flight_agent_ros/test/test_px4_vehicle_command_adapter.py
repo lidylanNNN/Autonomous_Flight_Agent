@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from threading import Thread
 from types import SimpleNamespace
 
 import rclpy
@@ -33,15 +34,18 @@ async def _assert_accepted_ack_is_correlated() -> None:
             )
         )
         await asyncio.sleep(0)
-        await asyncio.to_thread(
-            adapter._handle_command_ack,
-            SimpleNamespace(
+        ack_thread = Thread(
+            target=adapter._handle_command_ack,
+            args=(SimpleNamespace(
                 command=VehicleCommand.VEHICLE_CMD_NAV_RETURN_TO_LAUNCH,
                 result=VehicleCommandAck.VEHICLE_CMD_RESULT_ACCEPTED,
                 result_param1=0,
                 result_param2=0,
-            ),
+            ),),
         )
+        ack_thread.start()
+        ack_thread.join(timeout=1.0)
+        assert not ack_thread.is_alive()
         outcome = await task
         assert outcome.execution_id == 'exec-1'
         assert outcome.status is Px4CommandAckStatus.ACCEPTED
