@@ -1,6 +1,6 @@
 # Mission 与 Safety Contract
 
-状态：M4-1 契约冻结基线
+状态：M4-2 Schema 与 State Check 基线
 
 ## 目的
 
@@ -19,8 +19,8 @@ Safety Supervisor
 SafetyDecision
 ```
 
-本节点只冻结输入、输出和稳定原因码。具体检查器与 Human Approval 状态机从 M4-2
-开始实现。
+M4-1 冻结输入、输出和稳定原因码；M4-2 已实现独立的 Schema、State Freshness 和
+State ID 检查。Safety Supervisor 总装配与 Human Approval 状态机仍未实现。
 
 ## Mission Contract
 
@@ -71,6 +71,25 @@ Proposal 顶层结构仍然是严格的：额外字段、空 ID 和负 `plan_rev
 只有 `APPROVE` 可以在后续装配逻辑中生成 `ApprovedSkillCommand`。`REJECT` 和
 `HUMAN_APPROVAL` 都不得进入 `FlightExecutionBackendProtocol.execute()`。
 
+## 已实现检查
+
+`check_proposal_schema()` 按固定规则检查：
+
+- Proposal 的 `mission_id` 是否属于当前 Mission Contract；
+- Skill 名是否存在且位于 `allowed_skills`；
+- Skill 参数是否能由对应的强类型参数模型解析。
+
+未知或未授权 Skill 返回 `SKILL_NOT_ALLOWED`。任务归属错误或参数错误返回
+`INVALID_SCHEMA`；多个错误按 `INVALID_SCHEMA -> SKILL_NOT_ALLOWED` 返回。
+
+`check_proposal_state()` 按固定顺序检查：
+
+1. `WorldState` 是否超过 `max_state_age_ms`；
+2. Proposal 的 `based_on_state_id` 是否等于当前 `WorldState.state_id`。
+
+对应原因码顺序固定为 `STALE_STATE -> STATE_ID_MISMATCH`。状态年龄等于上限时仍算
+新鲜，超过一毫秒即拒绝。
+
 ## 原因码
 
 原因码是日志、Trace、测试与测评集共同使用的稳定机器字段，不使用自由文本代替。
@@ -92,12 +111,13 @@ Proposal 顶层结构仍然是严格的：额外字段、空 ID 和负 `plan_rev
 
 ## 当前边界
 
-M4-1 尚未实现：
+M4-2 尚未实现：
 
-- 检查顺序和 Safety Supervisor；
+- Safety Supervisor 对所有检查器的总装配；
 - 从已批准 Proposal 生成 `ApprovedSkillCommand`；
 - Human Approval 请求、批准、拒绝和超时状态机；
 - Safety Trace Event；
+- Authority、Vehicle State、Sequence、Geofence、Envelope、Battery 和 Health 检查；
 - Safety Boundary 的集成测试与 Gazebo 验证。
 
-因此本节点不能声明系统已经具有运行时安全拦截能力。
+因此当前只能声明独立规则可确定性返回拒绝原因，不能声明生产执行链已经不可绕过。

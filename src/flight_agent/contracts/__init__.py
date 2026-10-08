@@ -25,6 +25,7 @@ from flight_agent.contracts.models.skill_model import (
     SkillResult,
     SkillSpec,
     TakeoffArgs,
+    parse_skill_arguments,
     skill_result_duration_s,
 )
 from flight_agent.contracts.models.world_state_model import (
@@ -67,5 +68,6 @@ __all__ = [
     'WorldState',
     'enu_to_ned',
     'ned_to_enu',
+    'parse_skill_arguments',
     'skill_result_duration_s',
 ]

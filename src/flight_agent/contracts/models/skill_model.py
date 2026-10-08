@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import timedelta
 from enum import StrEnum
-from typing import Any
+from typing import Any, cast
 
 from pydantic import (
     AwareDatetime,
@@ -116,9 +116,7 @@ class ApprovedSkillCommand(StrictFrozenModel):
         except ValueError:
             return value
         parsed = dict(value)
-        parsed['arguments'] = _ARGUMENT_MODEL_BY_SKILL[skill_name].model_validate(
-            value['arguments']
-        )
+        parsed['arguments'] = parse_skill_arguments(skill_name, value['arguments'])
         return parsed
 
 
@@ -158,6 +156,13 @@ class SkillSpec(StrictFrozenModel):
     required_state: tuple[str, ...]
     authority: SkillAuthority
     timeout_s: PositiveFloat
+
+
+def parse_skill_arguments(skill_name: SkillName, arguments: Any) -> SkillArguments:
+    '''按Skill名称将原始参数解析为唯一的强类型参数模型。'''
+
+    model = _ARGUMENT_MODEL_BY_SKILL[skill_name]
+    return cast(SkillArguments, model.model_validate(arguments))
 
 
 def skill_result_duration_s(result: SkillResult) -> float:
