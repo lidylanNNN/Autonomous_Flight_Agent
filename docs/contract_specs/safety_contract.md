@@ -1,6 +1,6 @@
 # Mission 与 Safety Contract
 
-状态：M4-2 Schema 与 State Check 基线
+状态：M4-3 Authority、Vehicle State 与 Sequence Check 基线
 
 ## 目的
 
@@ -20,7 +20,8 @@ SafetyDecision
 ```
 
 M4-1 冻结输入、输出和稳定原因码；M4-2 已实现独立的 Schema、State Freshness 和
-State ID 检查。Safety Supervisor 总装配与 Human Approval 状态机仍未实现。
+State ID 检查；M4-3 已实现 Authority、Vehicle State 和 Command Sequence 检查。
+Safety Supervisor 总装配与 Human Approval 状态机仍未实现。
 
 ## Mission Contract
 
@@ -90,6 +91,23 @@ Proposal 顶层结构仍然是严格的：额外字段、空 ID 和负 `plan_rev
 对应原因码顺序固定为 `STALE_STATE -> STATE_ID_MISMATCH`。状态年龄等于上限时仍算
 新鲜，超过一毫秒即拒绝。
 
+`check_control_authority()` 只允许 `AGENT_ALLOWED`。Human、Recovery 或 PX4 Failsafe
+持有控制权时，普通 Agent Proposal 返回 `AUTHORITY_NOT_GRANTED`。
+
+`check_vehicle_state()` 检查状态是否足以判断指定 Skill：
+
+- `landed` 未知时返回 `INVALID_VEHICLE_STATE`；
+- 空中状态但未解锁时返回 `INVALID_VEHICLE_STATE`；
+- GoTo、Hold 或 Land 缺少有效位置时返回 `INVALID_VEHICLE_STATE`。
+
+`check_command_sequence()` 只负责生命周期转换：地面只允许 Takeoff；空中允许 GoTo、
+Hold、RTL 和 Land；`AUTO_TAKEOFF`、`AUTO_RTL` 或 `AUTO_LAND` 进行期间不接受新的普通
+Agent Skill。非法转换返回 `INVALID_COMMAND_SEQUENCE`。若 `landed` 未知，则与
+Vehicle State Check 一样返回 `INVALID_VEHICLE_STATE`，确保单独调用 Sequence 时也不会
+把未知状态误判为通过。两个检查的结果由后续 Supervisor 去重。
+
+Home、Failsafe、Link 和 Health 不属于 M4-3，由 M4-5 单独检查。
+
 ## 原因码
 
 原因码是日志、Trace、测试与测评集共同使用的稳定机器字段，不使用自由文本代替。
@@ -111,13 +129,13 @@ Proposal 顶层结构仍然是严格的：额外字段、空 ID 和负 `plan_rev
 
 ## 当前边界
 
-M4-2 尚未实现：
+M4-3 尚未实现：
 
 - Safety Supervisor 对所有检查器的总装配；
 - 从已批准 Proposal 生成 `ApprovedSkillCommand`；
 - Human Approval 请求、批准、拒绝和超时状态机；
 - Safety Trace Event；
-- Authority、Vehicle State、Sequence、Geofence、Envelope、Battery 和 Health 检查；
+- Geofence、Envelope、Battery、Home、Failsafe、Link 和 Health 检查；
 - Safety Boundary 的集成测试与 Gazebo 验证。
 
 因此当前只能声明独立规则可确定性返回拒绝原因，不能声明生产执行链已经不可绕过。
