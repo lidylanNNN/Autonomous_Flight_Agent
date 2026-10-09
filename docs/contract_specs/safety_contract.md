@@ -1,6 +1,6 @@
 # Mission 与 Safety Contract
 
-状态：M4-3 Authority、Vehicle State 与 Sequence Check 基线
+状态：M4-4 Geofence、目标高度与任务半径检查基线
 
 ## 目的
 
@@ -108,6 +108,19 @@ Vehicle State Check 一样返回 `INVALID_VEHICLE_STATE`，确保单独调用 Se
 
 Home、Failsafe、Link 和 Health 不属于 M4-3，由 M4-5 单独检查。
 
+`check_geofence()` 只对 GoTo 生效：目标点越过扣除 `boundary_margin_m` 后的矩形返回
+`WAYPOINT_OUTSIDE_GEOFENCE`；目标合法但当前位置越界返回 `ROUTE_OUTSIDE_GEOFENCE`；
+当前本地位置无效返回 `INVALID_VEHICLE_STATE`。起点和终点都在轴对齐矩形内时，
+两点的直线段也在内；检查不保证实际 PX4 路径不越界，PX4 固件围栏仍须开启。
+
+`check_flight_envelope()` 只对 Takeoff/GoTo 的目标高度生效，超过
+`max_altitude_m` 返回 `ALTITUDE_ABOVE_ENVELOPE`。`check_mission_radius()` 只对
+GoTo 生效，以 `WorldState.home_position_ned_m` 为圆心计算目标的水平距离；超出
+`max_mission_radius_m` 返回 `MISSION_RADIUS_EXCEEDED`，缺少有效局部 Home 返回
+`HOME_REFERENCE_UNAVAILABLE`。PX4 `HomePosition.valid_lpos` 和局部坐标数值共同
+决定参考是否有效，不把 NED 原点直接当 Home。现有 Skill 无目标速度参数，
+`SPEED_ABOVE_ENVELOPE` 还不会由当前检查器产生。
+
 ## 原因码
 
 原因码是日志、Trace、测试与测评集共同使用的稳定机器字段，不使用自由文本代替。
@@ -129,13 +142,13 @@ Home、Failsafe、Link 和 Health 不属于 M4-3，由 M4-5 单独检查。
 
 ## 当前边界
 
-M4-3 尚未实现：
+当前尚未实现：
 
 - Safety Supervisor 对所有检查器的总装配；
 - 从已批准 Proposal 生成 `ApprovedSkillCommand`；
 - Human Approval 请求、批准、拒绝和超时状态机；
 - Safety Trace Event；
-- Geofence、Envelope、Battery、Home、Failsafe、Link 和 Health 检查；
+- 目标速度、Battery、Home、Failsafe、Link 和 Health 检查；
 - Safety Boundary 的集成测试与 Gazebo 验证。
 
 因此当前只能声明独立规则可确定性返回拒绝原因，不能声明生产执行链已经不可绕过。

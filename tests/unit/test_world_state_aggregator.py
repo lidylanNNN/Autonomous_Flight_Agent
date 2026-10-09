@@ -4,6 +4,7 @@ from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 
 from flight_agent.components.vehicle.state import WorldStateAggregator
+from flight_agent.contracts import Vector3
 
 
 def update_required_topics(aggregator: WorldStateAggregator, received_at: datetime) -> None:
@@ -179,6 +180,10 @@ def test_home_ack_and_failsafe_are_mapped_to_runtime_health() -> None:
             alt=42.5,
             valid_hpos=True,
             valid_alt=True,
+            valid_lpos=True,
+            x=12.0,
+            y=-7.0,
+            z=1.0,
         ),
         now,
     )
@@ -207,6 +212,7 @@ def test_home_ack_and_failsafe_are_mapped_to_runtime_health() -> None:
     assert state.home_position_wgs84.latitude_deg == 30.123
     assert state.home_position_wgs84.longitude_deg == 120.456
     assert state.home_position_wgs84.altitude_amsl_m == 42.5
+    assert state.home_position_ned_m == Vector3(x=12.0, y=-7.0, z=1.0)
     assert state.last_command_ack == '400:ACCEPTED'
     assert state.flight_mode == 'AUTO_RTL'
     assert state.failsafe_active is True
@@ -229,6 +235,10 @@ def test_invalid_home_sample_clears_previous_reference() -> None:
             alt=50.0,
             valid_hpos=True,
             valid_alt=True,
+            valid_lpos=True,
+            x=12.0,
+            y=-7.0,
+            z=1.0,
         ),
         now,
     )
@@ -240,6 +250,10 @@ def test_invalid_home_sample_clears_previous_reference() -> None:
             alt=50.0,
             valid_hpos=False,
             valid_alt=True,
+            valid_lpos=False,
+            x=float('nan'),
+            y=0.0,
+            z=0.0,
         ),
         now,
     )
@@ -248,6 +262,36 @@ def test_invalid_home_sample_clears_previous_reference() -> None:
 
     assert state.home_valid is False
     assert state.home_position_wgs84 is None
+    assert state.home_position_ned_m is None
+
+
+def test_invalid_local_home_does_not_invalidate_global_home() -> None:
+    '''验证局部坐标异常不会误清除有效的全球Home参考。'''
+
+    now = datetime(2026, 1, 1, tzinfo=UTC)
+    aggregator = WorldStateAggregator()
+    update_required_topics(aggregator, now)
+    aggregator.update_home_position(
+        SimpleNamespace(
+            timestamp=14,
+            lat=30.0,
+            lon=120.0,
+            alt=50.0,
+            valid_hpos=True,
+            valid_alt=True,
+            valid_lpos=True,
+            x=float('nan'),
+            y=0.0,
+            z=0.0,
+        ),
+        now,
+    )
+
+    state = aggregator.snapshot(now)
+
+    assert state.home_valid is True
+    assert state.home_position_wgs84 is not None
+    assert state.home_position_ned_m is None
 
 
 def test_optional_event_age_does_not_make_required_state_stale() -> None:

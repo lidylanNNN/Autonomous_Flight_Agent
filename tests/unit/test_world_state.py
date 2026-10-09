@@ -84,5 +84,7 @@ def test_world_state_accepts_trace_without_optional_home_reference() -> None:
 
     payload = make_state(datetime(2026, 1, 1, tzinfo=UTC)).model_dump(mode='json')
     payload.pop('home_position_wgs84')
+    payload.pop('home_position_ned_m')
 
     assert WorldState.model_validate(payload).home_position_wgs84 is None
+    assert WorldState.model_validate(payload).home_position_ned_m is None

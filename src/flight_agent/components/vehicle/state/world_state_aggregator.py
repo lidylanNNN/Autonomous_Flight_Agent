@@ -78,6 +78,7 @@ class WorldStateAggregator:
         self._position_valid = False
         self._home_valid = False
         self._home_position_wgs84: GlobalPosition | None = None
+        self._home_position_ned_m: Vector3 | None = None
         self._failsafe_active = False
         self._gcs_connection_healthy = True
         self._preflight_checks_pass = False
@@ -157,7 +158,7 @@ class WorldStateAggregator:
     def update_home_position(
         self, message: Any, received_at: datetime | None = None
     ) -> None:
-        '''接收 PX4 HomePosition 并保存有效的 WGS84 Home 参考。'''
+        '''接收 PX4 HomePosition 并分别保存全局与局部 Home 参考。'''
 
         latitude_deg = float(getattr(message, 'lat', float('nan')))
         longitude_deg = float(getattr(message, 'lon', float('nan')))
@@ -178,6 +179,15 @@ class WorldStateAggregator:
                 altitude_amsl_m=altitude_amsl_m,
             )
             if self._home_valid
+            else None
+        )
+        north_m = float(getattr(message, 'x', float('nan')))
+        east_m = float(getattr(message, 'y', float('nan')))
+        down_m = float(getattr(message, 'z', float('nan')))
+        self._home_position_ned_m = (
+            Vector3(x=north_m, y=east_m, z=down_m)
+            if bool(getattr(message, 'valid_lpos', False))
+            and all(map(isfinite, (north_m, east_m, down_m)))
             else None
         )
         self._update_source_timestamp(message.timestamp)
@@ -247,6 +257,7 @@ class WorldStateAggregator:
             position_valid=self._position_valid,
             home_valid=self._home_valid,
             home_position_wgs84=self._home_position_wgs84,
+            home_position_ned_m=self._home_position_ned_m,
             failsafe_active=self._failsafe_active,
             link_healthy=link_healthy,
             last_command_ack=self._last_command_ack,

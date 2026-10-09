@@ -54,6 +54,7 @@ class WorldState(BaseModel):
     position_valid: bool = False
     home_valid: bool = False
     home_position_wgs84: GlobalPosition | None = None
+    home_position_ned_m: Vector3 | None = None
     failsafe_active: bool = False
     link_healthy: bool = False
     last_command_ack: str | None = None
