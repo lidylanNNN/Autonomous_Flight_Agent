@@ -2,6 +2,7 @@
 
 from flight_agent.components.safety.authority import check_control_authority
 from flight_agent.components.safety.envelope import (
+    check_controller_speed_limit,
     check_flight_envelope,
     check_mission_radius,
 )
@@ -14,6 +15,7 @@ from flight_agent.components.safety.vehicle_state import check_vehicle_state
 __all__ = [
     'check_command_sequence',
     'check_control_authority',
+    'check_controller_speed_limit',
     'check_flight_envelope',
     'check_geofence',
     'check_mission_radius',

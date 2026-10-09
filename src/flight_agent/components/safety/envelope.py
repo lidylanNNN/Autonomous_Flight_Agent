@@ -35,6 +35,24 @@ def check_flight_envelope(
     return ()
 
 
+def check_controller_speed_limit(
+    px4_max_horizontal_speed_mps: float | None,
+    constraints: MissionConstraints,
+) -> tuple[SafetyReasonCode, ...]:
+    '''检查传入的PX4控制器限速读数是否满足任务约束。'''
+
+    if (
+        px4_max_horizontal_speed_mps is None
+        or isinstance(px4_max_horizontal_speed_mps, bool)
+        or not isfinite(px4_max_horizontal_speed_mps)
+        or px4_max_horizontal_speed_mps <= 0.0
+    ):
+        return (SafetyReasonCode.SYSTEM_UNHEALTHY,)
+    if px4_max_horizontal_speed_mps > constraints.max_horizontal_speed_mps:
+        return (SafetyReasonCode.SPEED_ABOVE_ENVELOPE,)
+    return ()
+
+
 def check_mission_radius(
     skill_name: SkillName,
     arguments: SkillArguments,

@@ -1,10 +1,12 @@
 '''M4 local geofence and target-altitude boundary tests.'''
 
 from datetime import UTC, datetime
+from math import inf, nan
 
 import pytest
 
 from flight_agent.components.safety import (
+    check_controller_speed_limit,
     check_flight_envelope,
     check_geofence,
     check_mission_radius,
@@ -135,6 +137,29 @@ def test_target_altitude_limit(
         )
     )
     assert check_flight_envelope(skill_name, arguments, make_constraints()) == expected
+
+
+@pytest.mark.parametrize(
+    ('px4_limit_mps', 'expected'),
+    [
+        (8.0, ()),
+        (7.9, ()),
+        (8.01, (SafetyReasonCode.SPEED_ABOVE_ENVELOPE,)),
+        (None, (SafetyReasonCode.SYSTEM_UNHEALTHY,)),
+        (0.0, (SafetyReasonCode.SYSTEM_UNHEALTHY,)),
+        (-1.0, (SafetyReasonCode.SYSTEM_UNHEALTHY,)),
+        (nan, (SafetyReasonCode.SYSTEM_UNHEALTHY,)),
+        (inf, (SafetyReasonCode.SYSTEM_UNHEALTHY,)),
+        (True, (SafetyReasonCode.SYSTEM_UNHEALTHY,)),
+    ],
+)
+def test_controller_speed_limit_requires_usable_px4_value(
+    px4_limit_mps: float | None,
+    expected: tuple[SafetyReasonCode, ...],
+) -> None:
+    '''验证PX4限速的边界及缺失、非法值均不能误放行。'''
+
+    assert check_controller_speed_limit(px4_limit_mps, make_constraints()) == expected
 
 
 def test_unrelated_skill_is_not_checked_as_goto() -> None:
