@@ -1,11 +1,11 @@
-# Autonomous Flight Agent — DEV_SPEC v1.29
+# Autonomous Flight Agent — DEV_SPEC v1.30
 
 > **项目**：Autonomous Flight Agent — 飞行机器人智能决策与任务执行系统  
-> **版本**：v1.29
+> **版本**：v1.30
 > **日期**：2026-10-10
 > **状态**：Implementation
 > **SSOT**：本文件作为 V1 架构、接口、开发顺序、Evaluation、Ablation 与发布验收的 Single Source of Truth。
-> **v1.29 变更**：M4-4 增加 PX4 限速读数的来源、数值与新鲜度校验；Safety Supervisor 装配仍未完成。
+> **v1.30 变更**：修正电池告警映射：仅 PX4 `WARNING_NONE` / `WARNING_LOW` 且无故障位视为电池无故障；严重、未知告警不再漏过运行健康检查。M4-5 独立检查器仍未实现。
 > **真实性边界**：本规格对应 `Noah_AIforRobotics_简历_v24` 中的 Autonomous Flight Agent 目标态设计。当前简历中 Task Success / Safety / Recovery 数字均明确为“占位，待实测替换”，因此本文件不把任何指标写成已实现成果。
 
 ---

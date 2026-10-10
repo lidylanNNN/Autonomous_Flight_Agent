@@ -3,6 +3,8 @@
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 
+import pytest
+
 from flight_agent.components.vehicle.state import WorldStateAggregator
 from flight_agent.contracts import Vector3
 
@@ -164,6 +166,44 @@ def test_invalid_battery_data_keeps_link_but_fails_runtime_health() -> None:
     assert state.health_flags['battery_valid'] is False
     assert state.health_flags['battery_fault_free'] is False
     assert state.health_flags['runtime_healthy'] is False
+
+
+@pytest.mark.parametrize(
+    ('warning', 'faults', 'expected_healthy'),
+    [
+        (0, 0, True),   # NONE
+        (1, 0, True),   # LOW: task threshold is checked separately
+        (2, 0, False),  # CRITICAL
+        (3, 0, False),  # EMERGENCY
+        (4, 0, False),  # FAILED
+        (5, 0, False),  # Unknown: fail closed
+        (6, 0, False),  # UNHEALTHY
+        (7, 0, False),  # CHARGING
+        (0, 1, False),  # Fault bit even without a warning
+    ],
+)
+def test_battery_warning_and_faults_affect_runtime_health(
+    warning: int, faults: int, expected_healthy: bool
+) -> None:
+    now = datetime(2026, 1, 1, tzinfo=UTC)
+    aggregator = WorldStateAggregator()
+    update_required_topics(aggregator, now)
+    aggregator.update_battery(
+        SimpleNamespace(
+            timestamp=14,
+            connected=True,
+            remaining=0.8,
+            warning=warning,
+            faults=faults,
+        ),
+        now,
+    )
+
+    state = aggregator.snapshot(now)
+
+    assert state.battery_percent == 80.0
+    assert state.health_flags['battery_fault_free'] is expected_healthy
+    assert state.health_flags['runtime_healthy'] is expected_healthy
 
 
 def test_home_ack_and_failsafe_are_mapped_to_runtime_health() -> None:

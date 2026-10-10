@@ -9,6 +9,7 @@ from typing import Any
 from flight_agent.contracts import GlobalPosition, Vector3, WorldState
 
 _REQUIRED_TOPICS = ('local_position', 'status', 'land_detected', 'battery')
+_NON_FATAL_BATTERY_WARNINGS = frozenset({0, 1})
 
 _NAV_STATE_NAMES = {
     0: 'MANUAL',
@@ -147,10 +148,10 @@ class WorldStateAggregator:
             self._battery_connected and isfinite(remaining) and 0.0 <= remaining <= 1.0
         )
         warning = int(getattr(message, 'warning', 0))
-        self._battery_fault_free = int(getattr(message, 'faults', 0)) == 0 and warning not in {
-            4,
-            6,
-        }
+        self._battery_fault_free = (
+            int(getattr(message, 'faults', 0)) == 0
+            and warning in _NON_FATAL_BATTERY_WARNINGS
+        )
         self._battery_percent = remaining * 100.0 if self._battery_valid else None
         self._update_source_timestamp(message.timestamp)
         self._mark_received('battery', received_at)
