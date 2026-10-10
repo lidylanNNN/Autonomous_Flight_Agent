@@ -3,13 +3,14 @@
 from __future__ import annotations
 
 import asyncio
-from datetime import UTC
+from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 
 import pytest
 from flight_agent_ros.adapters.px4_parameter_adapter import (
     Px4ParameterAdapter,
     Px4ParameterReadError,
+    Px4ParameterReading,
 )
 from pymavlink import mavutil
 
@@ -142,3 +143,51 @@ def test_invalid_timeout_is_rejected(timeout_s: float) -> None:
 
     with pytest.raises(ValueError, match='timeout_s'):
         asyncio.run(Px4ParameterAdapter().read_mpc_xy_vel_max(timeout_s=timeout_s))
+
+
+def test_validates_fresh_speed_limit_reading() -> None:
+    now = datetime(2026, 10, 10, tzinfo=UTC)
+    reading = Px4ParameterReading(
+        name='MPC_XY_VEL_MAX', value=7.5, received_at=now - timedelta(seconds=1),
+        system_id=1, component_id=1,
+    )
+
+    assert Px4ParameterAdapter().validate_speed_limit_reading(
+        reading, max_age_s=1.0, now=now
+    ) == 7.5
+
+
+@pytest.mark.parametrize(
+    ('changes', 'error'),
+    [
+        ({'name': 'MPC_XY_CRUISE'}, 'source'),
+        ({'system_id': 2}, 'source'),
+        ({'component_id': 2}, 'source'),
+        ({'value': float('nan')}, 'value'),
+        ({'value': 0.0}, 'value'),
+        ({'value': True}, 'value'),
+        ({'received_at': datetime(2026, 10, 9, tzinfo=UTC)}, 'stale'),
+        ({'received_at': datetime(2026, 10, 11, tzinfo=UTC)}, 'future'),
+        ({'received_at': datetime(2026, 10, 10, tzinfo=UTC).replace(tzinfo=None)}, 'timezone-aware'),
+    ],
+)
+def test_rejects_untrusted_speed_limit_reading(changes: dict[str, object], error: str) -> None:
+    now = datetime(2026, 10, 10, tzinfo=UTC)
+    fields: dict[str, object] = {
+        'name': 'MPC_XY_VEL_MAX', 'value': 7.5, 'received_at': now,
+        'system_id': 1, 'component_id': 1,
+    }
+    fields.update(changes)
+    reading = Px4ParameterReading(**fields)
+
+    with pytest.raises(Px4ParameterReadError, match=error):
+        Px4ParameterAdapter().validate_speed_limit_reading(reading, max_age_s=1.0, now=now)
+
+
+@pytest.mark.parametrize('max_age_s', [0.0, -1.0, float('nan'), True])
+def test_invalid_reading_age_limit_is_rejected(max_age_s: float) -> None:
+    now = datetime(2026, 10, 10, tzinfo=UTC)
+    reading = Px4ParameterReading('MPC_XY_VEL_MAX', 7.5, now, 1, 1)
+
+    with pytest.raises(ValueError, match='max_age_s'):
+        Px4ParameterAdapter().validate_speed_limit_reading(reading, max_age_s=max_age_s, now=now)

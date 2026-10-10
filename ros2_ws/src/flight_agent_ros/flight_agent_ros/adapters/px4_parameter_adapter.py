@@ -56,6 +56,33 @@ class Px4ParameterAdapter:
             raise ValueError('timeout_s must be finite and positive')
         return await asyncio.to_thread(self._read_mpc_xy_vel_max_blocking, timeout_s)
 
+    def validate_speed_limit_reading(
+        self,
+        reading: Px4ParameterReading,
+        *,
+        max_age_s: float,
+        now: datetime | None = None,
+    ) -> float:
+        '''消费读数前确认其参数名、来源、数值和时效。'''
+
+        if isinstance(max_age_s, bool) or not isfinite(max_age_s) or max_age_s <= 0.0:
+            raise ValueError('max_age_s must be finite and positive')
+        if (
+            reading.name != _SPEED_PARAM_NAME
+            or reading.system_id != self._target_system
+            or reading.component_id != self._target_component
+        ):
+            raise Px4ParameterReadError('PX4 speed parameter reading has unexpected source')
+        if isinstance(reading.value, bool) or not isfinite(reading.value) or reading.value <= 0.0:
+            raise Px4ParameterReadError('PX4 speed parameter reading has invalid value')
+        current_time = now if now is not None else datetime.now(UTC)
+        if reading.received_at.tzinfo is None or current_time.tzinfo is None:
+            raise Px4ParameterReadError('PX4 speed parameter reading requires timezone-aware time')
+        age_s = (current_time - reading.received_at).total_seconds()
+        if not 0.0 <= age_s <= max_age_s:
+            raise Px4ParameterReadError('PX4 speed parameter reading is stale or future-dated')
+        return reading.value
+
     def _read_mpc_xy_vel_max_blocking(self, timeout_s: float) -> Px4ParameterReading:
         '''与PX4交换一次PARAM_REQUEST_READ和PARAM_VALUE。'''
 
