@@ -1,11 +1,11 @@
-# Autonomous Flight Agent — DEV_SPEC v1.30
+# Autonomous Flight Agent — DEV_SPEC v1.31
 
 > **项目**：Autonomous Flight Agent — 飞行机器人智能决策与任务执行系统  
-> **版本**：v1.30
+> **版本**：v1.31
 > **日期**：2026-10-10
 > **状态**：Implementation
 > **SSOT**：本文件作为 V1 架构、接口、开发顺序、Evaluation、Ablation 与发布验收的 Single Source of Truth。
-> **v1.30 变更**：修正电池告警映射：仅 PX4 `WARNING_NONE` / `WARNING_LOW` 且无故障位视为电池无故障；严重、未知告警不再漏过运行健康检查。M4-5 独立检查器仍未实现。
+> **v1.31 变更**：M4-5 增加 Battery、System Health 和 Home Reference 独立检查器；尚未接入 Safety Supervisor。
 > **真实性边界**：本规格对应 `Noah_AIforRobotics_简历_v24` 中的 Autonomous Flight Agent 目标态设计。当前简历中 Task Success / Safety / Recovery 数字均明确为“占位，待实测替换”，因此本文件不把任何指标写成已实现成果。
 
 ---
@@ -14,8 +14,8 @@
 # Progress Management
 
 > **当前阶段**：M4 — Mission Contract + Safety Supervisor
-> **当前真实性状态**：M0–M3 已完成；M4-1 至 M4-3 已完成，M4-4 独立检查器、PX4 限速读取及读数校验已实现，读数尚未进入 Safety Supervisor。
-> **当前重点**：推进 M4-5 Resource、Home 和 Health 独立检查；M4-7 再把 M4-4 的校验与 Safety Supervisor 装配。在此之前不能将速度约束标为生产拦截完成。
+> **当前真实性状态**：M0–M3 已完成；M4-1 至 M4-3、M4-5 独立检查器已完成；M4-4 独立检查器、PX4 限速读取及读数校验已实现，但尚未进入 Safety Supervisor。
+> **当前重点**：推进 M4-6 Human Approval；M4-7 将独立检查器与 PX4 限速读数校验装配进 Safety Supervisor。在此之前不能将任一检查器标为生产拦截完成。
 
 ## Progress Status Rules
 
@@ -52,7 +52,7 @@ Deliverables complete
 | M1 | PX4 + ROS2 + Gazebo Runtime | pinned PX4/`px4_msgs`；ROS2 workspace；uXRCE-DDS；Gazebo x500；headless 启动脚本；health check；bootstrap scripts；`docs/milestones/M1.md` | **7–10 天** | DONE | PX4 v1.16.2、ROS 2 Jazzy、Gazebo Harmonic、uXRCE-DDS 与 PX4 topic 链路已验证 |
 | M2 | World State + Trace Base | `WorldState`；ROS2 subscriptions；state freshness；frame normalization；Trace Recorder；runtime health；`docs/milestones/M2.md` | **3–4 天** | DONE | 2026-09-17 完成；WorldState、freshness、NED/ENU、runtime health、Trace recorder/replay 与 PX4/Gazebo 实测通过 |
 | M3 | Deterministic Flight Skills | Takeoff/GoTo/Hold/RTL/Land；Skill Executor；timeout/ACK/cancel；`MockFlightExecutionBackend`；Mock 文档/Tests；`docs/milestones/M3.md` | **6–8 天** | DONE | 2026-10-08 完成；真实 PX4/Gazebo 四 Skill 闭环、40 项 ROS 测试和 Bad Case Review 已收口 |
-| M4 | Mission Contract + Safety Supervisor | `MissionContract`；Schema/State/Sequence/Geofence/Envelope/Authority 校验；Human Approval；`MockHumanApproval`；SafetyDecision reason codes；`docs/milestones/M4.md` | **6–8 天** | IN_PROGRESS | M4-1 至 M4-3 完成；M4-4 独立检查器、MAVLink 真实参数读取与读数校验已实现，总装配待补 |
+| M4 | Mission Contract + Safety Supervisor | `MissionContract`；Schema/State/Sequence/Geofence/Envelope/Authority 校验；Human Approval；`MockHumanApproval`；SafetyDecision reason codes；`docs/milestones/M4.md` | **6–8 天** | IN_PROGRESS | M4-1 至 M4-3 与 M4-5 独立检查器完成；M4-4 独立检查器及真实参数读取已实现，Human Approval 与总装配待补 |
 | M5 | Minimal LLM Planner | Natural-language Mission；LLM Provider；Structured Plan；Function Calling；Agent Loop；Context Builder；`MockLLMProvider`；`docs/milestones/M5.md` | **4–5 天** | NOT_STARTED | 依赖 M3/M4 |
 | M6 | State Verifier | Verifier Registry；Takeoff/GoTo/Hold/RTL/Land Verifier；dwell/timeout；`VerificationResult`；`docs/milestones/M6.md` | **3–5 天** | NOT_STARTED | 依赖 M3/M5；M6 完成后应录制第一版完整 Demo |
 | M7 | Recovery / Replanning | Failure Taxonomy；Deterministic Recovery Policy；Retry/Replan Budget；Hold/RTL/Land fallback；Replanner；plan revision trace；`docs/milestones/M7.md` | **5–7 天** | NOT_STARTED | 依赖 M4/M6 |
