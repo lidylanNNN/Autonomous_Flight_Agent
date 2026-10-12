@@ -20,8 +20,11 @@ SafetyDecision
 ```
 
 M4-1 冻结输入、输出和稳定原因码；M4-2 已实现独立的 Schema、State Freshness 和
-State ID 检查；M4-3 已实现 Authority、Vehicle State 和 Command Sequence 检查。
-Safety Supervisor 总装配与 Human Approval 状态机仍未实现。
+State ID 检查；M4-3 已实现 Authority、Vehicle State 和 Command Sequence 检查；
+M4-4/M4-5 已实现独立围栏、包线、电池、健康与 Home 检查；M4-6 已实现
+Human Approval 协议、单审批状态机转移核心，以及位于 `eval_harness/mocks/` 的 Mock。
+真实人工输入、超时调度及
+Safety Supervisor 总装配仍未实现。
 
 ## Mission Contract
 
@@ -146,9 +149,10 @@ GoTo 生效，以 `WorldState.home_position_ned_m` 为圆心计算目标的水�
 
 - Safety Supervisor 对所有检查器的总装配；
 - 从已批准 Proposal 生成 `ApprovedSkillCommand`；
-- Human Approval 请求、批准、拒绝和超时状态机；
+- 将 Human Approval 结果与完整 Proposal 摘要及最新 Safety 检查绑定的总仲裁；
 - Safety Trace Event；
-- 目标速度、Battery、Home、Failsafe、Link 和 Health 检查；
+- 将 PX4 限速实时读数与独立 Battery、Home、Failsafe、Link 和 Health 检查
+  接入生产执行链；
 - Safety Boundary 的集成测试与 Gazebo 验证。
 
 因此当前只能声明独立规则可确定性返回拒绝原因，不能声明生产执行链已经不可绕过。

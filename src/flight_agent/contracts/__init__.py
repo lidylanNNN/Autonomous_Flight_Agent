@@ -1,5 +1,10 @@
 '''Typed contracts shared by Agent components.'''
 
+from flight_agent.contracts.models.human_approval_model import (
+    HumanApprovalRequest,
+    HumanApprovalResult,
+    HumanApprovalStatus,
+)
 from flight_agent.contracts.models.mission_model import (
     MissionConstraints,
     MissionContract,
@@ -39,6 +44,7 @@ from flight_agent.contracts.models.world_state_model import (
 from flight_agent.contracts.protocols.flight_execution_protocol import (
     FlightExecutionBackendProtocol,
 )
+from flight_agent.contracts.protocols.human_approval_protocol import HumanApprovalProtocol
 
 __all__ = [
     'ApprovedSkillCommand',
@@ -48,6 +54,10 @@ __all__ = [
     'GlobalPosition',
     'GoToArgs',
     'HoldArgs',
+    'HumanApprovalProtocol',
+    'HumanApprovalRequest',
+    'HumanApprovalResult',
+    'HumanApprovalStatus',
     'LandArgs',
     'MissionConstraints',
     'MissionContract',

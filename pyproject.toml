@@ -39,3 +39,4 @@ packages = ["flight_agent"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+pythonpath = ["."]

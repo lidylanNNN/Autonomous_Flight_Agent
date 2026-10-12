@@ -1,11 +1,11 @@
-# Autonomous Flight Agent — DEV_SPEC v1.31
+# Autonomous Flight Agent — DEV_SPEC v1.33
 
 > **项目**：Autonomous Flight Agent — 飞行机器人智能决策与任务执行系统  
-> **版本**：v1.31
-> **日期**：2026-10-10
+> **版本**：v1.33
+> **日期**：2026-10-12
 > **状态**：Implementation
 > **SSOT**：本文件作为 V1 架构、接口、开发顺序、Evaluation、Ablation 与发布验收的 Single Source of Truth。
-> **v1.31 变更**：M4-5 增加 Battery、System Health 和 Home Reference 独立检查器；尚未接入 Safety Supervisor。
+> **v1.33 变更**：M4-6 的 MockHumanApproval 移至 `eval_harness/mocks/`；正式 Agent 包只保留审批契约、状态转移核心与登记器。真实人工输入和超时调度尚未实现，审批结果不等于 Safety 放行。
 > **真实性边界**：本规格对应 `Noah_AIforRobotics_简历_v24` 中的 Autonomous Flight Agent 目标态设计。当前简历中 Task Success / Safety / Recovery 数字均明确为“占位，待实测替换”，因此本文件不把任何指标写成已实现成果。
 
 ---
@@ -14,8 +14,8 @@
 # Progress Management
 
 > **当前阶段**：M4 — Mission Contract + Safety Supervisor
-> **当前真实性状态**：M0–M3 已完成；M4-1 至 M4-3、M4-5 独立检查器已完成；M4-4 独立检查器、PX4 限速读取及读数校验已实现，但尚未进入 Safety Supervisor。
-> **当前重点**：推进 M4-6 Human Approval；M4-7 将独立检查器与 PX4 限速读数校验装配进 Safety Supervisor。在此之前不能将任一检查器标为生产拦截完成。
+> **当前真实性状态**：M0–M3 已完成；M4-1 至 M4-3、M4-5 与 M4-6 已实现；M4-4 独立检查器、PX4 限速读取及读数校验已实现，但尚未进入 Safety Supervisor。
+> **当前重点**：M4-7 将独立检查器、Human Approval 与 PX4 限速读数校验装配进 Safety Supervisor。在此之前不能将独立检查器或人工审批标为生产拦截完成。
 
 ## Progress Status Rules
 
@@ -52,7 +52,7 @@ Deliverables complete
 | M1 | PX4 + ROS2 + Gazebo Runtime | pinned PX4/`px4_msgs`；ROS2 workspace；uXRCE-DDS；Gazebo x500；headless 启动脚本；health check；bootstrap scripts；`docs/milestones/M1.md` | **7–10 天** | DONE | PX4 v1.16.2、ROS 2 Jazzy、Gazebo Harmonic、uXRCE-DDS 与 PX4 topic 链路已验证 |
 | M2 | World State + Trace Base | `WorldState`；ROS2 subscriptions；state freshness；frame normalization；Trace Recorder；runtime health；`docs/milestones/M2.md` | **3–4 天** | DONE | 2026-09-17 完成；WorldState、freshness、NED/ENU、runtime health、Trace recorder/replay 与 PX4/Gazebo 实测通过 |
 | M3 | Deterministic Flight Skills | Takeoff/GoTo/Hold/RTL/Land；Skill Executor；timeout/ACK/cancel；`MockFlightExecutionBackend`；Mock 文档/Tests；`docs/milestones/M3.md` | **6–8 天** | DONE | 2026-10-08 完成；真实 PX4/Gazebo 四 Skill 闭环、40 项 ROS 测试和 Bad Case Review 已收口 |
-| M4 | Mission Contract + Safety Supervisor | `MissionContract`；Schema/State/Sequence/Geofence/Envelope/Authority 校验；Human Approval；`MockHumanApproval`；SafetyDecision reason codes；`docs/milestones/M4.md` | **6–8 天** | IN_PROGRESS | M4-1 至 M4-3 与 M4-5 独立检查器完成；M4-4 独立检查器及真实参数读取已实现，Human Approval 与总装配待补 |
+| M4 | Mission Contract + Safety Supervisor | `MissionContract`；Schema/State/Sequence/Geofence/Envelope/Authority 校验；Human Approval；`MockHumanApproval`；SafetyDecision reason codes；`docs/milestones/M4.md` | **6–8 天** | IN_PROGRESS | M4-1 至 M4-3、M4-5、M4-6 完成；M4-4 独立检查器及真实参数读取已实现，总装配待补 |
 | M5 | Minimal LLM Planner | Natural-language Mission；LLM Provider；Structured Plan；Function Calling；Agent Loop；Context Builder；`MockLLMProvider`；`docs/milestones/M5.md` | **4–5 天** | NOT_STARTED | 依赖 M3/M4 |
 | M6 | State Verifier | Verifier Registry；Takeoff/GoTo/Hold/RTL/Land Verifier；dwell/timeout；`VerificationResult`；`docs/milestones/M6.md` | **3–5 天** | NOT_STARTED | 依赖 M3/M5；M6 完成后应录制第一版完整 Demo |
 | M7 | Recovery / Replanning | Failure Taxonomy；Deterministic Recovery Policy；Retry/Replan Budget；Hold/RTL/Land fallback；Replanner；plan revision trace；`docs/milestones/M7.md` | **5–7 天** | NOT_STARTED | 依赖 M4/M6 |
@@ -3157,7 +3157,7 @@ autonomous-flight-agent/
 │       │   │   ├── envelope.py
 │       │   │   ├── sequence.py
 │       │   │   ├── authority.py
-│       │   │   └── approval.py
+│       │   │   └── human_approval.py
 │       │   ├── skills/
 │       │   │   ├── base.py
 │       │   │   ├── registry.py
@@ -3220,6 +3220,9 @@ autonomous-flight-agent/
 │   └── manifests/
 │
 ├── eval_harness/
+│   │
+│   ├── mocks/
+│   │   └── human_approval.py
 │   │
 │   ├── fixtures/
 │   │   ├── mock_flight_execution_backend/
@@ -3338,7 +3341,7 @@ Mock 不是“临时糊一个假的对象”，而是正式测试基础设施。
 |---|---|---|---|---|---|
 | **MockFlightExecutionBackend** | `src/flight_agent/components/vehicle/flight_execution/mock_backend.py` | `docs/mocks/mock_flight_execution_backend.md` | M8 交付 `eval_harness/fixtures/mock_flight_execution_backend/` 及其 Runner | `tests/contract/vehicle/flight_execution/test_mock_contract.py`；`tests/integration/mock_flight_execution_backend/test_skill_lifecycle.py` | M3 |
 | **MockLLMProvider** | `src/flight_agent/components/planner/mock.py` | `docs/mocks/mock_llm_provider.md` | `eval_harness/fixtures/mock_llm/` | `tests/contract/planner/test_mock_llm_contract.py`；`tests/integration/scripted_agent/test_agent_loop_scripted.py` | M5 |
-| **MockHumanApproval** | `src/flight_agent/components/safety/approval.py` 中 `MockHumanApproval` | `docs/mocks/mock_human_approval.md` | `eval_harness/fixtures/mock_approval/` | `tests/unit/safety/test_human_approval.py`；`tests/integration/scripted_agent/test_approval_gate.py` | M4 |
+| **MockHumanApproval** | `eval_harness/mocks/human_approval.py` | `docs/mocks/mock_human_approval.md` | `eval_harness/fixtures/mock_approval/` | `tests/unit/safety/test_human_approval.py`；`tests/integration/scripted_agent/test_approval_gate.py` | M4 |
 | **Mock Fault Injector / Profiles** | `eval_harness/fault_injection/` | `docs/mocks/mock_fault_profiles.md` + `docs/eval_doc/fault_injection.md` | `eval_harness/fixtures/faults/` | `tests/unit/eval_harness/test_fault_profiles.py`；`tests/integration/scripted_agent/test_fault_recovery.py` | M8 |
 
 > Mock 的代码、文档与最低测试在其首次 Milestone 交付；需要评测执行器消费的 Fixture/Profile
@@ -3516,18 +3519,21 @@ TIMEOUT
 
 ### Code
 
-建议：
+审批契约与状态转移核心：
 
 ```text
-src/flight_agent/safety/approval.py
+src/flight_agent/contracts/protocols/human_approval_protocol.py
+src/flight_agent/components/safety/human_approval.py
 ```
 
-其中提供：
+测评专用模拟实现：
 
 ```text
-HumanApprovalPort
-MockHumanApproval
+eval_harness/mocks/human_approval.py
 ```
+
+`MockHumanApproval` 遵循 `HumanApprovalProtocol`，不随正式 `flight_agent` Python 包安装；
+需要模拟审批的测评镜像单独包含 `eval_harness/`。
 
 ### Delivery Document
 
