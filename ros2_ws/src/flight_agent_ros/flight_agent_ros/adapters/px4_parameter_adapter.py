@@ -11,11 +11,9 @@ from time import monotonic
 
 from pymavlink import mavutil  # type: ignore[import-untyped]
 
+from flight_agent.contracts import Px4ParameterReadError
+
 _SPEED_PARAM_NAME = 'MPC_XY_VEL_MAX'
-
-
-class Px4ParameterReadError(RuntimeError):
-    '''无法从目标PX4读取参数。'''
 
 
 @dataclass(frozen=True)

@@ -1,11 +1,11 @@
-# Autonomous Flight Agent — DEV_SPEC v1.33
+# Autonomous Flight Agent — DEV_SPEC v1.34
 
 > **项目**：Autonomous Flight Agent — 飞行机器人智能决策与任务执行系统  
-> **版本**：v1.33
+> **版本**：v1.34
 > **日期**：2026-10-12
 > **状态**：Implementation
 > **SSOT**：本文件作为 V1 架构、接口、开发顺序、Evaluation、Ablation 与发布验收的 Single Source of Truth。
-> **v1.33 变更**：M4-6 的 MockHumanApproval 移至 `eval_harness/mocks/`；正式 Agent 包只保留审批契约、状态转移核心与登记器。真实人工输入和超时调度尚未实现，审批结果不等于 Safety 放行。
+> **v1.34 变更**：明确 Home 当前值核对属于后续版本待优化项；M4 不主动回读 PX4 Home，现有 Home 检查不能证明缓存值与 PX4 当前值一致。
 > **真实性边界**：本规格对应 `Noah_AIforRobotics_简历_v24` 中的 Autonomous Flight Agent 目标态设计。当前简历中 Task Success / Safety / Recovery 数字均明确为“占位，待实测替换”，因此本文件不把任何指标写成已实现成果。
 
 ---
@@ -16,6 +16,10 @@
 > **当前阶段**：M4 — Mission Contract + Safety Supervisor
 > **当前真实性状态**：M0–M3 已完成；M4-1 至 M4-3、M4-5 与 M4-6 已实现；M4-4 独立检查器及 PX4 限速读取已实现。M4-7 首批已装配独立检查器与限速校验，但尚无审批结果核对、批准命令生成、Safety Trace 或正式执行入口。
 > **当前重点**：M4-7 完成 Human Approval、Approved Command Factory 与 Trace 装配。首批 Safety Supervisor 不能等同于生产执行链已不可绕过。
+
+## 后续版本待优化点
+
+- **Home 当前值核对**：PX4 `HomePosition` 是变更时发布的状态，不能对它机械套用周期 Topic 的 1 秒新鲜度窗口。M4 仅依据已接收的 Home 有效标志与位置引用进行检查，不主动回读 PX4 当前 Home，因此不能证明缓存 Home 与飞控当前值一致。后续版本在最终放行前按需读取并核对 PX4 当前 Home；读取失败、无效或与缓存引用不一致时拒绝放行。在此项落地并通过集成验证前，不得宣称 Home 一致性已得到保证。
 
 ## Progress Status Rules
 

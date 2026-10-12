@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 from collections.abc import Callable
 from datetime import UTC, datetime
 from hashlib import sha256
@@ -25,6 +26,7 @@ from flight_agent.contracts import (
     ControlAuthority,
     ControllerSpeedLimitProtocol,
     MissionContract,
+    Px4ParameterReadError,
     SafetyDecision,
     SafetyDecisionType,
     SafetyReasonCode,
@@ -35,6 +37,7 @@ from flight_agent.contracts import (
 )
 
 _PARAMETER_MAX_AGE_S = 2.0
+_LOGGER = logging.getLogger(__name__)
 
 
 class SafetySupervisor:
@@ -88,8 +91,8 @@ class SafetySupervisor:
                     speed_limit = await self._speed_limit_source.read_validated_speed_limit(
                         max_age_s=_PARAMETER_MAX_AGE_S
                     )
-                except Exception:  # noqa: BLE001
-                    # PX4参数适配器的任何读取或校验故障都只能关闭放行路径。
+                except Px4ParameterReadError as error:
+                    _LOGGER.warning('PX4 speed limit evidence unavailable: %s', error, exc_info=True)
                     reasons.append(SafetyReasonCode.SYSTEM_UNHEALTHY)
                 else:
                     reasons.extend(check_controller_speed_limit(speed_limit, constraints))

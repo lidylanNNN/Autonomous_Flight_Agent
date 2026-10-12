@@ -48,6 +48,7 @@ from flight_agent.contracts.protocols.flight_execution_protocol import (
     FlightExecutionBackendProtocol,
 )
 from flight_agent.contracts.protocols.human_approval_protocol import HumanApprovalProtocol
+from flight_agent.contracts.px4_parameter_error import Px4ParameterReadError
 
 __all__ = [
     'ApprovedSkillCommand',
@@ -66,6 +67,7 @@ __all__ = [
     'MissionConstraints',
     'MissionContract',
     'NedGeofence',
+    'Px4ParameterReadError',
     'RTLArgs',
     'SafetyDecision',
     'SafetyDecisionType',

@@ -12,6 +12,7 @@ from flight_agent.contracts import (
     MissionConstraints,
     MissionContract,
     NedGeofence,
+    Px4ParameterReadError,
     SafetyDecision,
     SafetyDecisionType,
     SafetyReasonCode,
@@ -179,7 +180,11 @@ def test_invalid_schema_and_stale_state_never_read_px4_parameter() -> None:
     [
         (12.0, None, SafetyReasonCode.SPEED_ABOVE_ENVELOPE),
         (0.0, None, SafetyReasonCode.SYSTEM_UNHEALTHY),
-        (8.0, TimeoutError('PX4 unavailable'), SafetyReasonCode.SYSTEM_UNHEALTHY),
+        (
+            8.0,
+            Px4ParameterReadError('PX4 unavailable'),
+            SafetyReasonCode.SYSTEM_UNHEALTHY,
+        ),
     ],
 )
 def test_unusable_px4_speed_evidence_rejects(
@@ -217,6 +222,31 @@ def test_state_becoming_stale_during_parameter_read_rejects() -> None:
         ).evaluate(make_proposal(), make_contract(), make_state(), ControlAuthority.AGENT_ALLOWED)
     )
     assert decision.reason_codes == (SafetyReasonCode.STALE_STATE,)
+
+
+def test_px4_read_failure_keeps_original_diagnostic(caplog: pytest.LogCaptureFixture) -> None:
+    '''验证已知飞控读取故障拒绝放行且日志保留原始原因。'''
+
+    source = FakeSpeedSource(error=Px4ParameterReadError('heartbeat timed out'))
+    decision = asyncio.run(
+        SafetySupervisor(source, policy_version='m4-v1', clock=lambda: _NOW).evaluate(
+            make_proposal(), make_contract(), make_state(), ControlAuthority.AGENT_ALLOWED
+        )
+    )
+    assert decision.reason_codes == (SafetyReasonCode.SYSTEM_UNHEALTHY,)
+    assert 'heartbeat timed out' in caplog.text
+
+
+def test_programming_error_is_not_disguised_as_px4_failure() -> None:
+    '''验证非协议异常原样传播，避免掩盖代码缺陷。'''
+
+    source = FakeSpeedSource(error=AttributeError('misspelled method'))
+    with pytest.raises(AttributeError, match='misspelled method'):
+        asyncio.run(
+            SafetySupervisor(source, policy_version='m4-v1', clock=lambda: _NOW).evaluate(
+                make_proposal(), make_contract(), make_state(), ControlAuthority.AGENT_ALLOWED
+            )
+        )
 
 
 def test_late_stale_state_precedes_speed_rejection() -> None:
