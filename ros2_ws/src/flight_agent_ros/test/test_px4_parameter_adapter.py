@@ -157,6 +157,32 @@ def test_validates_fresh_speed_limit_reading() -> None:
     ) == 7.5
 
 
+def test_supervisor_speed_boundary_validates_reading(monkeypatch: pytest.MonkeyPatch) -> None:
+    '''验证Safety调用的便捷方法仍执行PX4读数校验。'''
+
+    connection = _FakeConnection([
+        _message('HEARTBEAT'),
+        _message('PARAM_VALUE', value=7.5),
+    ])
+    monkeypatch.setattr(mavutil, 'mavlink_connection', lambda endpoint: connection)
+    assert asyncio.run(
+        Px4ParameterAdapter().read_validated_speed_limit(max_age_s=2.0)
+    ) == 7.5
+    assert connection.closed is True
+
+    async def read_wrong_source(
+        self: Px4ParameterAdapter, *, timeout_s: float = 3.0
+    ) -> Px4ParameterReading:
+        '''模拟读取方法返回另一飞控的参数证据。'''
+
+        return Px4ParameterReading('MPC_XY_VEL_MAX', 7.5, datetime.now(UTC), 1, 1)
+
+    monkeypatch.setattr(Px4ParameterAdapter, 'read_mpc_xy_vel_max', read_wrong_source)
+    wrong_source = Px4ParameterAdapter(target_system=2)
+    with pytest.raises(Px4ParameterReadError, match='source'):
+        asyncio.run(wrong_source.read_validated_speed_limit(max_age_s=2.0))
+
+
 @pytest.mark.parametrize(
     ('changes', 'error'),
     [

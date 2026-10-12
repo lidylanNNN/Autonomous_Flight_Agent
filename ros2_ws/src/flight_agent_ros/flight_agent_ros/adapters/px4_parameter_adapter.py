@@ -56,6 +56,12 @@ class Px4ParameterAdapter:
             raise ValueError('timeout_s must be finite and positive')
         return await asyncio.to_thread(self._read_mpc_xy_vel_max_blocking, timeout_s)
 
+    async def read_validated_speed_limit(self, *, max_age_s: float) -> float:
+        '''读取目标PX4限速并立即核对来源、数值和新鲜度。'''
+
+        reading = await self.read_mpc_xy_vel_max()
+        return self.validate_speed_limit_reading(reading, max_age_s=max_age_s)
+
     def validate_speed_limit_reading(
         self,
         reading: Px4ParameterReading,

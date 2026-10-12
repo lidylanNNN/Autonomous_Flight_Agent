@@ -1,6 +1,6 @@
 # Mission 与 Safety Contract
 
-状态：M4-4 Geofence、目标高度与任务半径检查基线
+状态：M4-7 首批总仲裁与 PX4 限速校验已装配
 
 ## 目的
 
@@ -23,8 +23,9 @@ M4-1 冻结输入、输出和稳定原因码；M4-2 已实现独立的 Schema、
 State ID 检查；M4-3 已实现 Authority、Vehicle State 和 Command Sequence 检查；
 M4-4/M4-5 已实现独立围栏、包线、电池、健康与 Home 检查；M4-6 已实现
 Human Approval 协议、单审批状态机转移核心，以及位于 `eval_harness/mocks/` 的 Mock。
-真实人工输入、超时调度及
-Safety Supervisor 总装配仍未实现。
+M4-7 首批 Safety Supervisor 已按固定顺序组合独立检查器，并通过 ROS 适配器读取、
+验证当前 PX4 `MPC_XY_VEL_MAX`；读数有效期为 2 秒，读取失败或超限拒绝。
+真实人工输入、超时调度、审批结果核对、批准命令生成、Trace 和正式执行入口仍未实现。
 
 ## Mission Contract
 
@@ -145,14 +146,13 @@ GoTo 生效，以 `WorldState.home_position_ned_m` 为圆心计算目标的水�
 
 ## 当前边界
 
-当前尚未实现：
+已装配独立检查器与 PX4 限速读取，但当前尚未实现：
 
-- Safety Supervisor 对所有检查器的总装配；
+- Safety Supervisor 对人工审批结果及最终执行入口的总装配；
 - 从已批准 Proposal 生成 `ApprovedSkillCommand`；
 - 将 Human Approval 结果与完整 Proposal 摘要及最新 Safety 检查绑定的总仲裁；
 - Safety Trace Event；
-- 将 PX4 限速实时读数与独立 Battery、Home、Failsafe、Link 和 Health 检查
-  接入生产执行链；
+- 将上述仲裁接入不可绕过的生产执行链；
 - Safety Boundary 的集成测试与 Gazebo 验证。
 
-因此当前只能声明独立规则可确定性返回拒绝原因，不能声明生产执行链已经不可绕过。
+因此当前可以声明总仲裁能确定性返回决定，但不能声明生产执行链已经不可绕过。

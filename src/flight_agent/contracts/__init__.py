@@ -41,6 +41,9 @@ from flight_agent.contracts.models.world_state_model import (
     enu_to_ned,
     ned_to_enu,
 )
+from flight_agent.contracts.protocols.controller_speed_limit_protocol import (
+    ControllerSpeedLimitProtocol,
+)
 from flight_agent.contracts.protocols.flight_execution_protocol import (
     FlightExecutionBackendProtocol,
 )
@@ -49,6 +52,7 @@ from flight_agent.contracts.protocols.human_approval_protocol import HumanApprov
 __all__ = [
     'ApprovedSkillCommand',
     'ControlAuthority',
+    'ControllerSpeedLimitProtocol',
     'CoordinateFrame',
     'FlightExecutionBackendProtocol',
     'GlobalPosition',
