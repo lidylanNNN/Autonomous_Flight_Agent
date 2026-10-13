@@ -1,7 +1,7 @@
-# Autonomous Flight Agent — DEV_SPEC v1.38
+# Autonomous Flight Agent — DEV_SPEC v1.39
 
 > **项目**：Autonomous Flight Agent — 飞行机器人智能决策与任务执行系统  
-> **版本**：v1.38
+> **版本**：v1.39
 > **日期**：2026-10-13
 > **状态**：Implementation
 > **SSOT**：本文件作为 V1 架构、接口、开发顺序、Evaluation、Ablation 与发布验收的 Single Source of Truth。
@@ -10,6 +10,7 @@
 > **v1.36 变更**：V1 先完成无人介入的自主测评；人工 Plan 审批与其他产品交互移至测评报告之后。已实现的 Proposal 级审批原型保留但不接入 V1 主流程，也不作为 M4 完成条件。
 > **v1.37 变更**：从 M1–M8 目标流程和 V1 目标契约中移除逐 Proposal 人工审批；已实现的审批原型作为迁移遗留保留，产品交互只在自主测评报告之后单独设计。
 > **v1.38 变更**：新增 M4.X 代码/测试差异专项和分批迁移顺序；先移除按 Skill 名触发人工审批的执行分支，再收敛 Safety 契约与原型归属。
+> **v1.39 变更**：明确里程碑顺序不等于组件先行的实现顺序；新功能先确认生产调用流并建立最小纵向切片，M4 验收区分组件单测与生产入口接入。
 > **真实性边界**：本规格对应 `Noah_AIforRobotics_简历_v24` 中的 Autonomous Flight Agent 目标态设计。当前简历中 Task Success / Safety / Recovery 数字均明确为“占位，待实测替换”，因此本文件不把任何指标写成已实现成果。
 
 ---
@@ -18,7 +19,7 @@
 # Progress Management
 
 > **当前阶段**：M4 — Mission Contract + Safety Supervisor
-> **当前真实性状态**：M0–M3 已完成；M4-1 至 M4-3、M4-5 与 M4-6 已实现；M4-4 独立检查器及 PX4 限速读取已实现。M4-7 已装配独立检查器、限速校验、直接批准命令生成、Safety Decision Trace 及 Agent 侧受控入口。M4-6 的 Proposal 级人工审批原型未接入 V1 主流程；M3 调试脚本仍可直连后端。
+> **当前真实性状态**：M0–M3 已完成；M4-1 至 M4-3、M4-5 与 M4-6 已实现；M4-4 独立检查器及 PX4 限速读取已实现。M4-7 已实现独立检查器装配、限速校验、直接批准命令生成、Safety Decision Trace 及 `SafetyExecutionGate` 类，但 Gate 目前仅由测试创建，尚无生产调用方。M4-6 的 Proposal 级人工审批原型未接入 V1 主流程；M3 调试脚本仍可直连后端。
 > **当前重点**：M4-7 统一 Agent 执行入口并隔离旧调试路径，确保每条普通 Proposal 都经过自动 Safety 仲裁；清理旧的逐 Proposal 审批配置与分支属于后续代码迁移，不把原型接入主流程。
 
 ## 后续版本待优化点
@@ -2612,7 +2613,7 @@ additional LLM calls
 
 # 19. Development Workflow
 
-真正的开发顺序：
+以下是能力依赖和里程碑顺序，不是每个阶段内部“先写完组件、最后装配”的实现顺序：
 
 ```text
 Evaluation Contract
@@ -2634,6 +2635,8 @@ Evaluation Contract
 → 让它直接飞
 → 出问题后再补安全
 ```
+
+每项新功能优先采用自顶向下的纵向切片：开发前确认生产入口、触发条件、关键调用链和预期输出；先接通最小可运行的生产软件路径，再扩充检查器、适配器和异常分支。新增组件必须有明确使用场景，并记录创建者、持有者、调用条件及生产接入状态。组件单测不证明生产入口已接入；优先用经过实际装配路径的集成测试验证调用链，外部依赖使用替身时须标明边界，真实 PX4/Gazebo 闭环另行验证。每批完成后报告实际生产调用链及尚未接入的组件。
 
 ---
 
@@ -2777,6 +2780,8 @@ M4.X 专项按 `docs/milestones/M4.md` 的差异清单分批收敛业务代码�
 - 错状态；
 - stale state；
 - unauthorized skill。
+
+另须通过生产入口的最小调用链集成测试：合法 Proposal 经自动 Safety 批准后生成命令并派发，非法 Proposal 被拒绝且不派发；Trace 记录与决策一致。M5 Planner 尚未交付时，可由脚本触发同一正式装配入口，但脚本不得绕过 Gate。测试可替代外部飞控依赖，但不得以测试直接实例化未被生产入口持有的 Gate 代替生产接入，也不得把替身测试称为 PX4/Gazebo 端到端验证。
 
 ---
 
