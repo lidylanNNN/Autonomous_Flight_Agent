@@ -17,13 +17,14 @@ Agent 可以从 `DEV_SPEC.md` 读取以下项：
 - ROS2 / PX4 集成约束：PX4 与 ROS2 使用 uXRCE-DDS；Agent / Safety / Evaluation 不直接 import PX4 topic，必须通过 Adapter boundary。
 - Flight Skills：Observe、Takeoff、GoTo、Hold、RTL、Land 及 Skill Registry。
 - LLM Planner 责任：自然语言任务理解、高层计划生成、Skill 选择、失败后的任务级 replanning；不负责安全放行、实时控制、PX4 protocol correctness。
-- Safety Supervisor 规则：按 Schema、Current State、Geofence、Flight Envelope、Command Sequence、Authority、Human Approval 等顺序做确定性校验。
+- Safety Supervisor 规则：按 Schema、Current State、Geofence、Flight Envelope、Command Sequence、Authority 等条件对每条 Proposal 做确定性校验；人工 Plan 审批属于自主测评后的产品交互。
 - State Verifier 规则：Takeoff、GoTo、Hold、RTL、Land 的成功判定必须来自状态观测，而不是相信 LLM 或 PX4 ACK。
 - Recovery / Replanning 设计：紧急安全行为由 deterministic recovery policy 兜底；LLM replanning 只在安全边界内做任务层调整。
 - Trace 要求：完整记录 Mission、Plan、Proposal、Safety Decision、ROS2 Dispatch、PX4 ACK、Skill Result、Verification、Recovery 等事件。
 - Mission Set 策略：测评集从 M0 开始持续建设，不等到 M8；`DEV_SPEC.md` 使用 `agent_benchmark_sets/` 保存 Agent 的 Dev / Validation / Frozen Test 测评任务、场景和数据划分。它不是 PX4 Mission 文件，也不是在线任务输入。
 - Evaluation 策略：评估方法和评测执行逻辑与测评集分开，包含 Unit / Contract / Safety、Agent Simulation、PX4/Gazebo E2E 三层。
 - Frozen Mission Set 原则：最终 Task Success、Hard Safety Violation、Recovery Success、Latency 等指标主要来自 PX4/Gazebo Frozen Mission Set。
+- 自主测评边界：V1 主测评不接入人工审批或人工修正；人工辅助结果须与自主结果分开报告。人工 Plan 审批、操作界面与接管体验排在 M12 自主测评报告之后。
 - Metrics 定义：Task Success、Hard Safety Violation Rate、Recovery Success、Valid Tool Call Rate、Latency、Safety Intervention Rate、PX4 Reject Rate、LLM Calls / Mission 等。
 - Fault Injection 分层：Pure Software、ROS2 Adapter Fault Proxy、PX4/Gazebo Fault Scenario。
 - Ablation 设计：B0 Scripted、B1 Agent Baseline、B2 +Safety、B3 +Verifier、B4 +Recovery / Replanning。
@@ -40,7 +41,7 @@ Agent 可以从 `DEV_SPEC.md` 读取以下项：
 - `DEV_SPEC.md` 中的 Repository Skeleton 是目标结构和落地顺序，不代表当前仓库已经具备所有目录和文件。
 - 任何性能指标、成功率、安全率、恢复率，在没有真实 Evaluation Report 前都不能写成已完成成果。
 - Public benchmark 只能作为 UAV reasoning / scenario mapping 参考，不能替代 PX4/Gazebo closed-loop benchmark。
-- LLM 不能绕过 Mission Contract、Safety Supervisor、State Verifier、PX4 failsafe 或 Human Approval。
+- LLM 不能绕过 Mission Contract、Safety Supervisor、State Verifier 或 PX4 failsafe；测评后若启用人工 Plan 审批，也不得绕过该审批。
 - 为了赶进度，不允许删除 Safety、Verifier、Evaluation 或 Trace 这些核心边界。
 
 ## 仓库结构
@@ -75,14 +76,26 @@ Agent 可以从 `DEV_SPEC.md` 读取以下项：
 3. 当前 Milestone、开发重点和下一步必须从 `DEV_SPEC.md` 读取，不在本文档硬编码。
 4. 每个 Milestone 只有满足交付物完成、DoD 满足、必要测试通过、trace/eval artifact 生成时，才能标记为 `DONE`。
 
+## 代码修改前汇报
+
+每批修改业务代码、测试、配置或数据契约前，Agent 必须先向用户汇报本批范围；发现需要扩大范围时，先补充汇报再继续修改。汇报至少包含：
+
+- **变更点**：当前行为、目标行为、涉及的文件或模块，以及本批不处理的内容。
+- **对象职责**：逐一说明新增或删除的类、模型、节点、适配器等对象的作用与归属；没有则明确写“无”。
+- **函数输入输出**：说明新增或改变的函数接收什么、返回什么，以及关键副作用或异常；没有则明确写“无”。
+- **数据流变化**：用“来源 -> 处理节点 -> 去向”列出受影响的链路，标明新增或删除的节点及其输入输出；没有节点增删则明确写“无节点增删”。
+- **验证方式**：列出本批准备运行的测试或检查。
+
+汇报不等于请求批准：普通批次汇报后可实施；达到下述等待确认条件的批次，必须先获得用户确认。
+
 ## 小步变更与审核
 
 每一批 Agent 改动必须只有一个可独立评审的目的，并且包含该目的所需的测试与文档同步。
 行数是提醒 Agent 停下来拆分的软阈值，不是替代架构判断的硬规则。
 
 - 默认批次不超过 300 行语义改动，且只涉及一个模块边界；完成测试后交由用户审阅。
-- 预计 300–600 行语义改动，或同时影响两个模块边界时，先列出改动目的、文件清单、风险与验证方式，等待用户确认后再实施。
+- 预计 300–600 行语义改动，或同时影响两个模块边界时，在修改前汇报中补充风险，等待用户确认后再实施。
 - 超过 600 行语义改动，或涉及 Contract、Safety、ROS2/PX4、顶层目录、外部依赖或数据集路径时，必须拆为多个可独立验证的批次；先提交结构变更单，等待用户确认。
-- 纯机械改名、文件移动、格式化和生成文件不按其重复行数计入语义改动，但必须与功能、行为或 Contract 改动分开实施和提交。
-- 任何 Contract、Safety Boundary、Interface、依赖方向或 Repository Structure 变更，无论行数多少，都属于结构变更；先说明原因、影响范围、回滚方式和验证方式，等待用户确认。
-- 每一批完成后，Agent 必须报告 `git diff --stat`、改动文件清单、验证命令与结果；未经用户明确要求，不提交或推送。
+- 纯机械改名、文件移动、格式化和生成文件不按其重复行数计入语义改动，但必须与功能、行为或 Contract 改动分批实施；如需提交，也应分别提交。
+- 任何 Contract、Safety Boundary、Interface、依赖方向或 Repository Structure 变更，无论行数多少，都属于结构变更；在修改前汇报中补充原因、影响范围和回滚方式，等待用户确认。
+- 每一批完成后，Agent 必须按修改前汇报逐项总结变更点、对象职责、函数输入输出和数据流变化，标出各项对应的代码文件与行号；未实现或偏离原汇报的内容须说明原因。另须报告 `git diff --stat`、改动文件清单、验证命令与结果；未经用户明确要求，不提交或推送。

@@ -45,25 +45,16 @@ class MissionConstraints(_StrictFrozenModel):
     max_state_age_ms: int = Field(gt=0)
     geofence: NedGeofence
     allowed_skills: tuple[SkillName, ...] = Field(min_length=1)
-    human_approval_skills: tuple[SkillName, ...] = ()
     requires_home_position: bool = True
 
-    @field_validator('allowed_skills', 'human_approval_skills')
+    @field_validator('allowed_skills')
     @classmethod
     def skills_are_unique(cls, skills: tuple[SkillName, ...]) -> tuple[SkillName, ...]:
-        '''拒绝重复Skill，保留Contract中的稳定顺序。'''
+        '''拒绝重复的可用Skill，保留Contract中的稳定顺序。'''
 
         if len(skills) != len(set(skills)):
             raise ValueError('skill lists must not contain duplicates')
         return skills
-
-    @model_validator(mode='after')
-    def approval_skills_are_allowed(self) -> MissionConstraints:
-        '''要求人工审批的Skill必须同时位于允许集合。'''
-
-        if not set(self.human_approval_skills).issubset(self.allowed_skills):
-            raise ValueError('human approval skills must be a subset of allowed skills')
-        return self
 
 
 class MissionContract(_StrictFrozenModel):

@@ -7,6 +7,7 @@ from flight_agent.components.safety.envelope import (
     check_flight_envelope,
     check_mission_radius,
 )
+from flight_agent.components.safety.execution_gate import SafetyExecutionGate
 from flight_agent.components.safety.geofence import check_geofence
 from flight_agent.components.safety.health import check_system_health
 from flight_agent.components.safety.home import check_home_reference
@@ -17,6 +18,7 @@ from flight_agent.components.safety.supervisor import SafetySupervisor
 from flight_agent.components.safety.vehicle_state import check_vehicle_state
 
 __all__ = [
+    'SafetyExecutionGate',
     'SafetySupervisor',
     'check_battery',
     'check_command_sequence',

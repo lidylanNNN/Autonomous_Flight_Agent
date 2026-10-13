@@ -7,7 +7,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from flight_agent.contracts import WorldState
+from flight_agent.contracts import SafetyDecision, SkillProposal, WorldState
 
 
 class TraceRecorder:
@@ -23,6 +23,19 @@ class TraceRecorder:
         '''追加一条世界状态记录。'''
 
         self._append({'type': 'world_state', 'state': state.model_dump(mode='json')})
+
+    def record_safety_decision(
+        self, proposal: SkillProposal, decision: SafetyDecision
+    ) -> None:
+        '''Record the proposal and its complete deterministic safety decision.'''
+
+        if proposal.proposal_id != decision.proposal_id:
+            raise ValueError('safety decision does not belong to proposal')
+        self._append({
+            'type': 'safety_decision',
+            'proposal': proposal.model_dump(mode='json'),
+            'decision': decision.model_dump(mode='json'),
+        })
 
     def _append(self, event: dict[str, Any]) -> None:
         '''写入带记录时间的 JSON Lines 事件。'''

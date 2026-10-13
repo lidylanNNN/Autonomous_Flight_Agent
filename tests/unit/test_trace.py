@@ -7,7 +7,14 @@ from pathlib import Path
 import pytest
 
 from flight_agent.components.tracing import TraceRecorder, TraceReplay, TraceReplayError
-from flight_agent.contracts import Vector3, WorldState
+from flight_agent.contracts import (
+    SafetyDecision,
+    SafetyDecisionType,
+    SafetyReasonCode,
+    SkillProposal,
+    Vector3,
+    WorldState,
+)
 
 
 def make_world_state(sequence: int) -> WorldState:
@@ -57,6 +64,56 @@ def test_trace_recorder_writes_replayable_world_state(tmp_path: Path) -> None:
     assert records[0].type == 'world_state'
     assert records[0].recorded_at.tzinfo is not None
     assert records[0].state == state
+
+
+def test_safety_decision_shares_trace_without_breaking_world_state_replay(
+    tmp_path: Path,
+) -> None:
+    proposal = SkillProposal(
+        proposal_id='proposal-1', mission_id='mission-1', plan_revision=0,
+        step_id='step-1', skill_name='takeoff',
+        arguments={'target_altitude_m': 10.0}, based_on_state_id='state-1',
+    )
+    decision = SafetyDecision(
+        decision_id='decision-1', proposal_id=proposal.proposal_id,
+        decision=SafetyDecisionType.REJECT,
+        reason_codes=(SafetyReasonCode.SYSTEM_UNHEALTHY,),
+        checked_state_id='state-1', policy_version='m4-v1',
+    )
+    path = tmp_path / 'trace.jsonl'
+    recorder = TraceRecorder(path)
+    recorder.record_world_state(make_world_state(1))
+    recorder.record_safety_decision(proposal, decision)
+    recorder.record_world_state(make_world_state(2))
+
+    replay = TraceReplay(path)
+    assert tuple(state.state_id for state in replay.replay_world_states()) == (
+        'state-1', 'state-2',
+    )
+    safety_records = tuple(replay.iter_safety_decision_records())
+    assert len(safety_records) == 1
+    assert safety_records[0].recorded_at.tzinfo is not None
+    assert safety_records[0].proposal == proposal
+    assert safety_records[0].decision == decision
+
+
+def test_safety_trace_rejects_mismatched_proposal_id(tmp_path: Path) -> None:
+    proposal = SkillProposal(
+        proposal_id='proposal-1', mission_id='mission-1', plan_revision=0,
+        step_id='step-1', skill_name='takeoff',
+        arguments={'target_altitude_m': 10.0}, based_on_state_id='state-1',
+    )
+    decision = SafetyDecision(
+        decision_id='decision-1', proposal_id='proposal-2',
+        decision=SafetyDecisionType.REJECT,
+        reason_codes=(SafetyReasonCode.SYSTEM_UNHEALTHY,),
+        checked_state_id='state-1', policy_version='m4-v1',
+    )
+    path = tmp_path / 'trace.jsonl'
+
+    with pytest.raises(ValueError, match='does not belong'):
+        TraceRecorder(path).record_safety_decision(proposal, decision)
+    assert not path.exists()
 
 
 def test_trace_replay_locates_states_by_record_id_and_latest(tmp_path: Path) -> None:

@@ -21,11 +21,11 @@ SafetyDecision
 
 M4-1 冻结输入、输出和稳定原因码；M4-2 已实现独立的 Schema、State Freshness 和
 State ID 检查；M4-3 已实现 Authority、Vehicle State 和 Command Sequence 检查；
-M4-4/M4-5 已实现独立围栏、包线、电池、健康与 Home 检查；M4-6 已实现
-Human Approval 协议、单审批状态机转移核心，以及位于 `eval_harness/mocks/` 的 Mock。
-M4-7 首批 Safety Supervisor 已按固定顺序组合独立检查器，并通过 ROS 适配器读取、
+M4-4/M4-5 已实现独立围栏、包线、电池、健康与 Home 检查。
+M4-7 Safety Supervisor 已按固定顺序组合独立检查器，并通过 ROS 适配器读取、
 验证当前 PX4 `MPC_XY_VEL_MAX`；读数有效期为 2 秒，读取失败或超限拒绝。
-真实人工输入、超时调度、审批结果核对、批准命令生成、Trace 和正式执行入口仍未实现。
+直接批准路径已可在输入快照上生成批准命令。Agent 侧 `SafetyExecutionGate` 已在派发前写入 Safety Trace，
+只有直接 `APPROVE` 可以派发；旧 M3 调试脚本仍能直连后端。
 
 ## Mission Contract
 
@@ -36,7 +36,6 @@ M4-7 首批 Safety Supervisor 已按固定顺序组合独立检查器，并通�
 - WorldState 最大允许年龄；
 - 局部 NED Geofence；
 - 允许使用的 Skill；
-- 必须人工审批的 Skill；
 - 是否要求有效 Home；
 - 完成条件与中止条件。
 
@@ -67,14 +66,14 @@ Proposal 顶层结构仍然是严格的：额外字段、空 ID 和负 `plan_rev
 
 ## Safety Decision
 
-仲裁结果只有三类：
+V1 目标仲裁结果只有两类：
 
 - `APPROVE`：所有确定性检查通过，只能携带 `CHECKS_PASSED`；
-- `REJECT`：至少携带一个拒绝原因码；
-- `HUMAN_APPROVAL`：等待人工裁决，只能携带 `HUMAN_APPROVAL_REQUIRED`。
+- `REJECT`：至少携带一个拒绝原因码。
 
-只有 `APPROVE` 可以在后续装配逻辑中生成 `ApprovedSkillCommand`。`REJECT` 和
-`HUMAN_APPROVAL` 都不得进入 `FlightExecutionBackendProtocol.execute()`。
+只有 `APPROVE` 可以由 `SafetySupervisor.prepare_command()` 生成 `ApprovedSkillCommand`。`REJECT` 不得进入 `FlightExecutionBackendProtocol.execute()`。
+
+X1 已移除按 Skill 名触发的 Proposal 级审批分支；当前代码仍有 `HUMAN_APPROVAL` 枚举与原因码，尚未完全迁移到上述 V1 目标契约。如出现该决策，Episode 按流程错误处理，不计自主成功。
 
 ## 已实现检查
 
@@ -138,24 +137,21 @@ GoTo 生效，以 `WorldState.home_position_ned_m` 为圆心计算目标的水�
   `MISSION_RADIUS_EXCEEDED`；
 - Resource/Health：`INSUFFICIENT_BATTERY`、`SYSTEM_UNHEALTHY`、
   `HOME_REFERENCE_UNAVAILABLE`；
-- Authority/Approval：`AUTHORITY_NOT_GRANTED`、`HUMAN_APPROVAL_REQUIRED`、
-  `HUMAN_APPROVAL_REJECTED`、`HUMAN_APPROVAL_TIMEOUT`。
+- Authority：`AUTHORITY_NOT_GRANTED`。
 
 `ALTITUDE_ABOVE_ENVELOPE`、`WAYPOINT_OUTSIDE_GEOFENCE` 和
 `AUTHORITY_NOT_GRANTED` 与现有 Dev 测评集保持一致。
 
 ## 当前边界
 
-已装配独立检查器与 PX4 限速读取，但当前尚未实现：
+已装配独立检查器、PX4 限速读取和 Agent 侧执行门，但当前尚未实现：
 
-- Safety Supervisor 对人工审批结果及最终执行入口的总装配；
-- 从已批准 Proposal 生成 `ApprovedSkillCommand`；
-- 将 Human Approval 结果与完整 Proposal 摘要及最新 Safety 检查绑定的总仲裁；
-- Safety Trace Event；
-- 将上述仲裁接入不可绕过的生产执行链；
+- 隔离旧 M3 调试脚本等可直接调用后端的路径；
 - Safety Boundary 的集成测试与 Gazebo 验证。
 
 因此当前可以声明总仲裁能确定性返回决定，但不能声明生产执行链已经不可绕过。
+
+原 M4-6 Proposal 级审批协议、状态机和 Mock 仍在仓库，但不属于 M1–M8 设计或 V1 目标契约。X1 已移除 `human_approval_skills` 与 Supervisor 分支；相关原因码、决策枚举及原型公共导出仍待后续批次迁移。测评后的产品阶段需重新定义 Plan 级审批。
 
 后续版本待优化：PX4 `HomePosition` 按变更发布，M4 只依据已接收的 Home
 有效标志与位置引用进行检查，不主动回读 PX4 当前 Home；缓存值与飞控当前值

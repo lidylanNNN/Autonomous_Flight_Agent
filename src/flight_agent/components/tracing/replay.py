@@ -10,7 +10,7 @@ from typing import Literal
 
 from pydantic import AwareDatetime, BaseModel, ConfigDict, ValidationError
 
-from flight_agent.contracts import WorldState
+from flight_agent.contracts import SafetyDecision, SkillProposal, WorldState
 
 
 class WorldStateTraceRecord(BaseModel):
@@ -21,6 +21,17 @@ class WorldStateTraceRecord(BaseModel):
     recorded_at: AwareDatetime
     type: Literal['world_state']
     state: WorldState
+
+
+class SafetyDecisionTraceRecord(BaseModel):
+    '''A proposal and its safety decision in the shared trace stream.'''
+
+    model_config = ConfigDict(extra='forbid', frozen=True)
+
+    recorded_at: AwareDatetime
+    type: Literal['safety_decision']
+    proposal: SkillProposal
+    decision: SafetyDecision
 
 
 class TraceReplayError(ValueError):
@@ -38,6 +49,20 @@ class TraceReplay:
     def iter_world_state_records(self) -> Iterator[WorldStateTraceRecord]:
         '''按记录顺序读取并校验 WorldState Trace。'''
 
+        for record in self._iter_records():
+            if isinstance(record, WorldStateTraceRecord):
+                yield record
+
+    def iter_safety_decision_records(self) -> Iterator[SafetyDecisionTraceRecord]:
+        '''Read all validated safety decisions from the shared trace stream.'''
+
+        for record in self._iter_records():
+            if isinstance(record, SafetyDecisionTraceRecord):
+                yield record
+
+    def _iter_records(
+        self,
+    ) -> Iterator[WorldStateTraceRecord | SafetyDecisionTraceRecord]:
         previous_recorded_at: datetime | None = None
         with self._path.open(encoding='utf-8') as stream:
             for line_number, line in enumerate(stream, start=1):
@@ -95,17 +120,26 @@ class TraceReplay:
             latest = record.state
         return latest
 
-    def _parse_record(self, line: str, line_number: int) -> WorldStateTraceRecord:
+    def _parse_record(
+        self, line: str, line_number: int
+    ) -> WorldStateTraceRecord | SafetyDecisionTraceRecord:
         '''解析单行 JSON，并将格式错误转换为可定位异常。'''
 
         try:
             payload = json.loads(line)
         except json.JSONDecodeError as error:
             raise self._error(line_number, f'invalid JSON: {error.msg}') from error
+        is_safety = isinstance(payload, dict) and payload.get('type') == 'safety_decision'
         try:
+            if is_safety:
+                record = SafetyDecisionTraceRecord.model_validate(payload)
+                if record.proposal.proposal_id != record.decision.proposal_id:
+                    raise ValueError('safety decision does not belong to proposal')
+                return record
             return WorldStateTraceRecord.model_validate(payload)
-        except ValidationError as error:
-            raise self._error(line_number, f'invalid world state record: {error}') from error
+        except (ValidationError, ValueError) as error:
+            kind = 'safety decision' if is_safety else 'world state'
+            raise self._error(line_number, f'invalid {kind} record: {error}') from error
 
     def _error(self, line_number: int, message: str) -> TraceReplayError:
         '''构造包含文件和行号的回放错误。'''

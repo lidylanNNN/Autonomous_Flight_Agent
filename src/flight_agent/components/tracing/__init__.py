@@ -2,12 +2,14 @@
 
 from flight_agent.components.tracing.recorder import TraceRecorder
 from flight_agent.components.tracing.replay import (
+    SafetyDecisionTraceRecord,
     TraceReplay,
     TraceReplayError,
     WorldStateTraceRecord,
 )
 
 __all__ = [
+    'SafetyDecisionTraceRecord',
     'TraceRecorder',
     'TraceReplay',
     'TraceReplayError',

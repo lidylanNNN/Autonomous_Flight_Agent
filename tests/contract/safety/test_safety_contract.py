@@ -32,7 +32,6 @@ def make_constraints() -> MissionConstraints:
             boundary_margin_m=2.0,
         ),
         allowed_skills=tuple(SkillName),
-        human_approval_skills=(SkillName.GOTO,),
     )
 
 
@@ -95,21 +94,17 @@ def test_geofence_requires_positive_area(field_name: str, field_value: float) ->
         NedGeofence.model_validate(payload)
 
 
-def test_mission_constraints_reject_duplicate_or_unapproved_skills() -> None:
-    '''验证Skill列表唯一，且审批列表必须属于允许集合。'''
+def test_mission_constraints_reject_duplicate_or_legacy_approval_skills() -> None:
+    '''验证Skill列表唯一，旧逐Skill审批字段不能进入V1契约。'''
 
     payload = make_constraints().model_dump()
     with pytest.raises(ValidationError, match='must not contain duplicates'):
         MissionConstraints.model_validate(
             payload | {'allowed_skills': ['takeoff', 'takeoff']}
         )
-    with pytest.raises(ValidationError, match='must be a subset'):
+    with pytest.raises(ValidationError, match='Extra inputs'):
         MissionConstraints.model_validate(
-            payload
-            | {
-                'allowed_skills': ['takeoff'],
-                'human_approval_skills': ['goto'],
-            }
+            payload | {'human_approval_skills': ['goto']}
         )
 
 

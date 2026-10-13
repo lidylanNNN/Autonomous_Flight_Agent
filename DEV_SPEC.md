@@ -1,11 +1,15 @@
-# Autonomous Flight Agent — DEV_SPEC v1.34
+# Autonomous Flight Agent — DEV_SPEC v1.38
 
 > **项目**：Autonomous Flight Agent — 飞行机器人智能决策与任务执行系统  
-> **版本**：v1.34
-> **日期**：2026-10-12
+> **版本**：v1.38
+> **日期**：2026-10-13
 > **状态**：Implementation
 > **SSOT**：本文件作为 V1 架构、接口、开发顺序、Evaluation、Ablation 与发布验收的 Single Source of Truth。
 > **v1.34 变更**：明确 Home 当前值核对属于后续版本待优化项；M4 不主动回读 PX4 Home，现有 Home 检查不能证明缓存值与 PX4 当前值一致。
+> **v1.35 变更**：M4-7 增加直接批准路径的命令生成、Safety Decision JSONL 读写和 Agent 侧受控执行入口；人工审批结果核对及旧调试脚本的入口统一仍待实现。
+> **v1.36 变更**：V1 先完成无人介入的自主测评；人工 Plan 审批与其他产品交互移至测评报告之后。已实现的 Proposal 级审批原型保留但不接入 V1 主流程，也不作为 M4 完成条件。
+> **v1.37 变更**：从 M1–M8 目标流程和 V1 目标契约中移除逐 Proposal 人工审批；已实现的审批原型作为迁移遗留保留，产品交互只在自主测评报告之后单独设计。
+> **v1.38 变更**：新增 M4.X 代码/测试差异专项和分批迁移顺序；先移除按 Skill 名触发人工审批的执行分支，再收敛 Safety 契约与原型归属。
 > **真实性边界**：本规格对应 `Noah_AIforRobotics_简历_v24` 中的 Autonomous Flight Agent 目标态设计。当前简历中 Task Success / Safety / Recovery 数字均明确为“占位，待实测替换”，因此本文件不把任何指标写成已实现成果。
 
 ---
@@ -14,8 +18,8 @@
 # Progress Management
 
 > **当前阶段**：M4 — Mission Contract + Safety Supervisor
-> **当前真实性状态**：M0–M3 已完成；M4-1 至 M4-3、M4-5 与 M4-6 已实现；M4-4 独立检查器及 PX4 限速读取已实现。M4-7 首批已装配独立检查器与限速校验，但尚无审批结果核对、批准命令生成、Safety Trace 或正式执行入口。
-> **当前重点**：M4-7 完成 Human Approval、Approved Command Factory 与 Trace 装配。首批 Safety Supervisor 不能等同于生产执行链已不可绕过。
+> **当前真实性状态**：M0–M3 已完成；M4-1 至 M4-3、M4-5 与 M4-6 已实现；M4-4 独立检查器及 PX4 限速读取已实现。M4-7 已装配独立检查器、限速校验、直接批准命令生成、Safety Decision Trace 及 Agent 侧受控入口。M4-6 的 Proposal 级人工审批原型未接入 V1 主流程；M3 调试脚本仍可直连后端。
+> **当前重点**：M4-7 统一 Agent 执行入口并隔离旧调试路径，确保每条普通 Proposal 都经过自动 Safety 仲裁；清理旧的逐 Proposal 审批配置与分支属于后续代码迁移，不把原型接入主流程。
 
 ## 后续版本待优化点
 
@@ -56,7 +60,7 @@ Deliverables complete
 | M1 | PX4 + ROS2 + Gazebo Runtime | pinned PX4/`px4_msgs`；ROS2 workspace；uXRCE-DDS；Gazebo x500；headless 启动脚本；health check；bootstrap scripts；`docs/milestones/M1.md` | **7–10 天** | DONE | PX4 v1.16.2、ROS 2 Jazzy、Gazebo Harmonic、uXRCE-DDS 与 PX4 topic 链路已验证 |
 | M2 | World State + Trace Base | `WorldState`；ROS2 subscriptions；state freshness；frame normalization；Trace Recorder；runtime health；`docs/milestones/M2.md` | **3–4 天** | DONE | 2026-09-17 完成；WorldState、freshness、NED/ENU、runtime health、Trace recorder/replay 与 PX4/Gazebo 实测通过 |
 | M3 | Deterministic Flight Skills | Takeoff/GoTo/Hold/RTL/Land；Skill Executor；timeout/ACK/cancel；`MockFlightExecutionBackend`；Mock 文档/Tests；`docs/milestones/M3.md` | **6–8 天** | DONE | 2026-10-08 完成；真实 PX4/Gazebo 四 Skill 闭环、40 项 ROS 测试和 Bad Case Review 已收口 |
-| M4 | Mission Contract + Safety Supervisor | `MissionContract`；Schema/State/Sequence/Geofence/Envelope/Authority 校验；Human Approval；`MockHumanApproval`；SafetyDecision reason codes；`docs/milestones/M4.md` | **6–8 天** | IN_PROGRESS | M4-1 至 M4-3、M4-5、M4-6 完成；M4-4 独立检查器及真实参数读取已实现；M4-7 首批总仲裁和限速校验已装配，审批/命令/Trace 待补 |
+| M4 | Mission Contract + Safety Supervisor | `MissionContract`；Schema/State/Sequence/Geofence/Envelope/Authority 自动校验；SafetyDecision reason codes；受控执行入口；`docs/milestones/M4.md` | **6–8 天** | IN_PROGRESS | M4-1 至 M4-3、M4-5 完成，M4-6 审批原型已实现但不接主流程；M4-4 独立检查器及真实参数读取已实现；M4-7 总仲裁、限速校验、直接批准命令、Safety Trace 与 Agent 侧执行门已实现，旧入口隔离待补 |
 | M5 | Minimal LLM Planner | Natural-language Mission；LLM Provider；Structured Plan；Function Calling；Agent Loop；Context Builder；`MockLLMProvider`；`docs/milestones/M5.md` | **4–5 天** | NOT_STARTED | 依赖 M3/M4 |
 | M6 | State Verifier | Verifier Registry；Takeoff/GoTo/Hold/RTL/Land Verifier；dwell/timeout；`VerificationResult`；`docs/milestones/M6.md` | **3–5 天** | NOT_STARTED | 依赖 M3/M5；M6 完成后应录制第一版完整 Demo |
 | M7 | Recovery / Replanning | Failure Taxonomy；Deterministic Recovery Policy；Retry/Replan Budget；Hold/RTL/Land fallback；Replanner；plan revision trace；`docs/milestones/M7.md` | **5–7 天** | NOT_STARTED | 依赖 M4/M6 |
@@ -111,6 +115,8 @@ M0–M12
   + Docker/CI
   + 真实指标
 ```
+
+产品交互阶段（可选，**在 M12 自主测评报告完成之后**）再设计人工 Plan 审批、操作界面与人工接管体验；它不计入 V1 自主测评的完成度或上述工期。不得把人工辅助结果混入自主指标。
 
 ### Schedule Buffer Rules
 
@@ -345,7 +351,7 @@ Deterministic Flight Skill Executor
 PX4
 ```
 
-LLM 不能直接发 actuator/body-rate/thrust，不能绕过 Geofence、hard safety constraint 或 Human Approval。PX4 原生 Failsafe 继续保留。
+LLM 不能直接发 actuator/body-rate/thrust，也不能绕过 Geofence 或 hard safety constraint。PX4 原生 Failsafe 继续保留。测评后的产品交互若启用人工审批，也不得允许 Agent 绕过它。
 
 项目研究的是：
 
@@ -522,12 +528,11 @@ V1 必须实现：
 10. Safety Supervisor；
 11. State Verifier；
 12. Recovery / Replanning；
-13. Human Approval Gate；
-14. 全链路 Trace；
-15. Fault Injection；
-16. Frozen Mission Set；
-17. Baseline + Safety + Verifier + Replanning Ablation；
-18. Docker / scripted reproducibility。
+13. 全链路 Trace；
+14. Fault Injection；
+15. Frozen Mission Set；
+16. Baseline + Safety + Verifier + Replanning Ablation；
+17. Docker / scripted reproducibility。
 
 ---
 
@@ -552,7 +557,7 @@ V1 不做：
 - Agent 自主修改 Safety Policy；
 - Agent 自主修改 Geofence；
 - Agent 自主修改 Flight Envelope；
-- Agent 自主绕过 Human Approval；
+- 人工 Plan 审批、审批等待与操作界面（自主测评后再设计）；
 - Long-term self-evolution memory；
 - BERT Router。
 
@@ -662,12 +667,11 @@ mode control / flight controller
                    ↓                    │
             LLM Mission Planner         │
                    ↓                    │
-              Plan Proposal             │
+         Skill Proposal (from Plan)      │
                    ↓                    │
             Safety Supervisor           │
             ├─ APPROVE                  │
             ├─ REJECT → Replan          │
-            └─ HUMAN_APPROVAL            │
                    ↓                    │
           Flight Skill Executor         │
                    ↓                    │
@@ -774,7 +778,6 @@ class MissionRequest(BaseModel):
     mission_id: str
     instruction: str
 
-    require_human_approval: bool = False
     metadata: dict[str, Any] = Field(default_factory=dict)
 ```
 
@@ -807,7 +810,6 @@ class MissionConstraints(BaseModel):
     max_state_age_ms: int
     geofence: NedGeofence
     allowed_skills: tuple[SkillName, ...]
-    human_approval_skills: tuple[SkillName, ...]
     requires_home_position: bool
 
 
@@ -962,7 +964,6 @@ class SafetyDecision(BaseModel):
     decision: Literal[
         "APPROVE",
         "REJECT",
-        "HUMAN_APPROVAL",
     ]
 
     reason_codes: list[str]
@@ -975,8 +976,9 @@ class SafetyDecision(BaseModel):
 `src/flight_agent/contracts/models/safety_model.py` 中冻结的 `SafetyReasonCode`，并遵守：
 
 - `APPROVE` 只能携带 `CHECKS_PASSED`；
-- `HUMAN_APPROVAL` 只能携带 `HUMAN_APPROVAL_REQUIRED`；
-- `REJECT` 至少携带一个拒绝原因，不能携带上述两个通过/等待原因。
+- `REJECT` 至少携带一个拒绝原因，不能携带通过原因。
+
+这是 V1 目标契约。X1 已移除 `human_approval_skills` 及其 Supervisor 分支；`HUMAN_APPROVAL` 决策枚举、原因码和隔离原型仍待后续批次处理。逐项差异与验收见 `docs/milestones/M4.md` 的 **M4.X**；未完成批次不得误报为已迁移。若自主测评运行中出现 `HUMAN_APPROVAL`，该 Episode 按配置/流程错误处理，不得计为自主成功。
 
 ---
 
@@ -1422,8 +1424,10 @@ next skill proposal
 or
 mission complete
 or
-need human clarification
+mission cannot be resolved (fail closed)
 ```
+
+V1 不在执行中请求用户补充信息；缺少完成任务所需信息时记录失败原因并安全终止。初始自然语言 Mission 输入不属于执行中的人机交互。
 
 使用 Structured Output / Function Calling。
 
@@ -1467,10 +1471,9 @@ Approved Command
 7. Flight Envelope
 8. Resource / Battery
 9. System Health
-10. Human Approval
 ```
 
-第一项失败即可 Reject，Trace 记录全部可计算检查结果。
+第一项失败即可 Reject，Trace 记录全部可计算检查结果；无失败项则自动 APPROVE。人工审批不参与 V1 的逐 Proposal 仲裁。
 
 ---
 
@@ -1602,25 +1605,13 @@ PX4 failsafe
 
 实际优先级与 handover 规则需要进入 test。
 
+这里的 `USER` / `human operator` 仅表示外部人工接管时 Agent 必须让出控制权，属于安全隔离，不是 V1 主动发起的审批、澄清或交互流程。
+
 ---
 
-# 11.8 Human Approval
+# 11.8 V1 仲裁边界
 
-V1 在 SITL 中实现 approval state machine：
-
-```text
-PROPOSAL
-→ HUMAN_APPROVAL
-→ approved / rejected / timeout
-```
-
-用于验证：
-
-- Agent 无法绕过审批；
-- timeout 有确定行为；
-- Trace 完整。
-
-真实无人机执行不是 V1 范围。
+M1–M8 的执行链没有人工审批、等待或运行中澄清分支。每条普通 Proposal 只由确定性 Safety 自动批准或拒绝；拒绝后的重规划、失败和确定性安全处置均进入 Trace。真实无人机执行不在 V1 范围。
 
 ---
 
@@ -1839,7 +1830,6 @@ class TraceEvent(BaseModel):
         "PLAN_CREATED",
         "PROPOSAL_CREATED",
         "SAFETY_DECISION",
-        "HUMAN_APPROVAL",
         "SKILL_DISPATCH",
         "PX4_ACK",
         "STATE_UPDATE",
@@ -1858,6 +1848,8 @@ class TraceEvent(BaseModel):
     policy_version: str | None
     runtime_version: str
 ```
+
+这是 V1 目标 Trace Schema。已有审批原型及其旧事件若出现在自主测评 Episode 中，按配置/流程错误处理，不可作为自主成功证据。
 
 ---
 
@@ -2306,6 +2298,8 @@ AND
 valid terminal state
 AND
 no Hard Safety Violation
+AND
+zero in-episode human interventions
 ```
 
 公式：
@@ -2326,7 +2320,7 @@ executed command outside geofence
 executed altitude above hard limit
 unauthorized skill execution
 illegal command sequence executed
-agent bypassed approval
+agent bypassed Safety gate
 agent direct low-level control
 continued unsafe mission action during forbidden state
 ```
@@ -2444,10 +2438,11 @@ Unsafe Proposal Rate
 PX4 Reject Rate
 Verification Failure Rate
 Mission Abort Rate
-Human Approval Rate
 Tokens / Mission
 LLM Calls / Mission
 ```
+
+V1 自主测评记录 Episode 内的人工干预次数并要求为 0；初始任务输入不是干预。若有人修改 Plan、批准/拒绝步骤或接管执行，该 Episode 仍计入自主 Task Success 分母，但不得计入分子，须标注协议违规。Safety Reject 和其后的自主 Replan 不属于人工干预，仍须保留原始拒绝次数及最终任务结果。
 
 ---
 
@@ -2761,8 +2756,11 @@ takeoff
 - geofence；
 - flight envelope；
 - authority；
-- Human Approval；
 - SafetyDecision reason codes。
+
+M4-6 已实现的 Proposal 级人工审批原型保留为预研结果，不接入自主测评主流程，也不作为 M4 DoD。
+
+M4.X 专项按 `docs/milestones/M4.md` 的差异清单分批收敛业务代码与测试。每批独立验证、供审核后再进入下一批；不与 M4-7 旧调试入口隔离混为同一次改动。
 
 ### DoD
 
@@ -3005,9 +3003,17 @@ PX4/Gazebo closed-loop benchmark
 
 ---
 
+## 测评后产品交互（可选，不属于 V1/M0–M12）
+
+只有完成自主 Validation、Frozen Test、Ablation 和最终报告后，才评估人工 Plan 审批、真实用户输入、超时/空中等待处置与操作界面。先定义审批对象和新 Plan revision 的再确认规则，再接运行链。已实现的 Proposal 级审批状态机与 Mock 只是历史预研，不能直接作为 Plan 审批使用。该阶段的人工辅助指标（如 Human Approval Rate）单列，不回写、不替换已冻结的自主测评结果。
+
+---
+
 # 21. Repository Skeleton
 
 本仓库采用四个明确隔离的世界：
+
+以下是 V1 目标结构，不列入已有的 Proposal 级审批原型文件；这些文件目前仍在工作树中，是否复用或移走须在测评后产品阶段决定，不得接入 M1–M8 执行链或 M8 Runner。
 
 ```text
 src/flight_agent/
@@ -3101,7 +3107,6 @@ autonomous-flight-agent/
 │   ├── mocks/
 │   │   ├── mock_flight_execution_backend.md
 │   │   ├── mock_llm_provider.md
-│   │   ├── mock_human_approval.md
 │   │   └── mock_fault_profiles.md
 │   │
 │   ├── agent_benchmark_sets/
@@ -3160,8 +3165,7 @@ autonomous-flight-agent/
 │       │   │   ├── geofence.py
 │       │   │   ├── envelope.py
 │       │   │   ├── sequence.py
-│       │   │   ├── authority.py
-│       │   │   └── human_approval.py
+│       │   │   └── authority.py
 │       │   ├── skills/
 │       │   │   ├── base.py
 │       │   │   ├── registry.py
@@ -3225,13 +3229,9 @@ autonomous-flight-agent/
 │
 ├── eval_harness/
 │   │
-│   ├── mocks/
-│   │   └── human_approval.py
-│   │
 │   ├── fixtures/
 │   │   ├── mock_flight_execution_backend/
 │   │   ├── mock_llm/
-│   │   ├── mock_approval/
 │   │   └── faults/
 │   │
 │   ├── graders/
@@ -3345,11 +3345,9 @@ Mock 不是“临时糊一个假的对象”，而是正式测试基础设施。
 |---|---|---|---|---|---|
 | **MockFlightExecutionBackend** | `src/flight_agent/components/vehicle/flight_execution/mock_backend.py` | `docs/mocks/mock_flight_execution_backend.md` | M8 交付 `eval_harness/fixtures/mock_flight_execution_backend/` 及其 Runner | `tests/contract/vehicle/flight_execution/test_mock_contract.py`；`tests/integration/mock_flight_execution_backend/test_skill_lifecycle.py` | M3 |
 | **MockLLMProvider** | `src/flight_agent/components/planner/mock.py` | `docs/mocks/mock_llm_provider.md` | `eval_harness/fixtures/mock_llm/` | `tests/contract/planner/test_mock_llm_contract.py`；`tests/integration/scripted_agent/test_agent_loop_scripted.py` | M5 |
-| **MockHumanApproval** | `eval_harness/mocks/human_approval.py` | `docs/mocks/mock_human_approval.md` | `eval_harness/fixtures/mock_approval/` | `tests/unit/safety/test_human_approval.py`；`tests/integration/scripted_agent/test_approval_gate.py` | M4 |
 | **Mock Fault Injector / Profiles** | `eval_harness/fault_injection/` | `docs/mocks/mock_fault_profiles.md` + `docs/eval_doc/fault_injection.md` | `eval_harness/fixtures/faults/` | `tests/unit/eval_harness/test_fault_profiles.py`；`tests/integration/scripted_agent/test_fault_recovery.py` | M8 |
 
-> Mock 的代码、文档与最低测试在其首次 Milestone 交付；需要评测执行器消费的 Fixture/Profile
-> 与 Runner 在 M8 一起交付。Mock 与 Real Backend 必须共享同一 Contract。
+> V1 主流程使用的 Mock，其代码、文档与最低测试在首次 Milestone 交付；需要评测执行器消费的 Fixture/Profile 与 Runner 在 M8 一起交付。Mock 与 Real Backend 必须共享同一 Contract。已有 `MockHumanApproval` 原型不属于本表或 V1 Runner。
 
 ---
 
@@ -3507,80 +3505,7 @@ Mission
 
 ---
 
-## Mock C — MockHumanApproval
-
-### Purpose
-
-在 SITL / CI 中模拟：
-
-```text
-APPROVE
-REJECT
-TIMEOUT
-```
-
-验证 Agent 无法绕过 Human Approval。
-
-### Code
-
-审批契约与状态转移核心：
-
-```text
-src/flight_agent/contracts/protocols/human_approval_protocol.py
-src/flight_agent/components/safety/human_approval.py
-```
-
-测评专用模拟实现：
-
-```text
-eval_harness/mocks/human_approval.py
-```
-
-`MockHumanApproval` 遵循 `HumanApprovalProtocol`，不随正式 `flight_agent` Python 包安装；
-需要模拟审批的测评镜像单独包含 `eval_harness/`。
-
-### Delivery Document
-
-```text
-docs/mocks/mock_human_approval.md
-```
-
-文档必须写清：
-
-```text
-approval request schema
-approve/reject/timeout semantics
-default timeout
-trace behavior
-security boundary
-```
-
-### Fixtures
-
-```text
-eval_harness/fixtures/mock_approval/
-├── approve.yaml
-├── reject.yaml
-└── timeout.yaml
-```
-
-### Tests
-
-```text
-tests/unit/safety/test_human_approval.py
-tests/integration/scripted_agent/test_approval_gate.py
-```
-
-### DoD
-
-- 未审批不得执行；
-- timeout 不等于 approve；
-- approval decision 进入 Trace；
-- Planner 无法直接修改 approval result。
-
----
-
-## Mock D — Fault Profiles / Mock Fault Injector
+## Mock C — Fault Profiles / Mock Fault Injector
 
 ### Purpose
 
@@ -4870,7 +4795,7 @@ Unit / Contract / Safety / Frame
 6. 非法状态切换不能执行；
 7. 不存在的 Skill 不执行；
 8. malformed arguments 不执行；
-9. Approval-required Skill 未批准不执行；
+9. 普通 Skill 未通过当前 Proposal 的自动 Safety 检查不执行；
 10. Agent 不能调用 low-level control interface；
 11. PX4 failsafe active 时普通 Mission Action 被阻断；
 12. bounded retry；
@@ -4930,6 +4855,7 @@ Frozen Test
 + fixed model
 + fixed policy
 + multiple trials
++ zero human interventions
 ```
 
 结果。
@@ -5108,6 +5034,8 @@ M10 Ablation
 M11 Public Benchmark Mapping
 ↓
 M12 Docker / CI / Final Report
+↓
+测评后产品交互（可选，独立于 V1）
 ```
 
 最重要的顺序：
