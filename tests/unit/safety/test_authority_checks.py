@@ -15,6 +15,7 @@ def test_agent_authority_is_allowed() -> None:
 @pytest.mark.parametrize(
     'authority',
     [
+        ControlAuthority.UNKNOWN,
         ControlAuthority.HUMAN_CONTROL_ACTIVE,
         ControlAuthority.RECOVERY_ACTIVE,
         ControlAuthority.PX4_FAILSAFE_ACTIVE,

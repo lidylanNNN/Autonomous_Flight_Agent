@@ -3,7 +3,7 @@ set -euo pipefail
 
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 VENV_PYTHON="${PROJECT_ROOT}/.venv/bin/python"
-ENTRYPOINT="${PROJECT_ROOT}/ros2_ws/install/flight_agent_ros/lib/flight_agent_ros/scripted_px4_flight"
+ENTRYPOINT="${PROJECT_ROOT}/ros2_ws/install/flight_agent_ros/lib/flight_agent_ros/mission_cli"
 
 [[ -x "${VENV_PYTHON}" ]] || {
   echo "Project virtual environment not found: ${VENV_PYTHON}" >&2
@@ -27,4 +27,4 @@ venv_site_packages="$(
 export PYTHONPATH="${venv_site_packages}:${PROJECT_ROOT}/src:${PYTHONPATH:-}"
 export FLIGHT_AGENT_TRACE_PATH="${FLIGHT_AGENT_TRACE_PATH:-${PROJECT_ROOT}/artifacts/m3_scripted_world_state.jsonl}"
 
-exec "${ENTRYPOINT}" --set-home-to-current "$@"
+exec "${ENTRYPOINT}" --legacy-m3-direct --set-home-to-current "$@"

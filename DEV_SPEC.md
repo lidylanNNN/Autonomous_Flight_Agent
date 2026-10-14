@@ -1,8 +1,8 @@
-# Autonomous Flight Agent — DEV_SPEC v1.39
+# Autonomous Flight Agent — DEV_SPEC v1.40
 
 > **项目**：Autonomous Flight Agent — 飞行机器人智能决策与任务执行系统  
-> **版本**：v1.39
-> **日期**：2026-10-13
+> **版本**：v1.40
+> **日期**：2026-10-14
 > **状态**：Implementation
 > **SSOT**：本文件作为 V1 架构、接口、开发顺序、Evaluation、Ablation 与发布验收的 Single Source of Truth。
 > **v1.34 变更**：明确 Home 当前值核对属于后续版本待优化项；M4 不主动回读 PX4 Home，现有 Home 检查不能证明缓存值与 PX4 当前值一致。
@@ -11,6 +11,7 @@
 > **v1.37 变更**：从 M1–M8 目标流程和 V1 目标契约中移除逐 Proposal 人工审批；已实现的审批原型作为迁移遗留保留，产品交互只在自主测评报告之后单独设计。
 > **v1.38 变更**：新增 M4.X 代码/测试差异专项和分批迁移顺序；先移除按 Skill 名触发人工审批的执行分支，再收敛 Safety 契约与原型归属。
 > **v1.39 变更**：明确里程碑顺序不等于组件先行的实现顺序；新功能先确认生产调用流并建立最小纵向切片，M4 验收区分组件单测与生产入口接入。
+> **v1.40 变更**：明确语句到飞行结果的顶层调用骨架及各占位节点。`mission_cli` 装配 MissionService、Safety Gate 与 Backend；旧 M3 直连流程只在显式调试模式保留。当前正式入口缺少可信控制权来源，默认拒绝飞行动作，不能宣称 PX4 端到端任务已闭环。
 > **真实性边界**：本规格对应 `Noah_AIforRobotics_简历_v24` 中的 Autonomous Flight Agent 目标态设计。当前简历中 Task Success / Safety / Recovery 数字均明确为“占位，待实测替换”，因此本文件不把任何指标写成已实现成果。
 
 ---
@@ -19,8 +20,8 @@
 # Progress Management
 
 > **当前阶段**：M4 — Mission Contract + Safety Supervisor
-> **当前真实性状态**：M0–M3 已完成；M4-1 至 M4-3、M4-5 与 M4-6 已实现；M4-4 独立检查器及 PX4 限速读取已实现。M4-7 已实现独立检查器装配、限速校验、直接批准命令生成、Safety Decision Trace 及 `SafetyExecutionGate` 类，但 Gate 目前仅由测试创建，尚无生产调用方。M4-6 的 Proposal 级人工审批原型未接入 V1 主流程；M3 调试脚本仍可直连后端。
-> **当前重点**：M4-7 统一 Agent 执行入口并隔离旧调试路径，确保每条普通 Proposal 都经过自动 Safety 仲裁；清理旧的逐 Proposal 审批配置与分支属于后续代码迁移，不把原型接入主流程。
+> **当前真实性状态**：M0–M3 已完成；M4-1 至 M4-3、M4-5 与 M4-6 已实现；M4-4 独立检查器及 PX4 限速读取已实现。M4-7 的正式脚本入口已装配 `MissionService -> SafetyExecutionGate -> FlightExecutionBackend`，替身集成测试覆盖批准/拒绝路径；但正式运行缺少可信控制权来源，固定以 `UNKNOWN` 拒绝。Planner 仅识别一条固定语句，Verifier / Recovery 为明确占位，完整 Trace 和 PX4/Gazebo 端到端验证尚未完成。M4-6 的逐 Proposal 人工审批原型未接入 V1 主流程；M3 直连脚本仅保留显式调试模式。
+> **当前重点**：为正式入口接入可验证的控制权来源并完成 M4-7 边界验收；清理旧的逐 Proposal 审批配置与分支属于后续代码迁移，不把原型接入主流程。
 
 ## 后续版本待优化点
 
@@ -61,7 +62,7 @@ Deliverables complete
 | M1 | PX4 + ROS2 + Gazebo Runtime | pinned PX4/`px4_msgs`；ROS2 workspace；uXRCE-DDS；Gazebo x500；headless 启动脚本；health check；bootstrap scripts；`docs/milestones/M1.md` | **7–10 天** | DONE | PX4 v1.16.2、ROS 2 Jazzy、Gazebo Harmonic、uXRCE-DDS 与 PX4 topic 链路已验证 |
 | M2 | World State + Trace Base | `WorldState`；ROS2 subscriptions；state freshness；frame normalization；Trace Recorder；runtime health；`docs/milestones/M2.md` | **3–4 天** | DONE | 2026-09-17 完成；WorldState、freshness、NED/ENU、runtime health、Trace recorder/replay 与 PX4/Gazebo 实测通过 |
 | M3 | Deterministic Flight Skills | Takeoff/GoTo/Hold/RTL/Land；Skill Executor；timeout/ACK/cancel；`MockFlightExecutionBackend`；Mock 文档/Tests；`docs/milestones/M3.md` | **6–8 天** | DONE | 2026-10-08 完成；真实 PX4/Gazebo 四 Skill 闭环、40 项 ROS 测试和 Bad Case Review 已收口 |
-| M4 | Mission Contract + Safety Supervisor | `MissionContract`；Schema/State/Sequence/Geofence/Envelope/Authority 自动校验；SafetyDecision reason codes；受控执行入口；`docs/milestones/M4.md` | **6–8 天** | IN_PROGRESS | M4-1 至 M4-3、M4-5 完成，M4-6 审批原型已实现但不接主流程；M4-4 独立检查器及真实参数读取已实现；M4-7 总仲裁、限速校验、直接批准命令、Safety Trace 与 Agent 侧执行门已实现，旧入口隔离待补 |
+| M4 | Mission Contract + Safety Supervisor | `MissionContract`；Schema/State/Sequence/Geofence/Envelope/Authority 自动校验；SafetyDecision reason codes；受控执行入口；`docs/milestones/M4.md` | **6–8 天** | IN_PROGRESS | M4-7 生产脚本已装配 Gate，M3 直连仅显式调试；可信 Authority 来源、完整 Trace 与 PX4/Gazebo 端到端验证待补，不能标为完成 |
 | M5 | Minimal LLM Planner | Natural-language Mission；LLM Provider；Structured Plan；Function Calling；Agent Loop；Context Builder；`MockLLMProvider`；`docs/milestones/M5.md` | **4–5 天** | NOT_STARTED | 依赖 M3/M4 |
 | M6 | State Verifier | Verifier Registry；Takeoff/GoTo/Hold/RTL/Land Verifier；dwell/timeout；`VerificationResult`；`docs/milestones/M6.md` | **3–5 天** | NOT_STARTED | 依赖 M3/M5；M6 完成后应录制第一版完整 Demo |
 | M7 | Recovery / Replanning | Failure Taxonomy；Deterministic Recovery Policy；Retry/Replan Budget；Hold/RTL/Land fallback；Replanner；plan revision trace；`docs/milestones/M7.md` | **5–7 天** | NOT_STARTED | 依赖 M4/M6 |
@@ -1096,6 +1097,34 @@ Agent / Safety / Evaluation 不直接 import PX4 topic。
 ---
 
 # 8.2.1 Key Runtime Components and Node Flow
+
+当前语句到执行的纵向骨架（方括号标明尚未实现的职责）：
+
+```text
+用户语句 / MissionRequest
+  -> 冻结 MissionContract + PX4 WorldState
+  -> MissionPlan [M5 Planner 占位：仅识别“起飞到10米”]
+  -> PlanStep / SkillProposal
+  -> SafetyExecutionGate / SafetySupervisor / SafetyDecision
+  -> ApprovedSkillCommand / FlightExecutionBackend
+  -> ROS2 adapters / PX4 / SkillResult
+  -> VerificationResult [M6 Verifier 占位：INCONCLUSIVE]
+  -> Recovery / Replanning [M7 占位：接收 Safety 拒绝或执行失败；不执行恢复动作]
+  -> MissionRunResult [骨架期无任务成功状态]
+```
+
+正式入口由 `mission_cli` 创建并持有 ROS2 Adapter、Backend、Gate 和
+`MissionService`；`MissionService.run(MissionRequest)` 负责推进计划步骤。未知语句返回
+`UNSUPPORTED`，Safety 拒绝或执行失败且无法恢复时分别返回 `REJECTED` 或 `FAILED`，Backend 成功但
+Verifier 未实现返回 `UNVERIFIED`。这条新任务主链目前只写入 Safety Decision Trace，尚不能代表
+完整的 Mission/Plan/Proposal/Dispatch/ACK/Verification/Recovery 轨迹。正式入口
+使用 `UNKNOWN` 控制权并拒绝派发，直到可信控制权接入和实机链路验证完成；
+`--legacy-m3-direct` 是单独的 M3 调试路径，会绕过 Gate，不属于正式任务入口或自主测评。
+Safety 拒绝会把完整 `SafetyDecision` 传入 Recovery 占位入口，执行失败则传入
+`SkillResult`。若 Recovery 返回修订的 `MissionPlan`，`run()` 继续执行修订计划，
+每条新 Proposal 重新经过 Safety Gate；若返回 `None` 才以 `REJECTED` 或 `FAILED`
+结束。当前占位入口只返回 `None`，不会修正提案或派发 Hold/RTL。M7 才定义
+具体处置、超时与配置化重试预算；测试中的修订计划不代表生产恢复能力已接入。
 
 关键组件的逻辑调用链：
 

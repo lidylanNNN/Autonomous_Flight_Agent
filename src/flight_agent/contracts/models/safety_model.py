@@ -18,6 +18,7 @@ class _StrictFrozenModel(BaseModel):
 class ControlAuthority(StrEnum):
     '''当前允许控制飞行器的最高优先级主体。'''
 
+    UNKNOWN = 'unknown'
     AGENT_ALLOWED = 'agent_allowed'
     HUMAN_CONTROL_ACTIVE = 'human_control_active'
     RECOVERY_ACTIVE = 'recovery_active'

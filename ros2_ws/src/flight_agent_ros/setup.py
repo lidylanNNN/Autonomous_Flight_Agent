@@ -14,10 +14,8 @@ setup(
     zip_safe=True,
     entry_points={
         'console_scripts': [
-            'scripted_px4_flight = '
-            'flight_agent_ros.entrypoints.scripted_px4_flight:main',
-            'px4_world_state_adapter = '
-            'flight_agent_ros.adapters.px4_world_state_adapter:main',
+            'mission_cli = flight_agent_ros.entrypoints.mission_cli:main',
+            'px4_world_state_adapter = flight_agent_ros.adapters.px4_world_state_adapter:main',
         ],
     },
 )
