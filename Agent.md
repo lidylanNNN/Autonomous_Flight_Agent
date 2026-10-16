@@ -11,9 +11,9 @@
 
 ## 当前边界
 
-- M0–M3 有阶段记录；M4 Safety Gate 仍在收口，M5 Agent 生产入口、M6 独立 Verifier、M7 无人续跑及 M7-S Runtime SafetyMonitor 尚未接入。
+- M0–M3 有阶段记录；M4 Safety Gate 仍在收口，M5 ROS-LLM 有人主链、M6 飞行原子动作完成判定、M7 人类反馈修正及 M7-S 运行中安全路径尚未接入。
 - 当前 `MissionService` 只识别固定语句，验证/恢复是占位；正式任务入口 Authority 为 `UNKNOWN`。M3 直连是显式调试路径，不能算受控 Agent 任务闭环。
-- Agent 不参与 PX4 实时控制；物理 Tool 必须经过独立 Safety Gate。人工 Plan 确认属于自主测评后的产品交互，不把旧逐 Proposal 审批原型当成当前能力。
+- Agent 不参与 PX4 实时控制；飞行原子动作内部必须经过独立 Safety Gate。人工任务/反馈输入属于 ROS-LLM 主链；产品级人工 Plan 审批另行设计，不把旧逐 Proposal 审批原型当成当前能力。
 - 测评集位于 `agent_benchmark_sets/`，评测执行位于 `eval_harness/`；没有版本化实测报告，不得声称任务成功率、违规率或商业效益。
 
 ## 决策与版本

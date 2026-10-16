@@ -1,6 +1,6 @@
 # Autonomous Flight Agent
 
-Autonomous Flight Agent adapts the [ROS-LLM](https://github.com/huawei-noah/HEBO/tree/master/ROSLLM) task-to-behavior-to-observation loop to a flight robot on ROS 2 Jazzy, PX4, and Gazebo. The first target is human-in-the-loop: a person enters a mission, the agent selects a bounded sequence of flight actions, and the executor returns observations after the sequence ends or fails. Unattended continuation comes later. This is an adaptation target, not a claim that the current code is a ROS 2 port of ROS-LLM.
+Autonomous Flight Agent targets the [ROS-LLM](https://github.com/huawei-noah/HEBO/tree/master/ROSLLM) human-input, observation, behavior, execution, and feedback loop on a flight robot using ROS 2 Jazzy, PX4, and Gazebo. The target preserves that orchestration; flight-specific safety checks and PX4 execution live inside atomic actions. This is not a claim that the current code is a ROS 2 port of ROS-LLM or already has the same production call chain.
 
 The project has completed **M3 — Deterministic Flight Skill Executor** and is working on **M4 — Mission Contract + Safety Supervisor**. `DEV_SPEC.md` is the single source of truth for scope, architecture, repository structure, milestones, evaluation, versioning, and release gates.
 
@@ -12,7 +12,7 @@ The target is a closed-loop flight agent that can:
 
 - understand natural-language mission intent;
 - compose existing deterministic flight skills such as Takeoff, GoTo, Hold, RTL, and Land;
-- first stop and report a failed action sequence to the operator, then later adapt autonomously when the unattended phase is implemented;
+- stop a failed action sequence, report the result and new observation, then use the operator's next feedback to produce a corrected behavior;
 - separate non-deterministic LLM planning from deterministic safety checks;
 - verify success from observed vehicle state instead of trusting tool calls or PX4 ACK alone;
 - produce traceable evaluation artifacts for task success, safety, recovery, and ablation.
@@ -29,7 +29,7 @@ The system is not intended to replace PX4 or low-level flight control. PX4 remai
 - **Planning:** LLM provider abstraction with structured skill proposals
 - **Safety:** deterministic Mission Contract and Safety Supervisor
 - **Verification:** state-based verifier for flight skill outcomes
-- **Recovery:** deterministic fallback policy plus mission-level replanning
+- **Feedback:** human-guided correction after each completed or failed behavior; flight-specific deterministic safety response inside the execution boundary
 - **Mission sets:** schema-driven dev / validation / frozen-test cases
 - **Evaluation harness:** unit/contract/safety tests, agent simulation, PX4/Gazebo frozen mission set
 - **Tooling:** `uv`, pytest, mypy, ruff, Docker / Docker Compose
@@ -37,24 +37,22 @@ The system is not intended to replace PX4 or low-level flight control. PX4 remai
 ## Target Architecture
 
 ```text
-Human mission -> Agent selects a bounded atomic-action sequence
--> Executor calls runtime hooks and flight safety gate for each action
--> ROS 2/PX4 execution, stopping at the first failure
--> Deterministic Hold/RTL response when appropriate
--> Observation after the sequence ends -> next human input
-
-Later, the agent may start the next sequence itself from that observation.
+Initial observation -> human input + atomic-action library -> Agent/LLM behavior
+-> Behavior Executor calls atomic actions in sequence, stopping at first failure
+-> Flight atomic action: Safety Gate -> ROS 2/PX4 -> state-based result
+-> Behavior result -> new observation -> wait for next human input
 ```
 
 LLM output is limited to mission-level planning and skill selection. The agent must not output actuator commands, body-rate commands, thrust commands, or maintain real-time control loops.
 
 ## Current Goal
 
-Complete M4's trusted authority and safety gate validation, then build the assisted ROS-LLM-derived Agent/ROS 2 production loop in M5. M7 adds unattended continuation:
+Complete M4's trusted authority and safety gate validation, then build the ROS-LLM-aligned human/agent/environment loop in M5. M7 covers correction after human feedback, not unattended continuation:
 
 ```text
-Human mission -> Model-selected flight action sequence -> Safety gate per action
--> ROS 2/PX4 execution -> Vehicle observation -> Next human input
+Initial observation -> Human mission/feedback -> Model-selected behavior
+-> Behavior Executor -> Safety-gated flight atomic actions -> PX4
+-> Behavior result -> New observation -> Next human input
 ```
 
 ## Repository Status
