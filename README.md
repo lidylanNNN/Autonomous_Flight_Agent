@@ -1,23 +1,23 @@
 # Autonomous Flight Agent
 
-Autonomous Flight Agent is a mission-level robotics agent for autonomous UAV tasks. It is designed around ROS2, PX4, and Gazebo, with an LLM planner operating above deterministic flight control rather than inside the real-time control loop.
+Autonomous Flight Agent adapts the [ROS-LLM](https://github.com/huawei-noah/HEBO/tree/master/ROSLLM) task-to-behavior-to-observation loop to a flight robot on ROS 2 Jazzy, PX4, and Gazebo. The first target is human-in-the-loop: a person enters a mission, the agent selects a bounded sequence of flight actions, and the executor returns observations after the sequence ends or fails. Unattended continuation comes later. This is an adaptation target, not a claim that the current code is a ROS 2 port of ROS-LLM.
 
-The project has completed **M3 — Deterministic Flight Skill Executor** and is entering **M4 — Mission Contract + Safety Supervisor**. `DEV_SPEC.md` is the single source of truth for scope, architecture, repository structure, milestones, evaluation, versioning, and release gates.
+The project has completed **M3 — Deterministic Flight Skill Executor** and is working on **M4 — Mission Contract + Safety Supervisor**. `DEV_SPEC.md` is the single source of truth for scope, architecture, repository structure, milestones, evaluation, versioning, and release gates.
 
 ## Project Value
 
 Traditional flight control already solves stabilization, navigation, waypoint execution, geofencing, and failsafe behavior well. This project focuses on the layer above that: turning a semantic mission goal into a safe, verifiable sequence of flight skills.
 
-The core value is a closed-loop mission agent that can:
+The target is a closed-loop flight agent that can:
 
 - understand natural-language mission intent;
 - compose existing deterministic flight skills such as Takeoff, GoTo, Hold, RTL, and Land;
-- adapt at runtime when a target is unsafe, blocked, stale, or failed;
+- first stop and report a failed action sequence to the operator, then later adapt autonomously when the unattended phase is implemented;
 - separate non-deterministic LLM planning from deterministic safety checks;
 - verify success from observed vehicle state instead of trusting tool calls or PX4 ACK alone;
 - produce traceable evaluation artifacts for task success, safety, recovery, and ablation.
 
-The system is not intended to replace PX4 or low-level flight control. PX4 remains responsible for flight stability, commander behavior, native geofence, and failsafe logic. The agent decides what mission-level action should be proposed next; the safety supervisor decides whether it may execute.
+The system is not intended to replace PX4 or low-level flight control. PX4 remains responsible for flight stability, commander behavior, native geofence, and failsafe logic. The agent decides what mission-level action should be proposed next; the safety supervisor decides whether it may execute. ROS-LLM's public implementation uses ROS Noetic; this project retains ROS 2 Jazzy and adapts the architecture and core workflow rather than switching ROS versions.
 
 ## Technical Stack
 
@@ -37,43 +37,38 @@ The system is not intended to replace PX4 or low-level flight control. PX4 remai
 ## Target Architecture
 
 ```text
-Observe
--> Plan
--> Propose
--> Safety Check
--> Act
--> Verify
--> Replan / Next
+Human mission -> Agent selects a bounded atomic-action sequence
+-> Executor calls runtime hooks and flight safety gate for each action
+-> ROS 2/PX4 execution, stopping at the first failure
+-> Deterministic Hold/RTL response when appropriate
+-> Observation after the sequence ends -> next human input
+
+Later, the agent may start the next sequence itself from that observation.
 ```
 
 LLM output is limited to mission-level planning and skill selection. The agent must not output actuator commands, body-rate commands, thrust commands, or maintain real-time control loops.
 
 ## Current Goal
 
-M0 must finish the evaluation and contract foundation before PX4 / ROS2 / Gazebo runtime implementation begins:
+Complete M4's trusted authority and safety gate validation, then build the assisted ROS-LLM-derived Agent/ROS 2 production loop in M5. M7 adds unattended continuation:
 
 ```text
-MissionEvalCase Schema
--> 20-30 Dev Mission Cases
--> EnvironmentManifest
--> Dataset split / freeze rules
--> Schema validation script
--> docs/milestones/M0.md
+Human mission -> Model-selected flight action sequence -> Safety gate per action
+-> ROS 2/PX4 execution -> Vehicle observation -> Next human input
 ```
 
 ## Repository Status
 
-This repository currently contains the M0 skeleton defined by `DEV_SPEC.md`. Planned directories and interfaces in the spec should not be treated as implemented until the corresponding milestone DoD is complete.
+M0-M3 are complete; M4 is in progress. Planned directories and interfaces in the spec should not be treated as implemented until the corresponding milestone DoD is complete.
 
-Current initialized pieces:
+Current implemented foundations include:
 
 - project metadata and `uv` lockfile;
-- M0 safety and environment manifest placeholders;
-- core `flight_agent` package skeleton;
-- initial contract/runtime placeholder modules;
-- mission-set schema and dataset directories;
-- unit and contract test directories;
-- M0 milestone document.
+- mission-set schemas, validation, and evaluation split rules;
+- ROS 2 Jazzy / PX4 / Gazebo SITL integration;
+- vehicle state aggregation and trace recording;
+- deterministic flight skills and execution backend;
+- safety gate components and a scripted mission entry, not yet the Agent production loop.
 
 ## Evaluation Boundary
 

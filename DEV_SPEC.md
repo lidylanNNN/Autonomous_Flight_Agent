@@ -1,8 +1,8 @@
-# Autonomous Flight Agent — DEV_SPEC v1.42
+# Autonomous Flight Agent — DEV_SPEC v1.44
 
 > **项目**：Autonomous Flight Agent — 飞行机器人智能决策与任务执行系统  
-> **版本**：v1.42
-> **日期**：2026-10-15
+> **版本**：v1.44
+> **日期**：2026-10-16
 > **状态**：Implementation
 > **SSOT**：本文件作为 V1 架构、接口、开发顺序、Evaluation、Ablation 与发布验收的 Single Source of Truth。
 > **v1.34 变更**：明确 Home 当前值核对属于后续版本待优化项；M4 不主动回读 PX4 Home，现有 Home 检查不能证明缓存值与 PX4 当前值一致。
@@ -14,6 +14,8 @@
 > **v1.40 变更**：明确语句到飞行结果的顶层调用骨架及各占位节点。`mission_cli` 装配 MissionService、Safety Gate 与 Backend；旧 M3 直连流程只在显式调试模式保留。当前正式入口缺少可信控制权来源，默认拒绝飞行动作，不能宣称 PX4 端到端任务已闭环。
 > **v1.41 架构决策**：目标态由唯一 Mission Agent Loop 选择 Tool；Agent Runtime 只通过 `PreToolUse`、`PostToolUse`、`OnToolError`、`Stop` Hook 约束调用，不建立第二套任务决策循环。迁移时删除 `MissionPlan`/`PlanStep` 固定调度及其契约引用，保留 M3 飞行动作和 M4 Safety Gate。独立 Runtime SafetyMonitor 负责运行中安全，当前尚未实现。本次只更新规格，现有代码仍处于 v1.40 骨架状态；详细迁移依据见 `架构重构.md`。
 > **v1.42 评审修订**：区分现有 M4 Gate 装配与尚未开发的 M5 Agent 生产入口；按新架构重估剩余工期并安排 SafetyMonitor 专项；项目价值改为 V1 可测的临时点位任务、人力成本测算口径和三项技术收益。删除重复的 M0 checklist，M0 验收以 `docs/milestones/M0.md` 为准。
+> **v1.43 项目定位修订**：目标是将华为诺亚方舟实验室参与的 ROS-LLM 核心闭环适配到飞行机器人、ROS 2 Jazzy 和 PX4，而不只是引用其架构图；移除旧框架参考。适配不要求切换到 ROS Noetic，也不允许绕过本项目的飞行安全边界。
+> **v1.44 交互与执行顺序修订**：先落地 ROS-LLM 式的有人闭环：人输入一轮任务，Agent 给出受限原子动作序列，执行器逐项执行，整段结束或遇错后读取观察并等待下一轮人工输入；后续才增加无人自主续跑。执行器遇错停止序列并按可信状态触发 Hold/RTL 安全处置，不承担任务级重新规划。该目标尚未在生产代码实现。
 > **真实性边界**：本规格对应 `Noah_AIforRobotics_简历_v24` 中的 Autonomous Flight Agent 目标态设计。当前简历中 Task Success / Safety / Recovery 数字均明确为“占位，待实测替换”，因此本文件不把任何指标写成已实现成果。
 
 ---
@@ -23,7 +25,7 @@
 
 > **当前阶段**：M4 — Mission Contract + Safety Supervisor
 > **当前真实性状态**：M0–M3 已完成；M4-1 至 M4-3、M4-5 与 M4-6 已实现；M4-4 独立检查器及 PX4 限速读取已实现。M4-7 的现有脚本骨架已装配 `MissionService -> SafetyExecutionGate -> FlightExecutionBackend`，替身集成测试覆盖批准/拒绝路径；但控制权来源固定为 `UNKNOWN`，真实入口会拒绝飞行动作。当前 `MissionService` 仍按 `MissionPlan.steps` 循环，仅识别一条固定语句；这不是目标态 Agent 生产入口。Verifier / Recovery 为占位；Runtime Hook、独立 SafetyMonitor、完整 Trace 和 PX4/Gazebo 端到端验证尚未完成。M4-6 的逐 Proposal 人工审批原型未接入 V1 主流程；M3 直连脚本仅保留显式调试模式。
-> **当前重点**：先完成 M4 Gate 的可信控制权接入、批准/拒绝派发和 Trace 验证；现有 `mission_cli -> MissionService` 只是待迁移的脚本骨架，M5 Agent 生产入口尚未开发。M4 不以完成新 Agent 入口为验收条件；M5 才替换固定 PlanStep 调度并装配 Agent Loop。旧逐 Proposal 审批原型不接入自主主流程。
+> **当前重点**：先完成 M4 Gate 的可信控制权接入、批准/拒绝派发和 Trace 验证；现有 `mission_cli -> MissionService` 只是待迁移的脚本骨架，M5 Agent 生产入口尚未开发。M4 不以完成新 Agent 入口为验收条件；M5 先装配有人输入的 ROS-LLM 式行为序列闭环，M7 再加入无人自主续跑。旧逐 Proposal 审批原型不接入主流程。
 
 ## 后续版本待优化点
 
@@ -65,9 +67,9 @@ Deliverables complete
 | M2 | World State + Trace Base | `WorldState`；ROS2 subscriptions；state freshness；frame normalization；Trace Recorder；runtime health；`docs/milestones/M2.md` | **3–4 天** | DONE | 2026-09-17 完成；WorldState、freshness、NED/ENU、runtime health、Trace recorder/replay 与 PX4/Gazebo 实测通过 |
 | M3 | Deterministic Flight Skills | Takeoff/GoTo/Hold/RTL/Land；Skill Executor；timeout/ACK/cancel；`MockFlightExecutionBackend`；Mock 文档/Tests；`docs/milestones/M3.md` | **6–8 天** | DONE | 2026-10-08 完成；真实 PX4/Gazebo 四 Skill 闭环、40 项 ROS 测试和 Bad Case Review 已收口 |
 | M4 | Mission Contract + Safety Supervisor | `MissionContract`；确定性检查；SafetyDecision；受控 Gate 装配与拒绝/批准 Trace；`docs/milestones/M4.md` | **原计划 6–8 天；剩余估计 2–4 天** | IN_PROGRESS | 现有脚本骨架已装配 Gate，非新 Agent 入口；可信 Authority 来源和 Gate 的真实 PX4/Gazebo 验证待补。可用脚本驱动 Gate 验收，不依赖 M5 |
-| M5 | Minimal Tool-calling Agent | 唯一 Agent Loop；LLM Provider；Runtime Hooks；Information/Action Tools；Observation；删除 PlanStep 调度；Mock 链路与真实模型能力测试；`docs/milestones/M5.md` | **重估 9–13 天** | NOT_STARTED | 依赖 M4 Gate；新 Agent 生产入口尚未开发，届时复用 M4 Gate、M3 Backend |
+| M5 | 有人 ROS-LLM 飞行闭环 | 人工任务入口；LLM Provider；Runtime Hooks；受限原子动作序列执行器；失败后 Hold/RTL 处置；整段结束后的 Observation；`docs/milestones/M5.md` | **原估 9–13 天，待重估** | NOT_STARTED | 依赖 M4 Gate；先不要求失败后自主续跑，需复用 M3 Backend |
 | M6 | State Verifier | 五个飞行动作的独立状态验证；dwell/timeout；`VerificationResult`；`docs/milestones/M6.md` | **重估 4–6 天** | NOT_STARTED | 依赖 M3/M5；有可信验证前任务不报告成功 |
-| M7 | Recovery / Replanning | Failure Taxonomy；Tool-call Budget；Agent 根据 Observation 调整下一次 Tool；任务层失败处置与 Trace；`docs/milestones/M7.md` | **重估 5–8 天** | NOT_STARTED | 依赖 M4/M6；不创建第二个任务决策循环，运行中紧急处置归 SafetyMonitor |
+| M7 | 无人任务续跑 / Recovery | Failure Taxonomy；Tool-call Budget；Agent 根据整段结束后的 Observation 自主发起下一轮；任务层失败处置与 Trace；`docs/milestones/M7.md` | **原估 5–8 天，待重估** | NOT_STARTED | 依赖 M5/M6；不创建第二个任务决策循环，运行中紧急处置归 SafetyMonitor |
 | M7-S | Runtime SafetyMonitor 专项 | 独立调度；状态/链路时效；危险触发；在途动作抢占与控制权仲裁；安全处置 Trace；SITL 断链/故障测试 | **新增估计 6–9 天** | NOT_STARTED | 依赖 M3/M4 状态与执行能力；V1 安全声明前必须完成，不把 PX4 failsafe 冒充本模块 |
 | M8 | Eval Harness + Fault Injection | Episode Runner；Simulator Reset；Seed；Initial State Setup；Fault Injector/Profiles；Graders；Report/Bad Case Export；Mock Fault 文档/Fixture/Tests；`docs/milestones/M8.md` | **6–8 天** | NOT_STARTED | 高风险阶段；Evaluation 在 M0 起持续补 Case，M8 负责完整自动化 |
 | M9 | Frozen Mission Set | Dev/Validation/Frozen Test；family-level split；`frozen_eval_manifest.yaml`；PX4/Model/Prompt/Safety/Simulator 版本冻结；`docs/milestones/M9.md` | **3–4 天** | NOT_STARTED | 系统稳定后冻结，冻结后不得用于调参 |
@@ -77,25 +79,25 @@ Deliverables complete
 
 ### Schedule Summary
 
-以下是 **2026-10-15 起的剩余工作量重估**，不是已投入工时，也不是承诺日期。依据当前代码：M4 Gate 已实现主要检查，但可信 Authority 和正式 PX4 验收未完成；M5 Agent 入口、Hooks、Tool Adapter、独立 Verifier 与 SafetyMonitor 尚无生产实现。`MissionPlan`/`PlanStep` 的生产/测试引用涉及至少 11 个文件，迁移必须连同 Trace、测评契约复核。
+以下是 **2026-10-15 起、v1.42 架构的原剩余工作量基线**，不是已投入工时，也不是承诺日期。v1.44 新增有人序列执行与失败后安全处置、调整 M7 无人续跑边界，M5/M7 及总工期**尚未按新范围重估，不得把下表当作最新承诺**。依据当前代码：M4 Gate 已实现主要检查，但可信 Authority 和正式 PX4 验收未完成；M5 Agent 入口、Hooks、Tool Adapter、独立 Verifier 与 SafetyMonitor 尚无生产实现。`MissionPlan`/`PlanStep` 的生产/测试引用涉及至少 11 个文件，迁移必须连同 Trace、测评契约复核。
 
 | 工作包 | 有效开发日 | 可验收产物 |
 |---|---:|---|
 | M4 收口 | 2–4 | 可信 Authority、Gate 批准/拒绝 Trace、脚本驱动的 PX4/Gazebo 验证 |
-| M5 Agent 架构迁移 | 9–13 | 现有 MissionService 迁移；Agent Loop、Hooks、Tool Adapter、Mock 链路、真实模型选 Tool 测评 |
+| M5 Agent 架构迁移 | 原估 9–13，待重估 | 有人任务入口、有限序列执行器、失败后安全处置、Hooks、Mock 链路与模型测评 |
 | M6 独立 Verifier | 4–6 | 五个动作的状态判定与假成功用例 |
-| M7 任务层恢复 | 5–8 | Agent 消费拒绝/失败 Observation 后改选 Tool、预算终止和 Trace |
+| M7 任务层恢复 | 原估 5–8，待重估 | Agent 消费整段结束/失败 Observation 后无人续跑、预算终止和 Trace |
 | M7-S 运行中安全专项 | 6–9 | 独立监测、抢占仲裁、处置路径和 SITL 故障用例 |
 | M8–M12 测评与发布 | 19–27 | Frozen Eval、Ablation、报告、Docker/CI |
 | **剩余合计** | **45–67** | 以上全部满足各自 DoD |
 
-原架构下剩余约 33–48 有效开发日；新增 Agent Tool/Hook 迁移和 SafetyMonitor 后，净增约 12–19 日。另建议预留约 15% 集成/返工缓冲，总安排约 **52–77 有效开发日**。若从 2026-10-15 起平均每周完成 4 个有效开发日，则约 **13–19 周，即 2027 年 1 月中旬至 2 月底**；周投入或 SITL/模型接入条件变化时必须重算。不得把 DJI 产品的商业效果当作本项目进度或性能证据。
+原 v1.42 架构下剩余约 33–48 有效开发日；加入 Agent Tool/Hook 迁移和 SafetyMonitor 后，原基线净增约 12–19 日。原建议预留约 15% 集成/返工缓冲，总安排约 **52–77 有效开发日**；按每周 4 个有效开发日，原推算约 **13–19 周，即 2027 年 1 月中旬至 2 月底**。这些数值尚未计入 v1.44 有人序列执行与失败处置的范围变化，重估前只作历史比较，不作当前预计完成日期。不得把 DJI 产品的商业效果当作本项目进度或性能证据。
 
 实施顺序：
 
 1. M4 先独立验收 Gate；现有 `mission_cli` 仅作脚本驱动，不称 Agent 生产入口。
-2. M5 先贯通单个 `takeoff` 的 Agent → Hook → Tool → Gate → Mock Backend → Observation；再扩展五个 Action Tools，接真实 LLM 并分别测 Mock 链路与模型选择能力。此阶段完成终态仍为 `UNVERIFIED`。
-3. M6 接入独立验证，M7 接入 Observation 驱动的调整；两者不得把 Backend 成功等同任务完成。
+2. M5 先贯通人工输入的单个 `takeoff`，再扩展到有限动作序列；每项经 Hook/Gate，首项失败即停，按可信状态处置并返回观察，等待下一轮人工输入。此阶段完成终态仍为 `UNVERIFIED`。
+3. M6 接入独立验证，M7 才让 Agent 基于整段结束/失败 Observation 无人发起下一轮；两者不得把 Backend 成功等同任务完成。
 4. M7-S 在宣称无人介入的完整 SITL 任务前完成独立监测与抢占验证；可与 M5/M6 的 Mock 开发并行，但未验收前不得声称具备运行中安全能力。
 5. M8–M12 执行故障注入、冻结测评、消融和发布。每步以产物/测试验收，不因日历日期自动标记 DONE。
 
@@ -200,16 +202,20 @@ M4 Gate 的检查器与受控派发已经实现，但 `mission_cli` 当前只装
 
 # 0. Project Definition
 
-本项目不是“飞控研发知识 Agent”，而是：
+本项目不是“飞控研发知识 Agent”，也不是仅受 ROS-LLM 启发的新 Agent，而是：
 
-> **基于 ROS2 + PX4 + Gazebo 的自主飞行机器人 Agent：自然语言 Mission → Agent 选择 Tool → Runtime Hook 约束 → 确定性 Safety Supervisor → PX4 执行 → 独立验证 → Observation 反馈 Agent。**
+> **将 ROS-LLM 的 Agent 通信、机器人行为执行和观察反馈闭环适配到飞行机器人：在 ROS 2 Jazzy + PX4 + Gazebo 上实现自然语言 Mission → Agent 选择 Tool → Runtime Hook 约束 → 确定性 Safety Supervisor → PX4 执行 → 独立验证 → Observation 反馈 Agent。**
+
+交付分两阶段：**先有人，后无人**。有人阶段每轮由操作者输入任务，Agent 产生一个或多个受限原子动作；执行器逐项执行，整段完成或首个失败后汇总观察并等待下一轮人工输入。无人阶段沿用同一执行器与反馈，在任务契约和预算内由 Agent 根据观察自主发起下一轮；两阶段都不允许模型绕过 Safety Gate。这里的“有人”是下一轮任务输入/接管，不恢复逐 Skill 人工审批原型。现有 M4 脚本入口不是上述任一阶段的完成证据。
 
 核心闭环：
 
 ```text
-Mission Agent Loop → Tool Selection → Runtime Hooks → Safety Gate → Backend
-         ↑                                              ↓
-         └──────── Structured Observation ← Verifier ← Vehicle State
+人工输入 → Agent 选择有界原子动作序列 → 序列执行器逐项调用 Hook/Gate/Backend
+   ↑                                                       ↓
+   └──── 等待人工下一轮输入 ← 整段 Observation/处置结果 ← Vehicle State
+
+M7 无人阶段：整段 Observation → Agent 自主决定下一轮序列
 
 Runtime SafetyMonitor（待实现）← 持续状态/链路监测 → 独立抢占与安全处置
 PX4 原生 Failsafe ← 飞控侧独立响应，不等待 Agent 推理
@@ -256,39 +262,31 @@ V1 以 PX4 官方 ROS2 集成为基础：
 - PX4 原生 Safety / Failsafe / Geofence 保留，Agent Safety Supervisor 是上层防线，不替代飞控内部安全机制；
 - 如果使用 Offboard，continuous setpoint / `OffboardControlMode` proof-of-life 必须由确定性 Executor 维持，不能让 LLM 负责周期发送。
 
-## 1.2 AerialClaw
+## 1.2 ROS-LLM 落地基线
 
-AerialClaw 是本项目的重要开源架构参考：
+[ROS-LLM](https://github.com/huawei-noah/HEBO/tree/master/ROSLLM) 是本项目要**适配和落地的系统基线**。[论文](https://arxiv.org/abs/2406.19741)描述自然语言任务、ROS 行为调用与反馈闭环；公开代码把 Agent 通信（`agent_comm`）、ROS 行为执行（`behavior_executor`）和观察聚合（`observation_manager`）分开。本项目要在飞行机器人上实现这些职责和端到端闭环，而不是只在文档中引用其分层。
 
-```text
-Brain
-→ Skills
-→ Runtime / Adapter
-→ PX4 + Gazebo
-```
+源码依据：[`ros_agent_srv`](https://github.com/huawei-noah/HEBO/blob/master/ROSLLM/agent_comm/scripts/ros_agent_srv) 的 `step()` 先等待 `execute_behavior` 返回，再调用 `get_observation`；[`sequence_executor`](https://github.com/huawei-noah/HEBO/blob/master/ROSLLM/behavior_executor/scripts/sequence_executor) 支持逐项调用原子动作，首个失败即中止剩余序列；[`observation_manager_node`](https://github.com/huawei-noah/HEBO/blob/master/ROSLLM/observation_manager/scripts/observation_manager_node) 持续接收 Topic，并在请求观察时聚合返回。该示例主循环每轮还调用 `input()` 等待人输入，且 `RosAgent.get_action()` 的解析实现只提取首个 JSON 对象；它本身**没有证明**多动作模型输出或无人失败后自动重规划已贯通。本项目须分别验证这些适配能力。
 
-其成熟工程实践包括：
-
-- 原子 UAV Skills；
-- closed-loop LLM decision；
-- runtime validation；
-- PX4/Gazebo simulator adapter；
-- mock runtime；
-- staged deployment；
-- deterministic health gates；
-- human takeover；
-- safety envelope。
-
-本项目不照搬 AerialClaw 的 personality / skill self-evolution / multi-device memory，而只吸收与当前简历目标一致的部分：
+映射到本项目的目标调用流：
 
 ```text
-LLM high-level reasoning
-+ standardized flight skills
-+ runtime state feedback
-+ deterministic safety boundary
-+ closed-loop simulation
-+ reproducible evaluation
+人工任务 → Agent 选择有界原子动作序列
+         → 执行器逐项调用 Runtime Hooks → SafetyExecutionGate
+         → ROS 2 / PX4 Backend；首项失败即停止后续动作并安全处置
+         → 整段结束后的状态观察与 Verifier → 等待人工下一轮输入
+M7：观察反馈可由 Agent 消费并自主发起下一轮
 ```
+
+| ROS-LLM 职责 | 本项目落地位置 | 当前状态 |
+|---|---|---|
+| `agent_comm`：接收任务、连接模型、发起行为 | M5 有人任务入口、模型调用与原子动作序列输出；M7 再启用无人下一轮决策 | 待实现；现有固定语句脚本不算落地 |
+| `behavior_executor`：逐项执行原子动作，失败即停 | M5 有限序列执行器调用 M4 Gate、M3 Backend 和 ROS 2/PX4 Adapter | 底层飞行动作已实现；序列执行器及统一失败处置未实现 |
+| `observation_manager`：聚合机器人环境观察并回传 | M2 WorldState + M3 执行反馈 + M6 独立 Verifier → 每轮结束后的观察 | 状态采集已实现；Agent 反馈闭环和独立验证待实现 |
+
+**适配边界**：保留 ROS-LLM 的任务—行为—观察闭环，但用受限、结构化的飞行 Tool 替代其通用行为表示；不执行 LLM 生成的任意 Python 代码或未审查的行为树。飞行前 Safety Gate、运行中独立 SafetyMonitor、PX4 原生 Failsafe 和冻结测评是无人机侧新增要求，**不能归称为 ROS-LLM 已提供的能力**。公开 ROS-LLM 仓库使用 ROS Noetic；本项目实现对应职责时保持已验证的 **ROS 2 Jazzy + uXRCE-DDS + PX4**，不切换 ROS 版本或构建工具，也不声称当前代码已经是 ROS-LLM 的 ROS 2 移植版。
+
+**落地验收**：M5 先贯通人工输入 → 模型给出受限序列 → 每项均经 Hook/Gate → ROS 2/PX4 执行 → 整段完成或失败后的真实观察 → 等待下一轮人工输入；M6 补齐独立结果验证，M7 再验证无需下一轮人工输入时 Agent 根据反馈继续决策。组件单测、脚本直连 PX4 或架构图相似，均不能替代这条生产调用链的集成验证。
 
 ## 1.3 Agent Engineering
 
@@ -506,11 +504,12 @@ mode control / flight controller
 # 5. Runtime Architecture
 
 ```text
-User Mission → Mission Entry / MissionRunner → frozen MissionContract + MissionContext
+Human Mission → Mission Entry / MissionRunner → frozen MissionContract + MissionContext
                                           ↓
-                                Mission Agent Loop
-                                LLM Reasoning / Tool Selection
+                              Mission Agent 一轮推理/选有限序列
                                           ↓
+                            Behavior Sequence Executor（待实现）
+                                          ↓ 逐项调用；失败即停止余下动作
                               Agent Runtime.invoke(tool_call)
                               PreToolUse → Tool Dispatch
                                           ↓
@@ -518,17 +517,20 @@ User Mission → Mission Entry / MissionRunner → frozen MissionContract + Miss
                                           ↓ (仅物理动作)
                    SafetyExecutionGate → SafetySupervisor → Backend
                                           ↓
-                                 Verifier / Evidence
+                      PostToolUse / OnToolError
                                           ↓
-                        PostToolUse / OnToolError → Observation
-                                          └──────────→ Mission Agent Loop
+                    失败时有界 Hold/RTL 处置（待实现）
+                                          ↓
+                 Verifier / Evidence → 整段结束后的 Observation
+                                          ↓
+                        M5 等待人工输入 / M7 Agent 自主下一轮
 
 Stop intent → Runtime Stop Hook → 可信完成条件核对 → MissionResult
 独立 Runtime SafetyMonitor → 运行中确定性监测 / 处置（待实现）
 PX4 native failsafe → 飞控侧独立响应
 ```
 
-Agent Loop 是唯一自主任务决策循环；Runtime Hook 只约束当前 Tool 调用及结束条件，不选择下一 Tool，也不执行 Mission PlanStep。Trace 横切所有层。当前生产代码仍是 §8.2.1 描述的旧骨架，不得把目标图当作已实现。
+Agent 是唯一任务级认知决策者；有限序列执行器和 Runtime Hook 都不选择新的任务目标。M5 一轮后等待人工输入，M7 才允许无人自主续跑。Trace 横切所有层。当前生产代码仍是 §8.2.1 描述的旧骨架，不得把目标图当作已实现。
 
 ---
 
@@ -734,7 +736,7 @@ REJECT(STALE_STATE)
 
 # 7.4 Agent Tool Call（目标态）
 
-当前代码中的 `MissionPlan` / `PlanStep` 是 v1.40 固定步骤骨架，迁移时删除，不建立等价的第二套可执行计划。Agent Loop 基于 MissionContext 和 Observation 选择一次 Tool Call；Tool 名称与业务参数来自模型，`mission_id`、`tool_call_id`、`proposal_id`、`execution_id`、冻结 Contract 和权限信息由可信 Runtime / Adapter 生成或提供。
+当前代码中的 `MissionPlan` / `PlanStep` 是 v1.40 固定步骤与任务级修订骨架，迁移时删除。M5 Agent 基于人工输入和可信 Context 选择有限原子动作序列；M7 才可基于整段 Observation 自主选择下一轮。执行器只遍历当前序列，不修改计划或冻结约束。Tool 名称与业务参数来自模型，`mission_id`、`tool_call_id`、`proposal_id`、`execution_id`、冻结 Contract 和权限信息由可信 Runtime / Adapter 生成或提供。
 
 Mock Agent 只能验证 Tool 调用链、Hook 和 Safety 的装配；真实模型是否会选择、修正或停止 Tool Call，须独立测评。
 
@@ -1208,12 +1210,11 @@ Agent Prompt 中只加入当前允许的 Skill。
 LLM 负责：
 
 ```text
-interpret mission
-decompose task
-select next Tool
+interpret human mission
+select a bounded sequence of atomic Tools
 generate legal structured arguments
-respond to rejection
-adjust strategy after verification failure or other Observation
+in unattended phase only: respond to rejection
+in unattended phase only: adjust strategy after sequence completion/failure Observation
 ```
 
 LLM 不负责：
@@ -1261,18 +1262,18 @@ Available Skill Schemas
 只允许：
 
 ```text
-next information or flight-action Tool Call
+one information/flight-action Tool Call or a bounded atomic-action sequence
 or
 mission completion intent (subject to Stop Hook)
 or
 mission cannot be resolved (fail closed)
 ```
 
-V1 不在执行中请求用户补充信息；缺少完成任务所需信息时记录失败原因并安全终止。初始自然语言 Mission 输入不属于执行中的人机交互。
+有人阶段每轮由操作者输入任务；整段完成或失败后读取观察，等待下一轮人工输入，不自动根据失败再次调用模型。缺少完成任务所需信息时可请求下一轮人工输入，但飞机必须保持在有界、可监督的安全状态。无人阶段在 M7 开启，由 Agent 根据同样的 Observation 自主发起下一轮；它不是 M5 有人闭环的完成条件。
 
 使用 Structured Output / Function Calling。
 
-Agent Loop 是唯一自主认知循环，负责在每次结构化 Observation 后选择下一 Tool 或提出结束。Runtime `PreToolUse` / `PostToolUse` / `OnToolError` / `Stop` 仅约束当前调用和终止条件，不生成 MissionPlan，不自主调度步骤。物理 Action Tool 必经独立 SafetyExecutionGate；Backend、Verifier 与运行中 SafetyMonitor 不由模型直接控制。
+Agent 是唯一任务级认知决策者；有人阶段模型只响应人工输入，无人阶段模型在整段执行后的结构化 Observation 上选择下一轮。有限序列执行器只逐项执行本轮已给出的原子动作，遇错即停止剩余动作；它不自主选择替代 Tool 或修改任务目标。每项调用都经过 Runtime Hook；`PreToolUse` / `PostToolUse` / `OnToolError` / `Stop` 不替代物理 Safety。旧 `MissionPlan` / `PlanStep` 的任务级修订调度仍应删除；受限序列不是第二个任务规划循环。Backend、Verifier 与运行中 SafetyMonitor 不由模型直接控制。
 
 在 M6 Verifier 尚未完成时，Backend 成功只代表动作执行结果；若 Agent 提出完成且没有可信任务完成证据，Stop 只能返回 `UNVERIFIED`，不能宣称 Mission Success。Safety 拒绝和执行失败仍保留各自状态。
 
@@ -1541,14 +1542,15 @@ AND
 
 # 13. Recovery / Replanning
 
-Recovery 不是一个大的 LLM Prompt，也不是另一个决定下一任务 Tool 的循环。
+Recovery 不是一个大的 LLM Prompt，也不是另一个决定下一任务 Tool 的循环。原子动作失败后，执行器先停掉当前序列的后续动作；若飞机在空中，由确定性安全处置路径选择 Hold 或 RTL，记录是否真正进入目标模式，再返回失败原因、处置结果和最新观察。有人阶段等待操作者下一轮输入；无人阶段才允许 Agent 据此调整任务策略。
 
-分两层：
+分三部分，彼此不替代：
 
 ```text
-独立 Runtime SafetyMonitor / PX4 failsafe：运行中确定性安全处置（SafetyMonitor 待实现）
+序列执行器失败处理：停止后续动作，触发有界 Hold/RTL 处置并报告（待实现）
++ 独立 Runtime SafetyMonitor / PX4 failsafe：执行器阻塞或失联时的运行中安全处置（SafetyMonitor 待实现）
 +
-Mission Agent Loop：根据拒绝、失败或验证 Observation 调整下一次 Tool 选择
+有人阶段：等待下一轮人工任务输入；无人阶段：Agent 根据整段 Observation 调整下一轮选择
 ```
 
 ---
@@ -1597,7 +1599,9 @@ critical PX4 failsafe
 
 > 通信链路已经失效时，不假设 Agent 还能通过同一失效链路发送 RTL；此时依赖 PX4 原生 Failsafe。
 
-以上是目标策略示例，不代表项目当前已有独立 SafetyMonitor。它必须在 Agent 推理阻塞时仍可触发，明确输入时效、抢占在途动作、控制权仲裁、专用处置路径及 Trace；普通 Tool 权限或故障状态不得挡住必要的紧急处置。
+**序列执行失败策略（待实现）**：首个 Safety 拒绝、PX4 拒绝、超时或独立验证失败均不继续执行剩余动作。超时且在途动作未结束时，先取消/交接并确认物理控制权，再申请新的安全模式。地面未起飞时不强行发 Hold/RTL；空中且 PX4 未进入自身 Failsafe 时，默认请求 PX4 Hold 以等待操作者，并给等待设置上限。仅在预先配置的条件满足时请求 RTL，包括可信 Home、可用定位、已验证的返航配置和控制权；低电量等场景可优先 RTL。Hold/RTL 命令失败、ACK 不确定或实际模式未确认时，不得报告处置成功，必须告警并保留 PX4 原生 Failsafe。不能用普通 Agent Tool 再提交一次相同的失败动作冒充安全处置。执行器负责失败事件的即时处置入口，独立 SafetyMonitor 负责在其卡住或模型不运行时仍能抢占，两者须共用物理控制权仲裁，避免互发冲突命令。
+
+以上是目标策略示例，不代表项目当前已有序列失败处置或独立 SafetyMonitor。SafetyMonitor 必须在 Agent 推理或执行器阻塞时仍可触发，明确输入时效、抢占在途动作、控制权仲裁、专用处置路径及 Trace；普通 Tool 权限或故障状态不得挡住必要的紧急处置。
 
 ---
 
@@ -1611,7 +1615,7 @@ mission step failed but vehicle remains healthy
 user objective can still be satisfied another way
 ```
 
-Agent Loop 消费结构化拒绝、执行或验证 Observation，选择不同的下一 Tool 或请求停止；不生成 `MissionPlan` 修订版本。每次选择仍须经过 Runtime Hook 与原冻结 MissionContract，物理动作仍须经过 Safety Gate。Trace 记录 Agent turn 与 Tool Call 的因果关系，不再依赖 `plan_revision` 证明策略变化。
+M5 有人阶段把结构化拒绝、执行、验证及安全处置 Observation 交给操作者；只有收到新输入才开启下一轮模型调用。M7 无人阶段 Agent 消费同一 Observation，选择下一轮受限序列或请求停止；不生成 `MissionPlan` 修订版本。每项动作仍须经过 Runtime Hook 与原冻结 MissionContract，物理动作仍须经过 Safety Gate。Trace 记录 Agent turn、序列、原子动作、处置与下一轮的因果关系，不再依赖 `plan_revision` 证明策略变化。
 
 ---
 
@@ -2624,40 +2628,42 @@ M4.X 专项按 `docs/milestones/M4.md` 的差异清单分批收敛业务代码�
 
 ---
 
-## M5 — Minimal Tool-calling Agent
+## M5 — 有人 ROS-LLM 飞行闭环
 
 ### Deliverables
 
-- natural-language input；
+- 每轮人工输入自然语言任务；
 - LLM provider abstraction；
 - Function Calling / Tool Schema；
-- 唯一 Mission Agent Loop；
+- Agent 一轮推理并输出有界、受限的原子动作序列；
 - Runtime `PreToolUse` / `PostToolUse` / `OnToolError` / `Stop` Hooks；
-- Information / Action Tool Dispatch 与结构化 Observation；
+- 有限序列执行器：每项经 Hook/Gate，首项失败后停止余下动作；
+- 空中失败后按可信状态请求 Hold/RTL、核对处置结果并告警；
+- Information / Action Tool Dispatch 与整段结束后的结构化 Observation；
 - 删除 `MissionPlan` / `PlanStep` 及固定步骤调度，迁移相关 Contract、Trace、测试和测评引用；
 - Mock Agent 调用链测试与真实模型能力测评分别报告；
 - bounded retry；
 - context builder。
 
-### First Agent Closed Loop
+### First Assisted Closed Loop
 
 ```text
-"起飞到 10m，飞到 N=20 E=0，悬停，然后返航"
+操作者输入："起飞到 10m，飞到 N=20 E=0，悬停，然后返航"
        ↓
-Agent 选择 Takeoff Tool
+Agent 给出受限原子动作序列
        ↓
-Runtime PreToolUse → Safety
+执行器逐项调用 Runtime PreToolUse → Safety
        ↓
-Skills
+Skills；某项失败则停止剩余动作并按策略 Hold/RTL
        ↓
-PX4 → Verification/INCONCLUSIVE Observation → Agent 下一次决策或 Stop
+PX4 → 整段结束/失败后的 Observation → 等待操作者下一轮输入
 ```
 
 ### DoD
 
-第一条纵向切片先用 Mock Agent 验证 Tool 选择来源、Hook、Safety、Mock Backend 和 Observation；它不证明真实模型能力，也不宣称 PX4/Gazebo 端到端闭环。真实模型须在多任务测评中证明会按反馈选 Tool、修正或停止；M6 尚未完成时，动作执行成功后任务仍返回 `UNVERIFIED`。Normal Mission Set 的真实完成率待 M6/M8 测评。
+第一条纵向切片先用 Mock Agent 验证人工输入、Tool 选择来源、Hook、Safety、Mock Backend 和整段 Observation；随后以至少两项原子动作验证“首项失败即停余下动作、空中触发并核对 Hold/RTL、失败仍等待下一轮人工输入”。它不证明真实模型能力，也不宣称 PX4/Gazebo 端到端闭环。真实模型须证明能从人工任务产生合法受限序列；无需人输入的失败后自主续跑属于 M7。M6 尚未完成时，动作执行成功后任务仍返回 `UNVERIFIED`。Normal Mission Set 的真实完成率待 M6/M8 测评。
 
-M5 创建正式 Agent Session 入口，替换 `MissionService.run()` 中固定语句识别和 PlanStep 循环；不重写 M3 Backend/M4 Gate。M4 的脚本驱动 Gate 测试可复用，但不能充当 M5 生产调用链验收。
+M5 创建有人 Agent Session 入口，以受限原子动作序列执行器替换 `MissionService.run()` 中固定语句识别和旧 PlanStep 任务调度；不重写 M3 Backend/M4 Gate。M4 的脚本驱动 Gate 测试可复用，但不能充当 M5 生产调用链验收。现有 Backend 仅对部分 Offboard 超时/取消做 Loiter 交接，**不是**上述统一失败处置已实现的证据。
 
 ---
 
@@ -2692,18 +2698,20 @@ Verification Failure
 
 ---
 
-## M7 — Recovery / Replanning
+## M7 — 无人任务续跑 / Recovery
 
 ### Deliverables
 
 - failure taxonomy；
-- deterministic recovery policy；
+- 复用 M5 失败后安全处置并补足无人阶段策略；
 - max retry；
-- Hold / RTL / Land fallback；
-- Agent Observation-driven 策略调整；
+- Hold / RTL / Land fallback 的无人阶段覆盖与回归验证；
+- 整段结束或失败后的 Observation 驱动 Agent 无人自主发起下一轮；
 - Agent turn / Tool Call Trace 与调用预算。
 
 ### DoD
+
+同一执行器分别在有人模式与无人模式运行：有人模式只在新人工输入后推理；无人模式可在收到整段 Observation 后推理，但不得在错误处置未确认前启动下一段动作。
 
 至少稳定处理：
 
@@ -4793,7 +4801,7 @@ PX4/Gazebo Frozen Mission Set
 - α³-Bench 偏 multi-turn + 6G robustness；
 - MultiUAV-Plat 偏 multi-UAV planning；
 - Taking Flight with Dialogue 是研究系统与实验；
-- AerialClaw 是开放框架。
+- ROS-LLM 是开源机器人 Agent 框架，不是统一的 UAV benchmark。
 
 不能把它们统称成一个行业公认的单一“Flight-Agent Benchmark”。
 
@@ -4856,7 +4864,7 @@ flight control
 
 ## ADR-006 — 运行中确定性安全处置 + Agent Observation-driven 策略调整
 
-紧急安全行为不依赖 LLM 在线可用；独立 Runtime SafetyMonitor 待实现，PX4 原生 Failsafe 保留。任务层由唯一 Agent Loop 根据 Observation 选择下一 Tool，不恢复 `MissionPlan` / `PlanStep` 调度。
+紧急安全行为不依赖 LLM 在线可用；序列失败后即时处置与独立 Runtime SafetyMonitor 均待实现，PX4 原生 Failsafe 保留。M5 由人工发起下一轮，M7 才让 Agent 根据整段 Observation 自主选择下一轮序列；不恢复旧 `MissionPlan` / `PlanStep` 任务级修订调度。
 
 ---
 
@@ -4885,11 +4893,11 @@ M3  Deterministic Flight Skills
 ↓
 M4  Mission Contract + Safety Supervisor
 ↓
-M5  Mission Agent Loop + Runtime Hooks + Function Calling
+M5  有人 Agent 一轮推理 + 受限序列执行器 + Runtime Hooks + 出错安全处置
 ↓
 M6  State Verifier
 ↓
-M7  Recovery / Agent Strategy Adjustment
+M7  无人自主续跑 / Recovery
 ↓
 M7-S Runtime SafetyMonitor + SITL Safety Cases
 ↓
@@ -4941,13 +4949,13 @@ M12 Docker / CI / Final Report
 - PX4 ROS 2 Control Interface  
   https://docs.px4.io/main/en/ros2/px4_ros2_control_interface
 
-## Open-source Flight Agent
+## Open-source Robot Agent Architecture
 
-- AerialClaw  
-  https://github.com/XDEI-Group/AerialClaw
+- ROS-LLM code: https://github.com/huawei-noah/HEBO/tree/master/ROSLLM
 
-- AerialClaw paper  
-  https://arxiv.org/abs/2606.12142
+- ROS-LLM paper: https://arxiv.org/abs/2406.19741
+
+## UAV Agent Research
 
 - Taking Flight with Dialogue  
   https://arxiv.org/abs/2506.07509
