@@ -103,6 +103,75 @@ docs/、manifests/、configs/           阶段记录、环境声明和配置；�
 
 核心代码不得直接依赖 `rclpy`、`px4_msgs` 或 ROS Topic 名；PX4 适配留在 ROS 包。`flight_agent` 不依赖 `eval_harness`，测评集不反向依赖产品代码。目录存在不等于能力已接入；新增目录应由实际生产调用链驱动，不先批量铺设空壳。
 
+### 3.1 目标目录与文件
+
+以下是**迁移完成后的目标路径，不是当前文件清单**。主链采用 [ROS-LLM 源码的包名](https://github.com/huawei-noah/HEBO/tree/master/ROSLLM)：`agent_comm`、`observation_manager`、`behavior_executor`、`rosllm_srvs`、`rosllm_msgs`。节点沿用上游的 `ros_agent_srv`、`llm_node`、`observation_manager_node`、`sequence_executor`；`.py`、`setup.py`、`package.xml` 和接口构建方式按 ROS 2 调整。`flight_agent_ros`、`px4_msgs`、`flight_agent` 是 PX4/飞行适配或现有 Python 工程边界，不冒充上游包。没有自定义消息需求前不创建空的 `rosllm_msgs` 包。
+
+```text
+ros2_ws/src/
+  agent_comm/                          [待建；上游同名 ROS 包]
+    package.xml
+    setup.py
+    config/
+      atomic_action_library.yaml      [待建；上游式动作名与描述索引]
+    agent_comm/
+      ros_agent_srv.py                 [待建；唯一有人 Agent/Environment 主循环]
+      llm_node.py                      [待建；LLM 服务]
+  observation_manager/                [待建；上游同名 ROS 包]
+    package.xml
+    setup.py
+    observation_manager/
+      observation_manager_node.py      [待建；统一 get_observation]
+      vehicle_state_summarizer.py      [待建；PX4 观察源，飞行差异]
+  behavior_executor/                  [待建；上游同名 ROS 包]
+    package.xml
+    setup.py
+    behavior_executor/
+      sequence_executor.py            [待建；ExecuteBehavior 序列执行]
+  rosllm_srvs/                         [待建；上游同名接口包，ROS 2 构建]
+    package.xml
+    CMakeLists.txt
+    srv/
+      AtomicAction.srv                 [待建；飞行动作契约]
+      ExecuteBehavior.srv             [待建；行为执行契约]
+      Observation.srv                 [待建；统一观察契约]
+      LLM.srv                         [待建；模型调用契约]
+  rosllm_msgs/                         [V1 无自定义消息时不创建]
+  flight_agent_ros/                    [已存在；PX4/ROS 2 飞行适配]
+    flight_agent_ros/adapters/
+      px4_world_state_adapter.py      [已实现；观察源，不等于 Observation Manager]
+      px4_parameter_adapter.py        [已实现；飞行参数读取]
+      flight_execution_backend.py     [已实现；动作内调用，不等于 Behavior Executor]
+      px4_command_plan_mapper.py      [已实现；PX4 命令映射]
+      px4_command_plan_executor.py    [已实现；PX4 命令执行，不等于 sequence_executor]
+      px4_vehicle_command_adapter.py  [已实现；PX4 命令与 ACK]
+      px4_offboard_setpoint_adapter.py [已实现；PX4 Offboard]
+  px4_msgs/                            [已存在；冻结 PX4 消息定义]
+src/flight_agent/
+  contracts/                           [已存在；Pydantic 契约与 Protocol]
+  components/
+    vehicle/state/world_state_aggregator.py [已实现；状态聚合]
+    safety/                            [已实现；飞行原子动作内部 Gate/检查]
+    skills/registry.py                 [已实现；动作注册基础，待补动作描述]
+    tracing/                           [已实现；追踪基础]
+  workflows/mission/                   [待删除；旧 MissionService]
+agent_benchmark_sets/                 [已存在；Agent 测评集]
+eval_harness/                         [已存在；测评执行辅助]
+tests/                                [已存在；迁移后新增主链集成测试]
+```
+
+上游的 `behavior_tree_executor`、`code_executor`、视觉节点、示例包及 `GetUserInput.srv` 不进入 V1 文件树；有人入口先沿用上游 `ros_agent_srv` 的终端输入方式。V1 只实现序列模式。上述路径固定职责和迁移目标，**不表示已复制或实现上游代码**。`rosllm_srvs` 的字段须在实现批次核对 ROS 2 和飞行动作语义。
+
+| 已有模块 | 目标位置/名称 | 处理 |
+|---|---|---|
+| `WorldStateAggregator`、`Px4WorldStateAdapter` | 保持原名，供 `observation_manager_node` 读取 | 已完成状态聚合；不得直接改称 Observation Manager |
+| `SKILL_REGISTRY` 和五种动作映射 | 保持 `skills/registry.py`，供 `atomic_action_library.yaml` 的生成/校验复用 | 已有名称、描述、参数 schema 与命令映射；上游式描述文件和动作输出仍待实现 |
+| `SafetyExecutionGate`、`Px4Ros2FlightExecutionBackend` 和 PX4 adapters | 保持飞行/PX4 名称，由 `AtomicAction` 服务实现调用 | 已有飞行部件；不改称 `behavior_executor` |
+| `mission_cli.py`、`MissionService` | 新建 `agent_comm/agent_comm/ros_agent_srv.py`；旧文件按 §2.1 删除 | 固定语句入口不是上游 Agent；不能只改文件名 |
+| `px4_command_plan_executor.py` | 保持原名；上层新建 `behavior_executor/behavior_executor/sequence_executor.py` | 前者执行动作内 PX4 命令，后者执行行为中的原子动作序列 |
+
+**命名规则**：已完成且语义相同的模块在迁入目标包时同步改名并更新导入、入口和测试。上表中的已实现模块是飞行适配或基础能力，其名称已与目标树一致；不能为凑同名把它们改称尚未实现的上游模块。新模块只有生产调用链接入并通过集成测试后才标为已实现。
+
 ## 4. ROS-LLM 对齐的目标调用链
 
 主链只采用 ROS-LLM 的一个环境步：先有 Observation，随后等待人输入；Agent 根据二者及动作库生成行为；Behavior Executor 执行完整行为或遇错停止；环境再获取 Observation；下一轮仍等待人反馈。LLM 不在每个原子动作后自动重规划，也不由执行器或 Runtime 建立另一套任务循环。以上是目标，不是现有实现。
