@@ -1,80 +1,27 @@
 # Agent.md
 
-本文档说明后续开发 Agent 应如何读取 `DEV_SPEC.md`。`DEV_SPEC.md` 是 Autonomous Flight Agent V1 的 Single Source of Truth；实现、测试、评测、文档、仓库结构和里程碑推进应优先以它为准。
+本文档规定 Agent 如何使用当前 [DEV_SPEC.md](DEV_SPEC.md)。它是项目范围、现状与目标边界的当前规格；[旧版 v1.44](docs/archive/DEV_SPEC_v1.44.md)仅用于追溯。实现事实仍须以仓库生产入口、测试及 SITL 证据核对，不能用规格目标代替已完成状态。
 
-## 可读取的信息
+## 读取顺序
 
-Agent 可以从 `DEV_SPEC.md` 读取以下项：
+1. 先读 `DEV_SPEC.md` 的项目定义、当前实现基线、目标调用链和当前阶段验收。
+2. 再读相关代码入口、契约、测试、`docs/milestones/` 与 `docs/adr/`。里程碑文档保存阶段记录，和当前规格冲突时先标出差异，不机械照旧执行。
+3. 仓库结构、环境、测评集、版本管理与待确认事项直接从当前规格对应章节读取；本文档不重复目录树或旧章节编号。
+4. 仅有类、目录、Mock 或单测不代表生产接入；必须写出入口、触发条件、调用链与输出证据。
 
-- 项目定义：Autonomous Flight Agent 是基于 ROS2 + PX4 + Gazebo 的自主飞行机器人任务执行系统。
-- 当前状态、当前阶段和下一步：读取 `DEV_SPEC.md` 的 `Progress Management`、`Current Progress Board` 和对应 Milestone，不在本文档重复定义。
-- V1 目标：可复现 SITL 环境、Flight Skills、Mission Contract、Safety Supervisor、State Verifier、Recovery / Replanning、Trace、Evaluation、Ablation、Docker / CI / Final Report。
-- V1 非目标：LLM 不直接输出 actuator、attitude、body-rate、thrust；不维持实时控制环；不自研 PX4；不做 eVTOL / VTOL、Multi-UAV、真实飞机测试、复杂 UI 等扩展。
-- 架构边界：LLM 只处于 Mission / Skill Level；PX4 保留底层飞控和原生 failsafe；Safety Supervisor 是执行前确定性仲裁层；State Verifier 根据实际状态判定执行结果。
-- Runtime 架构：Observe -> Plan -> Propose -> Safety Check -> Act -> Verify -> Replan / Next。
-- 控制时序：LLM loop、Skill execution loop、PX4 control loop 分离。
-- 核心数据契约：`MissionRequest`、`MissionContract`、`WorldState`、`MissionPlan`、`SkillProposal`、`SafetyDecision`、`SkillResult`、`VerificationResult`、`TraceEvent`、`MissionEvalCase`。
-- ROS2 / PX4 集成约束：PX4 与 ROS2 使用 uXRCE-DDS；Agent / Safety / Evaluation 不直接 import PX4 topic，必须通过 Adapter boundary。
-- Flight Skills：Observe、Takeoff、GoTo、Hold、RTL、Land 及 Skill Registry。
-- LLM Planner 责任：自然语言任务理解、高层计划生成、Skill 选择、失败后的任务级 replanning；不负责安全放行、实时控制、PX4 protocol correctness。
-- Safety Supervisor 规则：按 Schema、Current State、Geofence、Flight Envelope、Command Sequence、Authority 等条件对每条 Proposal 做确定性校验；人工 Plan 审批属于自主测评后的产品交互。
-- State Verifier 规则：Takeoff、GoTo、Hold、RTL、Land 的成功判定必须来自状态观测，而不是相信 LLM 或 PX4 ACK。
-- Recovery / Replanning 设计：紧急安全行为由 deterministic recovery policy 兜底；LLM replanning 只在安全边界内做任务层调整。
-- Trace 要求：完整记录 Mission、Plan、Proposal、Safety Decision、ROS2 Dispatch、PX4 ACK、Skill Result、Verification、Recovery 等事件。
-- Mission Set 策略：测评集从 M0 开始持续建设，不等到 M8；`DEV_SPEC.md` 使用 `agent_benchmark_sets/` 保存 Agent 的 Dev / Validation / Frozen Test 测评任务、场景和数据划分。它不是 PX4 Mission 文件，也不是在线任务输入。
-- Evaluation 策略：评估方法和评测执行逻辑与测评集分开，包含 Unit / Contract / Safety、Agent Simulation、PX4/Gazebo E2E 三层。
-- Frozen Mission Set 原则：最终 Task Success、Hard Safety Violation、Recovery Success、Latency 等指标主要来自 PX4/Gazebo Frozen Mission Set。
-- 自主测评边界：V1 主测评不接入人工审批或人工修正；人工辅助结果须与自主结果分开报告。人工 Plan 审批、操作界面与接管体验排在 M12 自主测评报告之后。
-- Metrics 定义：Task Success、Hard Safety Violation Rate、Recovery Success、Valid Tool Call Rate、Latency、Safety Intervention Rate、PX4 Reject Rate、LLM Calls / Mission 等。
-- Fault Injection 分层：Pure Software、ROS2 Adapter Fault Proxy、PX4/Gazebo Fault Scenario。
-- Ablation 设计：B0 Scripted、B1 Agent Baseline、B2 +Safety、B3 +Verifier、B4 +Recovery / Replanning。
-- Milestone 顺序和 DoD：M0-M12 的交付物、依赖、完成条件、文档路径和 release gates。
-- Repository Skeleton：目标仓库结构、模块交付地图、mock delivery contract、最小 M0 skeleton 均已在 `DEV_SPEC.md` 第 21 章定义。`Agent.md` 不重复定义目录树，执行时应回到 `DEV_SPEC.md` 读取最新结构。
-- 项目治理规则：SSOT、Git 策略、文件存储策略、ADR、版本规则、contract-first change、safety change management、dataset governance、dependency management、secrets、code quality、test governance、release / tagging。
-- Safety Invariants：未经 `SafetyDecision=APPROVE` 的 Skill 不得执行；stale `WorldState` 不得批准飞行动作；越界 waypoint、超高度目标、PX4 failsafe active 等必须阻断。
-- 发布门槛：Infrastructure、Safety Logic、Agent Validation、Frozen Test 四类 release gates。
-- 简历/展示边界：Task Success / Safety / Recovery 数字目前是占位，必须由真实 evaluation report 替换后才能对外声称。
+## 当前边界
 
-## 不应误读的信息
+- M0–M3 有阶段记录；M4 Safety Gate 仍在收口，M5 Agent 生产入口、M6 独立 Verifier、M7 无人续跑及 M7-S Runtime SafetyMonitor 尚未接入。
+- 当前 `MissionService` 只识别固定语句，验证/恢复是占位；正式任务入口 Authority 为 `UNKNOWN`。M3 直连是显式调试路径，不能算受控 Agent 任务闭环。
+- Agent 不参与 PX4 实时控制；物理 Tool 必须经过独立 Safety Gate。人工 Plan 确认属于自主测评后的产品交互，不把旧逐 Proposal 审批原型当成当前能力。
+- 测评集位于 `agent_benchmark_sets/`，评测执行位于 `eval_harness/`；没有版本化实测报告，不得声称任务成功率、违规率或商业效益。
 
-- `DEV_SPEC.md` 描述的是 V1 目标态和开发计划，不代表当前代码已经实现。
-- `DEV_SPEC.md` 中的 Repository Skeleton 是目标结构和落地顺序，不代表当前仓库已经具备所有目录和文件。
-- 任何性能指标、成功率、安全率、恢复率，在没有真实 Evaluation Report 前都不能写成已完成成果。
-- Public benchmark 只能作为 UAV reasoning / scenario mapping 参考，不能替代 PX4/Gazebo closed-loop benchmark。
-- LLM 不能绕过 Mission Contract、Safety Supervisor、State Verifier 或 PX4 failsafe；测评后若启用人工 Plan 审批，也不得绕过该审批。
-- 为了赶进度，不允许删除 Safety、Verifier、Evaluation 或 Trace 这些核心边界。
+## 决策与版本
 
-## 仓库结构
-
-仓库结构不在本文档中重新定义。Agent 需要仓库布局时，应读取 `DEV_SPEC.md`：
-
-- 第 21 章 `Repository Skeleton`：核心代码、ROS2/PX4 adapter、mission sets、evaluation harness、tests 的隔离区域、依赖方向、硬规则。
-- 第 21.1 节 `Final Repository Skeleton`：最终目标目录树。
-- 第 21.2 节 `Module Delivery Map`：模块、代码路径、文档路径、最低测试和首次里程碑。
-- 第 21.6 节 `M0 Minimal Skeleton`：当前 M0 应优先落地的最小结构。
-
-若实际仓库结构与 `DEV_SPEC.md` 不一致，默认以 `DEV_SPEC.md` 为设计目标；只有在完成对应 Milestone 和 DoD 后，才能把目标结构视为已落地。
-
-## 版本管理
-
-版本管理方式已在 `DEV_SPEC.md` 第 21.8 章定义。Agent 执行时应遵守：
-
-- 项目范围、架构、开发顺序以 `DEV_SPEC.md` 为准。
-- 当前开发进度以 Progress Board 和 `docs/milestones/Mx.md` 为准，不以聊天记录为准。
-- 架构决策写入 `docs/adr/ADR-xxx.md`。
-- `main` 应保持可构建、可运行；功能开发使用短生命周期 `feature/*`，Bug 使用 `fix/*`，高风险实验使用 `experiment/*`。
-- 禁止对 `main` force push。
-- Milestone 完成后必须绑定 Git Commit，并按 `DEV_SPEC.md` 要求打 Tag。
-- Frozen Test、Release、Ablation 结果必须绑定 Git Commit、Tag、环境 Manifest、测评集版本、模型/Prompt/Safety/PX4 等版本信息。
-- 以下变化必须升级 `DEV_SPEC.md` 版本：Architecture、Contract、Milestone、Safety Boundary、Evaluation Protocol、Repository Structure、Release Gate。
-- `DEV_SPEC.md` 始终表示当前版本，历史版本由 Git/Tag 保存。
-
-## Agent 执行规则
-
-1. 开始任何开发前，先读取 `DEV_SPEC.md` 对应章节。
-2. 如果实现会改变 contract、safety、runtime boundary、evaluation schema 或 milestone scope，先更新 `DEV_SPEC.md` 或新增 ADR。
-3. 当前 Milestone、开发重点和下一步必须从 `DEV_SPEC.md` 读取，不在本文档硬编码。
-4. 每个 Milestone 只有满足交付物完成、DoD 满足、必要测试通过、trace/eval artifact 生成时，才能标记为 `DONE`。
+- 以当前 `DEV_SPEC.md` 为设计和进度基准，历史规格及 `架构重构.md` 的旧方案仅供追溯；有冲突先提交差异供用户评审。
+- 架构、契约、安全边界、里程碑、测评协议、仓库结构和发布门槛变动，先修订当前规格或新增 ADR，再实施经确认的代码批次。
+- `main` 保持可回归，不 force push；提交使用中文说明并携带项目版本号。里程碑及测评结果绑定 commit/tag、环境和数据版本。
+- 用户仅要求分析、讨论、归档或文档评审时，不得擅自改业务代码、测试或配置；未经明确要求不提交或推送。
 
 ## 开发原则：优先建立真实调用链
 
