@@ -33,11 +33,11 @@ V1 目标：初始观察 -> 人工任务 -> Agent 根据观察和动作库生成
 | [`ros_agent_srv` 主循环](https://github.com/huawei-noah/HEBO/blob/master/ROSLLM/agent_comm/scripts/ros_agent_srv) | 先 `get_obs()`；等待人工输入；用动作库、观察和输入构造 prompt；调用 LLM；`env.step()` 执行行为后再次 `get_obs()` | 唯一的有人任务入口与 Agent/Environment 两个职责 | 未实现；现有 `mission_cli` 只进固定语句 `MissionService` |
 | [`agent_comm`](https://github.com/huawei-noah/HEBO/tree/master/ROSLLM/agent_comm) | LLM 服务与 Agent 通信 | LLM Provider 和 prompt/行为提取 | 未实现 |
 | [`observation_manager`](https://github.com/huawei-noah/HEBO/tree/master/ROSLLM/observation_manager) | 聚合各观察服务，通过统一 `get_observation` 返回文本观察 | 由 `WorldState` 等来源构造统一观察，不让 Agent 直接消费 PX4 Topic | 尚无统一观察入口；现有状态聚合只是输入基础 |
-| [`behavior_executor`](https://github.com/huawei-noah/HEBO/tree/master/ROSLLM/behavior_executor) | `ExecuteBehavior` 服务接收行为；序列/行为树/代码等执行器返回成功标志与消息 | ROS 2 行为执行器；V1 先实现序列模式，逐项调用原子动作、失败即停止 | 未实现；旧 `MissionService` 的 `PlanStep` 循环不能冒充它 |
+| [`behavior_executor`](https://github.com/huawei-noah/HEBO/tree/master/ROSLLM/behavior_executor) | `ExecuteBehavior` 服务接收行为；序列/行为树/代码等执行器返回成功标志与消息 | ROS 2 行为执行器；V1 先实现序列模式，逐项调用原子动作、失败即停止 | 服务未实现；旧 `MissionService.run()` 的逐步派发和失败停止逻辑可迁入，但现有计划只生成一步 |
 | [论文 §3.1、§3.5](https://arxiv.org/html/2406.19741v3) | 带名称、类型、描述和输入/输出的原子动作库；JSON 序列中的动作依次执行，前项输出可传给后项 | 飞行原子动作描述库及 ROS 2 action/service 接口，内部复用 Gate/Backend | Skill Registry 与 Backend 可复用，尚无上游式动作描述与执行接口 |
 | [论文 §3.2–§3.4](https://arxiv.org/html/2406.19741v3) | 文本观察、人工反馈和动作库共同进入每轮 prompt；一轮行为结束后再等待人 | 飞行状态文本化、人工下一轮反馈 | 未实现 |
 
-上游论文与 README 描述序列执行，但当前 `ros_agent_srv` 的公开代码使用正则提取一个 JSON 对象；**不能仅凭源码入口宣称多动作序列在该脚本中已被证明可运行**。本项目应以论文/Behavior Executor 契约定义行为模式，锁定上游提交并补可执行的序列对照测试；不得复制未经验证的解析细节。以上链接当前指向主分支，正式对齐验收前须记录确切上游 commit。
+上游 `ros_agent_srv` 可从一个 `json` 代码块提取多行 JSON 动作，`sequence_executor` 再逐行调用原子动作。当前不单列解析格式改造任务；本项目在 M5 实现时补多动作序列对照测试。以上链接当前指向主分支，正式对齐验收前须记录确切上游 commit。
 
 ## 2. 当前实现基线
 
@@ -58,13 +58,13 @@ V1 目标：初始观察 -> 人工任务 -> Agent 根据观察和动作库生成
 
 | 现有文件/组 | 决定 | 实施条件 |
 |---|---|---|
-| `src/flight_agent/workflows/mission/service.py`、其 `__init__.py` 导出 | **删除** | 新 Agent 入口和 Behavior Executor 测试通过后，移除固定语句与 `PlanStep` 调度 |
-| `mission_flow_model.py` 中的 `MissionPlan`、`PlanStep`、`MissionRunResult` 及公共导出 | **删除这些类型** | 迁移 ROS CLI 和测试引用；保留 `MissionRequest`，复核 `VerificationResult` |
+| `src/flight_agent/workflows/mission/service.py`、其 `__init__.py` 导出 | **抽取逐步派发/失败停止逻辑后删除旧入口** | 新 Agent 入口和 Behavior Executor 多步测试通过后，删除固定语句规划与旧恢复循环 |
+| `mission_flow_model.py` 中的 `MissionPlan`、`PlanStep`、`MissionRunResult` 及公共导出 | **保留并复核 `PlanStep`；删除旧任务级类型** | `PlanStep` 可作序列中一个飞行 Skill 的记录，不是 Skill 内部的 PX4 命令；它也不能直接代表所有 ROS-LLM 原子动作。迁移引用后删除 `MissionPlan`、`MissionRunResult`，保留 `MissionRequest`，复核 `VerificationResult` |
 | `mission_cli.py`、ROS 包的 `setup.py` | **改造** | 接入有人入口、Observation Manager 和 Behavior Executor；M3 直连调试入口独立保留 |
 | `tests/integration/test_mission_flow.py`、ROS 包的 `test_mission_cli.py` | **删除旧测试，编写新集成测试** | 新测试从生产入口覆盖观察、人工输入、LLM、执行、再观察和失败停止 |
 | `components/skills/registry.py`、`skill_model.py` | **保留并扩展** | 动作定义补齐名称、类型、描述、输入/输出，供 prompt 与执行器共用 |
 | `components/vehicle/state/`、`Px4WorldStateAdapter` | **保留并接入观察层** | 新建统一观察入口；行为执行后再次读取 |
-| `components/safety/`、`safety_model.py`、PX4 Backend/adapters | **保留** | 放在飞行原子动作内部；物理动作仍须经 Gate 和状态判定 |
+| `components/safety/`、`safety_model.py`、PX4 Backend/adapters | **保留并复用** | 飞行原子动作继续调用现有 `SafetyExecutionGate -> SafetySupervisor -> Backend`；物理动作仍须经 Gate 和状态判定 |
 | `components/tracing/`、`agent_benchmark_sets/`、`eval_harness/` | **保留并扩展** | 提供审计与测评，不参与任务决策 |
 | 旧 `human_approval` 组件、模型、协议、Mock、公共导出及专属测试 | **删除** | 逐 Proposal 审批不在 V1；历史由 Git 保存，未来产品审批另行设计 |
 
@@ -127,7 +127,7 @@ ros2_ws/src/
     package.xml
     setup.py
     behavior_executor/
-      sequence_executor.py            [待建；ExecuteBehavior 序列执行]
+      sequence_executor.py            [待建；ExecuteBehavior 序列执行；复用 MissionService.run() 的逐步派发、失败停止逻辑]
   rosllm_srvs/                         [待建；上游同名接口包，ROS 2 构建]
     package.xml
     CMakeLists.txt
@@ -190,6 +190,30 @@ Observation Manager.get_observation() -> 新观察 -> 等待下一轮人工输�
 不选择下一行为，不改变上面的 Agent 环境步调度。
 ```
 
+一次完整转换示例：用户说“去三号塔看看有没有异物，拍张照，然后回来”。此例**假设飞机已在空中**，三号塔位置库、相机和识别服务已经接入；这些视觉/位置服务当前尚未实现，不得把示例当作 V1 已有能力。
+
+```text
+HumanInput + ObservationResponse + AtomicActionLibrary
+  -> RosAgent / LLMRequest -> LLMResponse（逐行 JSON 行为文本）
+  -> ExecuteBehaviorRequest(behavior=行为文本)
+  -> SequenceExecutor：依次取出 (service_name, input)
+     resolve_poi：AtomicActionRequest(input="三号塔", prev_output="")
+       -> AtomicActionResponse(output=目标位置)
+     goto：AtomicActionRequest(input=飞行参数, prev_output=目标位置)
+       -> SkillProposal -> SafetyExecutionGate -> SafetySupervisor
+       -> ApprovedSkillCommand -> FlightExecutionBackend -> SkillResult
+       -> AtomicActionResponse(success=动作结果, output=到达证据)
+     capture_photo -> AtomicActionResponse(output=photo_id)
+     inspect_image(prev_output=photo_id) -> AtomicActionResponse(output=识别结论)
+     rtl -> SkillProposal -> SafetyExecutionGate -> SafetySupervisor
+       -> ApprovedSkillCommand -> FlightExecutionBackend -> SkillResult
+       -> AtomicActionResponse(success=动作结果, output=返航证据)
+  -> ExecuteBehaviorResponse(success, message, info)
+  -> ObservationManager.get_observation() -> 新 ObservationResponse
+```
+
+`ExecuteBehaviorRequest` 是整个序列的输入，`AtomicActionRequest` 是逐项调用的输入；`service_name` 选择 ROS 服务，不是 `AtomicActionRequest` 的字段。`ApprovedSkillCommand` 是飞行原子动作内部的 Safety 批准凭证，不能与上游 `AtomicAction.srv` 请求混为一谈。原子动作仅向下一项传递紧邻前一项的 `output`；巡检照片和识别结论要独立保存，才能在返航后从新观察中取回。若任一步失败，序列停止；运行中安全处置不依赖序列尾部的 `rtl`。
+
 - **Agent/Environment** 对应上游 `RosAgent`/`RosEnv`：Agent 形成行为，Environment 执行一个行为并取得下一次观察；不让 `MissionService` 或 Hook 层成为第二决策者。
 - **Observation Manager** 是 Agent 读取环境的统一边界。初始观察和行为后的观察都要经此路径；其来源可包括 PX4 状态，但不能把直接读取 `WorldState` 当作已实现该节点。
 - **Atomic Action Library / Behavior Executor** 对应上游动作描述与执行服务。V1 序列模式必须逐项执行、传递必要输出、失败即停，并把行为级结果返回 Environment。
@@ -198,7 +222,7 @@ Observation Manager.get_observation() -> 新观察 -> 等待下一轮人工输�
 
 **删除**通用 `PreToolUse`/`PostToolUse`/`OnToolError`/`Stop` Hooks 与第二套 Tool Invocation 工作流；它们不属于 ROS-LLM 主链。记录、超时、取消留在执行器/飞行原子动作内部。**删除** V1 无人续跑目标。
 
-**删除旧 `MissionService`、固定语句解析、`PlanStep` 调度及验证/恢复占位。**顺序：先迁出 M4 Gate 装配，再验证 M5 新入口，最后删除旧代码与测试。M3 调试路径保持可用。
+**删除旧 `MissionService` 入口、固定语句解析及验证/恢复占位；复用其逐步派发与失败停止逻辑，不预先删除 `PlanStep`。**顺序：先迁出 M4 Gate 装配，再验证 M5 新入口和多步执行，最后删除旧代码与测试。M3 调试路径保持可用。
 
 ## 5. 安全不变量
 
@@ -212,6 +236,8 @@ Observation Manager.get_observation() -> 新观察 -> 等待下一轮人工输�
 ## 6. 契约与数据流
 
 现存核心模型位于 `src/flight_agent/contracts/models/`：`MissionRequest`、`MissionContract`、`WorldState`、`SkillProposal`、`SafetyDecision`、`ApprovedSkillCommand`、`SkillResult`，以及旧主链的 `MissionPlan`、`PlanStep`、`MissionRunResult` 和占位 `VerificationResult`。`FlightExecutionBackendProtocol` 是核心与 ROS 2 实现的调用边界。模型定义存在不代表相应完整业务已接入。
+
+**待迁移命名**：`ApprovedSkillCommand` 容易与 PX4 `VehicleCommand` 混淆，目标按 ROS-LLM 术语改为 `AtomicAction`（不是 `automicaction`）。迁移前须区分：上游 `AtomicAction.srv` 是动作调用接口，当前 `ApprovedSkillCommand` 是 Safety 批准后的内部执行凭证；不得因同名取消审批边界。代码、导出、测试和测评数据中的类型名暂不改动，待契约评审时一并迁移。
 
 目标 V1 每次动作至少关联任务、提案、决策、执行、状态验证 ID；Trace 要能按这些 ID 重建因果链。字段变动先审核契约和现有数据集，不以重命名作为功能完成证据。世界坐标、Home、NED/ENU 的实际映射以 `WorldState`、PX4 适配器和对应契约测试为准；不在规格中虚构未接入的状态来源。
 
@@ -252,7 +278,7 @@ Observation Manager.get_observation() -> 新观察 -> 等待下一轮人工输�
 
 1. 可信 Authority 的生产来源与失联时行为；这直接决定 M4 是否能受控批准并完成 SITL 验收。
 2. M5 对上游 `ExecuteBehavior`、`get_observation` 与原子动作库的 ROS 2 接口映射；序列上限、动作失败后飞行安全处置条件，以及人工下一轮输入的触发方式。
-3. 删除 `MissionService`、`MissionPlan`/`PlanStep` 和旧审批原型前，列出跨目录引用，并按 §2.1 的顺序迁移入口、契约和测试。
+3. 迁出 `MissionService.run()` 的逐步执行逻辑并复核 `PlanStep` 用途；删除 `MissionService` 入口、旧任务级类型和审批原型前，列出跨目录引用并按 §2.1 迁移测试。
 4. M5/M7/M7-S 的实际工作量与时间表，待 M4 收口和第一条真实 Agent 纵向切片后重估；上游准确 commit 与序列执行对照测试待锁定。
 
 这些是待决策或待实现项，不得在进度表中提前标为完成。
