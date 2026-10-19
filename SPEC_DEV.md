@@ -22,7 +22,7 @@
 
 V1 目标：初始观察 -> 人工任务 -> `RosAgent` 根据观察和动作库生成行为序列 -> `SequenceExecutor` 逐项执行、失败即停 -> 返回结果并更新观察 -> 等待人工反馈。任务成功须有状态证据，整条链须能在 PX4/Gazebo 测评。
 
-**主调用拓扑与 ROS-LLM 相同**；V1 先验收 JSON 动作序列。行为树、状态机、代码执行和示教扩库未实现前，不声称全功能等价。无人自动续跑从 V1 删除。
+**主调用拓扑与 ROS-LLM 相同**；V1 先验收 JSON 动作序列。行为树、状态机、代码执行和示教扩库未实现前，不声称全功能等价。V1 不包含无人自动续跑。
 
 飞行 Gate、PX4 Backend、状态完成判定和在途监测是**飞行适配扩展**，不是 ROS-LLM 原生模块；它们不改变主调用拓扑。
 
@@ -58,7 +58,7 @@ V1 目标：初始观察 -> 人工任务 -> `RosAgent` 根据观察和动作库�
 
 | 现有文件/组 | 决定 | 实施条件 |
 |---|---|---|
-| `src/flight_agent/workflows/mission/service.py`、其 `__init__.py` 导出 | **抽取逐步派发/失败停止逻辑后删除旧入口** | 新 Agent 入口和 Behavior Executor 多步测试通过后，删除固定语句规划与旧恢复循环 |
+| `src/flight_agent/workflows/mission/service.py`、其 `__init__.py` 导出 | **抽取逐步派发/失败停止逻辑后删除旧入口** | 先迁出 M4 Gate 装配；新 Agent 入口和 Behavior Executor 多步测试通过后，删除固定语句规划与旧恢复循环 |
 | `mission_flow_model.py` 中的 `MissionPlan`、`PlanStep`、`MissionRunResult` 及公共导出 | **保留并复核 `PlanStep`；删除旧任务级类型** | `PlanStep` 可作序列中一个飞行 Skill 的记录，不是 Skill 内部的 PX4 命令；它也不能直接代表所有 ROS-LLM 原子动作。迁移引用后删除 `MissionPlan`、`MissionRunResult`，保留 `MissionRequest`，复核 `VerificationResult` |
 | `mission_cli.py`、ROS 包的 `setup.py` | **改造** | 接入有人入口、Observation Manager 和 Behavior Executor；M3 直连调试入口独立保留 |
 | `tests/integration/test_mission_flow.py`、ROS 包的 `test_mission_cli.py` | **删除旧测试，编写新集成测试** | 新测试从生产入口覆盖观察、人工输入、LLM、执行、再观察和失败停止 |
@@ -67,6 +67,7 @@ V1 目标：初始观察 -> 人工任务 -> `RosAgent` 根据观察和动作库�
 | `components/safety/`、`safety_model.py`、PX4 Backend/adapters | **保留并复用** | 飞行原子动作继续调用现有 `SafetyExecutionGate -> SafetySupervisor -> Backend`；物理动作仍须经 Gate 和状态判定 |
 | `components/tracing/`、`agent_benchmark_sets/`、`eval_harness/` | **保留并扩展** | 提供审计与测评，不参与任务决策 |
 | 旧 `human_approval` 组件、模型、协议、Mock、公共导出及专属测试 | **删除** | 逐 Proposal 审批不在 V1；历史由 Git 保存，未来产品审批另行设计 |
+| 旧设计中的通用 `PreToolUse`/`PostToolUse`/`OnToolError`/`Stop` Hooks 与第二套 Tool Invocation 工作流 | **从目标架构删除** | 当前无对应生产模块；记录、超时、取消属于 Behavior Executor 或飞行原子动作内部，不新增第二套任务调度 |
 
 `configs/safety.yaml` 按原决策保留为未生效的预留配置。表中删除是确定目标；代码迁移按实施条件分批进行。
 
@@ -160,7 +161,7 @@ src/flight_agent/
     safety/                            [已实现；飞行原子动作内部 Gate/检查]
     skills/registry.py                 [已实现；动作注册基础，待补动作描述]
     tracing/                           [已实现；追踪基础]
-  workflows/mission/                   [待删除；旧 MissionService]
+  workflows/mission/                   [现有旧 MissionService；处置见第 2.1 节]
 agent_benchmark_sets/                 [已存在；Agent 测评集]
 eval_harness/                         [已存在；测评执行辅助]
 tests/                                [已存在；迁移后新增主链集成测试]
@@ -173,7 +174,7 @@ tests/                                [已存在；迁移后新增主链集成�
 | `WorldStateAggregator`、`Px4WorldStateAdapter` | 保持原名，供 `observation_manager_node` 读取 | 已完成状态聚合；不得直接改称 Observation Manager |
 | `SKILL_REGISTRY` 和五种动作映射 | 保持现有 `skills/registry.py`，供目标 `AtomicActionLibrary` 的生成/校验复用 | 已有名称、描述、参数 schema 与命令映射；上游式描述文件和动作输出仍待实现 |
 | `SafetyExecutionGate`、`Px4Ros2FlightExecutionBackend` 和 PX4 adapters | 保持飞行/PX4 名称，由 `AtomicAction` 服务实现调用 | 已有飞行部件；不改称 `behavior_executor` |
-| `mission_cli.py`、`MissionService` | 新建 `agent_comm/agent_comm/ros_agent_srv.py`；旧文件按 §2.1 删除 | 固定语句入口不是上游 Agent；不能只改文件名 |
+| `mission_cli.py`、`MissionService` | 新建 `agent_comm/agent_comm/ros_agent_srv.py`；现有入口处置见第 2.1 节 | 固定语句入口不是上游 Agent；不能只改文件名 |
 | `px4_command_plan_executor.py` | 保持原名；上层新建 `behavior_executor/behavior_executor/sequence_executor.py` | 前者执行动作内 PX4 命令，后者执行行为中的原子动作序列 |
 
 **命名规则**：已完成且语义相同的模块在迁入目标包时同步改名并更新导入、入口和测试。上表中的已实现模块是飞行适配或基础能力，其名称已与目标树一致；不能为凑同名把它们改称尚未实现的上游模块。新模块只有生产调用链接入并通过集成测试后才标为已实现。
@@ -253,9 +254,7 @@ goto/rtl 共用的飞行原子动作内部链路（每次调用均执行）：
 - **飞行原子动作** 内部复用确定性 Gate/Backend/状态完成判定。物理动作没有 `APPROVE` 不得派发；ACK 不是动作完成证据。这是公开标记的飞行适配差异，不是 ROS-LLM 原生 Safety 设计。
 - **运行中安全路径** 只监测、抢占和处置飞行风险，不生成下一行为或推进人机任务步。PX4 原生 failsafe 仍独立存在。
 
-**删除**通用 `PreToolUse`/`PostToolUse`/`OnToolError`/`Stop` Hooks 与第二套 Tool Invocation 工作流；它们不属于 ROS-LLM 主链。记录、超时、取消留在执行器/飞行原子动作内部。**删除** V1 无人续跑目标。
-
-**删除旧 `MissionService` 入口、固定语句解析及验证/恢复占位；复用其逐步派发与失败停止逻辑，不预先删除 `PlanStep`。**顺序：先迁出 M4 Gate 装配，再验证 M5 新入口和多步执行，最后删除旧代码与测试。M3 调试路径保持可用。
+现有模块、旧入口与测试的迁移和删除决定统一见第 2.1 节；本章只定义目标调用关系。
 
 ## 5. 安全不变量
 
@@ -312,7 +311,7 @@ MX 的入口、模块调用、内部固定返回、Safety 边界和验收步骤�
 
 1. 可信 Authority 的生产来源与失联时行为；这直接决定 M4 是否能受控批准并完成 SITL 验收。
 2. MX 先冻结上游 `ExecuteBehavior`、`get_observation` 与原子动作库的 ROS 2 接口映射及内部固定对象；M5 再替换真实 LLM/行为解析。序列上限、动作失败后飞行安全处置条件，以及人工下一轮输入的触发方式仍待确认。
-3. 迁出 `MissionService.run()` 的逐步执行逻辑并复核 `PlanStep` 用途；删除 `MissionService` 入口、旧任务级类型和审批原型前，列出跨目录引用并按 §2.1 迁移测试。
+3. 第 2.1 节所列旧模块迁移前，列出跨目录引用，迁出 `MissionService.run()` 的逐步执行逻辑并复核 `PlanStep` 用途；迁移测试和删除条件以该节为准。
 4. M5/M7/M7-S 的实际工作量与时间表，待 M4 收口和第一条真实 Agent 纵向切片后重估；上游准确 commit 与序列执行对照测试待锁定。
 
 这些是待决策或待实现项，不得在进度表中提前标为完成。
