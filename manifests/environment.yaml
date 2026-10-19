@@ -1,4 +1,4 @@
-# Defined by DEV_SPEC.md section 3.
+# Defined by SPEC_DEV.md section 3.
 # Validated by manifests/schemas/environment_manifest.py.
 manifest_version: "m1"
 schema: "manifests/schemas/environment_manifest.py"

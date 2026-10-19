@@ -13,11 +13,11 @@ from flight_agent.components.safety.human_approval import (
     HumanApprovalStateMachine,
 )
 from flight_agent.contracts import (
+    AtomicActionProposal,
     HumanApprovalProtocol,
     HumanApprovalRequest,
     HumanApprovalResult,
     HumanApprovalStatus,
-    SkillProposal,
 )
 from flight_agent.contracts.models.human_approval_model import proposal_digest
 
@@ -27,7 +27,7 @@ def make_request(
 ) -> HumanApprovalRequest:
     return HumanApprovalRequest(
         approval_id=approval_id,
-        proposal=SkillProposal(
+        proposal=AtomicActionProposal(
             proposal_id=proposal_id,
             mission_id='mission-1',
             plan_revision=0,

@@ -10,6 +10,7 @@ from flight_agent.components.safety import SafetyExecutionGate, SafetySupervisor
 from flight_agent.components.tracing import TraceRecorder, TraceReplay
 from flight_agent.components.vehicle.flight_execution import MockFlightExecutionBackend
 from flight_agent.contracts import (
+    AtomicActionProposal,
     ControlAuthority,
     GlobalPosition,
     MissionConstraints,
@@ -21,7 +22,6 @@ from flight_agent.contracts import (
     SafetyReasonCode,
     SkillExecutionStatus,
     SkillName,
-    SkillProposal,
     TakeoffArgs,
     Vector3,
     WorldState,
@@ -105,10 +105,10 @@ def make_state(**changes: object) -> WorldState:
     return state.model_copy(update=changes)
 
 
-def make_proposal(**changes: object) -> SkillProposal:
+def make_proposal(**changes: object) -> AtomicActionProposal:
     '''构造地面起飞提案。'''
 
-    proposal = SkillProposal(
+    proposal = AtomicActionProposal(
         proposal_id='proposal-1',
         mission_id='mission-1',
         plan_revision=0,
@@ -129,10 +129,12 @@ def test_healthy_proposal_gets_stable_approval() -> None:
         '''在同一输入上重复仲裁。'''
 
         first = await supervisor.evaluate(
-            make_proposal(), make_contract(), make_state(), ControlAuthority.AGENT_ALLOWED
+            make_proposal(), make_contract().constraints, make_state(), ControlAuthority.AGENT_ALLOWED,
+            expected_mission_id='mission-1',
         )
         second = await supervisor.evaluate(
-            make_proposal(), make_contract(), make_state(), ControlAuthority.AGENT_ALLOWED
+            make_proposal(), make_contract().constraints, make_state(), ControlAuthority.AGENT_ALLOWED,
+            expected_mission_id='mission-1',
         )
         return first, second
 
@@ -149,7 +151,8 @@ def test_prepare_command_binds_approval_and_registry_timeout() -> None:
     decision, command = asyncio.run(
         SafetySupervisor(FakeSpeedSource(), policy_version='m4-v1', clock=lambda: _NOW)
         .prepare_command(
-            make_proposal(), make_contract(), make_state(), ControlAuthority.AGENT_ALLOWED,
+            make_proposal(), make_contract().constraints, make_state(), ControlAuthority.AGENT_ALLOWED,
+            expected_mission_id='mission-1',
             execution_id='execution-1',
         )
     )
@@ -172,8 +175,9 @@ def test_prepare_command_never_builds_from_rejection() -> None:
     decision, command = asyncio.run(
         SafetySupervisor(FakeSpeedSource(), policy_version='m4-v1', clock=lambda: _NOW)
         .prepare_command(
-            make_proposal(), make_contract(), make_state(link_healthy=False),
+            make_proposal(), make_contract().constraints, make_state(link_healthy=False),
             ControlAuthority.AGENT_ALLOWED,
+            expected_mission_id='mission-1',
             execution_id='execution-1',
         )
     )
@@ -195,7 +199,8 @@ def test_prepare_command_uses_proposal_snapshot_during_async_read() -> None:
     decision, command = asyncio.run(
         SafetySupervisor(MutatingSpeedSource(), policy_version='m4-v1', clock=lambda: _NOW)
         .prepare_command(
-            proposal, make_contract(), make_state(), ControlAuthority.AGENT_ALLOWED,
+            proposal, make_contract().constraints, make_state(), ControlAuthority.AGENT_ALLOWED,
+            expected_mission_id='mission-1',
             execution_id='execution-1',
         )
     )
@@ -216,7 +221,8 @@ def test_execution_gate_traces_approval_before_dispatch(tmp_path: Path) -> None:
     )
 
     decision, result = asyncio.run(
-        gate.submit(make_proposal(), make_contract(), execution_id='execution-1')
+        gate.submit(make_proposal(), make_contract().constraints,
+                    expected_mission_id='mission-1', execution_id='execution-1')
     )
 
     assert decision.decision is SafetyDecisionType.APPROVE
@@ -240,7 +246,8 @@ def test_execution_gate_never_dispatches_rejection(tmp_path: Path) -> None:
     )
 
     decision, result = asyncio.run(
-        gate.submit(make_proposal(), make_contract(), execution_id='execution-1')
+        gate.submit(make_proposal(), make_contract().constraints,
+                    expected_mission_id='mission-1', execution_id='execution-1')
     )
 
     assert decision.decision is SafetyDecisionType.REJECT
@@ -249,13 +256,36 @@ def test_execution_gate_never_dispatches_rejection(tmp_path: Path) -> None:
     assert next(TraceReplay(path).iter_safety_decision_records()).decision == decision
 
 
+def test_execution_gate_rejects_untrusted_mission_identity(tmp_path: Path) -> None:
+    '''提案声明的任务 ID 不能代替可信调用方提供的归属 ID。'''
+
+    backend = MockFlightExecutionBackend(make_state())
+    gate = SafetyExecutionGate(
+        SafetySupervisor(FakeSpeedSource(), policy_version='m4-v1', clock=lambda: _NOW),
+        backend, TraceRecorder(tmp_path / 'trace.jsonl'),
+        lambda: ControlAuthority.AGENT_ALLOWED,
+    )
+
+    decision, result = asyncio.run(
+        gate.submit(
+            make_proposal(), make_contract().constraints,
+            expected_mission_id='mission-2', execution_id='execution-1',
+        )
+    )
+
+    assert decision.decision is SafetyDecisionType.REJECT
+    assert decision.reason_codes == (SafetyReasonCode.INVALID_SCHEMA,)
+    assert result is None
+    assert asyncio.run(backend.get_world_state()).state_id == 'state-1'
+
+
 def test_execution_gate_fails_closed_when_trace_write_fails(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     backend = MockFlightExecutionBackend(make_state())
     recorder = TraceRecorder(tmp_path / 'trace.jsonl')
 
-    def fail_trace(proposal: SkillProposal, decision: SafetyDecision) -> None:
+    def fail_trace(proposal: AtomicActionProposal, decision: SafetyDecision) -> None:
         raise OSError('trace unavailable')
 
     monkeypatch.setattr(recorder, 'record_safety_decision', fail_trace)
@@ -265,7 +295,8 @@ def test_execution_gate_fails_closed_when_trace_write_fails(
     )
 
     with pytest.raises(OSError, match='trace unavailable'):
-        asyncio.run(gate.submit(make_proposal(), make_contract(), execution_id='execution-1'))
+        asyncio.run(gate.submit(make_proposal(), make_contract().constraints,
+                                expected_mission_id='mission-1', execution_id='execution-1'))
     assert asyncio.run(backend.get_world_state()).state_id == 'state-1'
 
 
@@ -276,9 +307,10 @@ def test_invalid_schema_and_stale_state_never_read_px4_parameter() -> None:
     decision = asyncio.run(
         SafetySupervisor(source, policy_version='m4-v1', clock=lambda: _NOW).evaluate(
             make_proposal(arguments={'target_altitude_m': -1.0}),
-            make_contract(),
+            make_contract().constraints,
             make_state(received_at=_NOW - timedelta(seconds=3)),
             ControlAuthority.AGENT_ALLOWED,
+            expected_mission_id='mission-1',
         )
     )
     assert decision.decision is SafetyDecisionType.REJECT
@@ -309,7 +341,8 @@ def test_unusable_px4_speed_evidence_rejects(
     source = FakeSpeedSource(value=value, error=error)
     decision = asyncio.run(
         SafetySupervisor(source, policy_version='m4-v1', clock=lambda: _NOW).evaluate(
-            make_proposal(), make_contract(), make_state(), ControlAuthority.AGENT_ALLOWED
+            make_proposal(), make_contract().constraints, make_state(), ControlAuthority.AGENT_ALLOWED,
+            expected_mission_id='mission-1',
         )
     )
     assert decision.decision is SafetyDecisionType.REJECT
@@ -333,7 +366,8 @@ def test_state_becoming_stale_during_parameter_read_rejects() -> None:
     decision = asyncio.run(
         SafetySupervisor(
             AdvancingSource(), policy_version='m4-v1', clock=lambda: current[0]
-        ).evaluate(make_proposal(), make_contract(), make_state(), ControlAuthority.AGENT_ALLOWED)
+        ).evaluate(make_proposal(), make_contract().constraints, make_state(),
+                   ControlAuthority.AGENT_ALLOWED, expected_mission_id='mission-1')
     )
     assert decision.reason_codes == (SafetyReasonCode.STALE_STATE,)
 
@@ -344,7 +378,8 @@ def test_px4_read_failure_keeps_original_diagnostic(caplog: pytest.LogCaptureFix
     source = FakeSpeedSource(error=Px4ParameterReadError('heartbeat timed out'))
     decision = asyncio.run(
         SafetySupervisor(source, policy_version='m4-v1', clock=lambda: _NOW).evaluate(
-            make_proposal(), make_contract(), make_state(), ControlAuthority.AGENT_ALLOWED
+            make_proposal(), make_contract().constraints, make_state(), ControlAuthority.AGENT_ALLOWED,
+            expected_mission_id='mission-1',
         )
     )
     assert decision.reason_codes == (SafetyReasonCode.SYSTEM_UNHEALTHY,)
@@ -358,7 +393,8 @@ def test_programming_error_is_not_disguised_as_px4_failure() -> None:
     with pytest.raises(AttributeError, match='misspelled method'):
         asyncio.run(
             SafetySupervisor(source, policy_version='m4-v1', clock=lambda: _NOW).evaluate(
-                make_proposal(), make_contract(), make_state(), ControlAuthority.AGENT_ALLOWED
+                make_proposal(), make_contract().constraints, make_state(), ControlAuthority.AGENT_ALLOWED,
+                expected_mission_id='mission-1',
             )
         )
 
@@ -380,7 +416,8 @@ def test_late_stale_state_precedes_speed_rejection() -> None:
     decision = asyncio.run(
         SafetySupervisor(
             SlowSpeedSource(value=12.0), policy_version='m4-v1', clock=lambda: current[0]
-        ).evaluate(make_proposal(), make_contract(), make_state(), ControlAuthority.AGENT_ALLOWED)
+        ).evaluate(make_proposal(), make_contract().constraints, make_state(),
+                   ControlAuthority.AGENT_ALLOWED, expected_mission_id='mission-1')
     )
     assert decision.reason_codes == (
         SafetyReasonCode.STALE_STATE,

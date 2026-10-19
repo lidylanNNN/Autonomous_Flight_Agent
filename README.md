@@ -2,7 +2,7 @@
 
 Autonomous Flight Agent targets the [ROS-LLM](https://github.com/huawei-noah/HEBO/tree/master/ROSLLM) human-input, observation, behavior, execution, and feedback loop on a flight robot using ROS 2 Jazzy, PX4, and Gazebo. The target preserves that orchestration; flight-specific safety checks and PX4 execution live inside atomic actions. This is not a claim that the current code is a ROS 2 port of ROS-LLM or already has the same production call chain.
 
-The project has completed **M3 — Deterministic Flight Skill Executor** and is working on **M4 — Mission Contract + Safety Supervisor**. `DEV_SPEC.md` is the single source of truth for scope, architecture, repository structure, milestones, evaluation, versioning, and release gates.
+The project has completed **M3 — Deterministic Flight Skill Executor** and is working on **M4 — Mission Contract + Safety Supervisor**. [SPEC_DEV.md](SPEC_DEV.md) holds the overall design; [AGENT.md](AGENT.md) defines project rules. Detailed interfaces, complex-module designs, phase plans, and architectural decisions live in `contracts/`, `modules/`, `plans/`, and `ADR/` respectively. Evaluation supporting docs remain in `docs/eval_doc/`.
 
 ## Project Value
 

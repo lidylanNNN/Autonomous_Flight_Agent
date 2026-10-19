@@ -8,7 +8,7 @@ from hashlib import sha256
 
 from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, PositiveFloat, model_validator
 
-from flight_agent.contracts.models.proposal_model import SkillProposal
+from flight_agent.contracts.models.proposal_model import AtomicActionProposal
 
 
 class HumanApprovalStatus(StrEnum):
@@ -24,7 +24,7 @@ class HumanApprovalRequest(BaseModel):
     model_config = ConfigDict(extra='forbid', frozen=True, allow_inf_nan=False)
 
     approval_id: str = Field(min_length=1)
-    proposal: SkillProposal
+    proposal: AtomicActionProposal
     requested_at: AwareDatetime
     timeout_s: PositiveFloat
 
@@ -46,7 +46,7 @@ class HumanApprovalResult(BaseModel):
         return self
 
 
-def proposal_digest(proposal: SkillProposal) -> str:
+def proposal_digest(proposal: AtomicActionProposal) -> str:
     '''固定字段顺序后为完整Proposal生成审批绑定摘要。'''
 
     payload = json.dumps(

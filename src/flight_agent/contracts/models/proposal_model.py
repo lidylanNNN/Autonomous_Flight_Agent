@@ -5,7 +5,7 @@ from typing import Any
 from pydantic import BaseModel, ConfigDict, Field
 
 
-class SkillProposal(BaseModel):
+class AtomicActionProposal(BaseModel):
     '''等待Safety检查的请求外壳，Skill参数语义尚未获批。'''
 
     model_config = ConfigDict(

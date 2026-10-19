@@ -5,6 +5,7 @@ from __future__ import annotations
 from flight_agent.components.safety import SafetyExecutionGate
 from flight_agent.components.skills.registry import get_skill_spec
 from flight_agent.contracts import (
+    AtomicActionProposal,
     FlightExecutionBackendProtocol,
     MissionContract,
     MissionPlan,
@@ -16,7 +17,6 @@ from flight_agent.contracts import (
     SafetyDecisionType,
     SkillExecutionStatus,
     SkillName,
-    SkillProposal,
     SkillResult,
     VerificationResult,
     VerificationStatus,
@@ -62,7 +62,7 @@ class MissionService:
             attempt_id = f'{request.mission_id}-{step.step_id}'
             if plan.plan_revision:
                 attempt_id += f'-revision-{plan.plan_revision}'
-            proposal = SkillProposal(
+            proposal = AtomicActionProposal(
                 proposal_id=attempt_id,
                 mission_id=request.mission_id,
                 plan_revision=plan.plan_revision,
@@ -72,7 +72,10 @@ class MissionService:
                 based_on_state_id=state.state_id,
             )
             decision, result = await self._gate.submit(
-                proposal, contract, execution_id=f'{attempt_id}-execution'
+                proposal,
+                contract.constraints,
+                expected_mission_id=contract.mission_id,
+                execution_id=f'{attempt_id}-execution',
             )
             decisions.append(decision)
             if decision.decision is not SafetyDecisionType.APPROVE:

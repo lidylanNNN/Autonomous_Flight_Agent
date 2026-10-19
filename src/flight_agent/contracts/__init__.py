@@ -19,7 +19,7 @@ from flight_agent.contracts.models.mission_model import (
     MissionContract,
     NedGeofence,
 )
-from flight_agent.contracts.models.proposal_model import SkillProposal
+from flight_agent.contracts.models.proposal_model import AtomicActionProposal
 from flight_agent.contracts.models.safety_model import (
     ControlAuthority,
     SafetyDecision,
@@ -61,6 +61,7 @@ from flight_agent.contracts.px4_parameter_error import Px4ParameterReadError
 
 __all__ = [
     'ApprovedSkillCommand',
+    'AtomicActionProposal',
     'ControlAuthority',
     'ControllerSpeedLimitProtocol',
     'CoordinateFrame',
@@ -90,7 +91,6 @@ __all__ = [
     'SkillAuthority',
     'SkillExecutionStatus',
     'SkillName',
-    'SkillProposal',
     'SkillResult',
     'SkillSpec',
     'TakeoffArgs',

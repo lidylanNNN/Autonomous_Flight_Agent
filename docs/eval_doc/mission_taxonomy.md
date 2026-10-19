@@ -1,8 +1,11 @@
 # Mission Taxonomy
 
-本文档定义 M0 Mission Taxonomy，用于生成首批开发测评集。`DEV_SPEC.md` 仍是 Single
+本文档定义 M0 Mission Taxonomy，用于生成首批开发测评集。`SPEC_DEV.md` 仍是 Single
 Source of Truth；本文档负责把 Taxonomy 落成 `agent_benchmark_sets/` 下具体的
 `MissionEvalCase` 文件。
+
+这是 M0 测评数据的分类和预期结果设计，不表示当前 ROS-LLM 主链已能执行全部任务；
+视觉观察、自动恢复和故障注入等能力须在相应里程碑实现后单独验收。现行有人任务/反馈流程以 `SPEC_DEV.md` 为准。
 
 ## 原则
 

@@ -8,10 +8,10 @@ import pytest
 
 from flight_agent.components.tracing import TraceRecorder, TraceReplay, TraceReplayError
 from flight_agent.contracts import (
+    AtomicActionProposal,
     SafetyDecision,
     SafetyDecisionType,
     SafetyReasonCode,
-    SkillProposal,
     Vector3,
     WorldState,
 )
@@ -69,7 +69,7 @@ def test_trace_recorder_writes_replayable_world_state(tmp_path: Path) -> None:
 def test_safety_decision_shares_trace_without_breaking_world_state_replay(
     tmp_path: Path,
 ) -> None:
-    proposal = SkillProposal(
+    proposal = AtomicActionProposal(
         proposal_id='proposal-1', mission_id='mission-1', plan_revision=0,
         step_id='step-1', skill_name='takeoff',
         arguments={'target_altitude_m': 10.0}, based_on_state_id='state-1',
@@ -98,7 +98,7 @@ def test_safety_decision_shares_trace_without_breaking_world_state_replay(
 
 
 def test_safety_trace_rejects_mismatched_proposal_id(tmp_path: Path) -> None:
-    proposal = SkillProposal(
+    proposal = AtomicActionProposal(
         proposal_id='proposal-1', mission_id='mission-1', plan_revision=0,
         step_id='step-1', skill_name='takeoff',
         arguments={'target_altitude_m': 10.0}, based_on_state_id='state-1',

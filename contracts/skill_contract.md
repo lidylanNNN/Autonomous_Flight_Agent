@@ -51,8 +51,9 @@ timeout_s
 approved_state_id
 ```
 
-由于 M4 尚未实现，M3 的脚本化测试可以直接构造该命令。生产链路只能根据已通过的
-Safety Decision 创建它，原始 Proposal 不得越过 Runtime 边界。
+M3 调试脚本可直接构造该命令；这条显式调试路径不证明 Safety Gate 已覆盖所有执行入口。
+当前旧受控任务入口通过 `SafetySupervisor.prepare_command()` 在 `APPROVE` 后创建命令，
+`AtomicActionProposal` 不得越过 Gate 直接交给 Backend。目标 ROS 飞行原子动作服务尚未接入。
 
 调用方在执行开始前分配 `execution_id`，并发的 `cancel(execution_id)` 才能找到
 正在执行的命令。
@@ -72,15 +73,16 @@ REJECTED_BY_PX4
 非成功结果必须提供稳定的 `failure_code`，成功结果不得携带失败码。开始与结束时间
 必须带时区，并且结束时间不能早于开始时间。
 
-`PX4 ACK == ACCEPTED` 只代表协议层接受命令，不是任务步骤最终成功的证据。M6
-State Verifier 会根据实际观测到的飞行器状态独立判断。
+`PX4 ACK == ACCEPTED` 只代表协议层接受命令，不是任务步骤最终成功的证据。当前
+PX4 Backend 已按飞行状态作基础终态判断；M6 仍须完成五种飞行动作的状态证据与假成功验收，
+不能把现有基础判断写成完整 Verifier 已交付。
 
 ## 超时与取消
 
 - 每条命令都必须具有正数 Timeout。
 - 超时返回 `TIMED_OUT` 和稳定失败码。
 - 取消操作通过 `execution_id` 指定在途任务。
-- Runtime 必须保证重复取消不会产生额外副作用。
+- Backend 必须保证重复取消不会产生额外副作用。
 - 在途任务成功取消后，以 `CANCELLED` 终止。
 - 通信链路失效时，PX4 原生 Failsafe 仍具有最终控制权。
 
@@ -92,6 +94,6 @@ Timeout。`required_state` 只是供 M4 使用的声明式元数据，本身不�
 
 ## 兼容性规则
 
-`MockFlightExecutionBackend` 和 `PX4Ros2FlightExecutionBackend` 必须同时满足
+`MockFlightExecutionBackend` 和 `Px4Ros2FlightExecutionBackend` 必须同时满足
 `FlightExecutionBackendProtocol`，且切换
-Runtime 时不得修改 Skill、Safety、Verifier 或 Agent 业务代码。
+Backend 实现时不得修改 Skill、Safety、Verifier 或 Agent 业务代码。

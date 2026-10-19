@@ -4,12 +4,12 @@ from datetime import UTC, datetime, timedelta
 
 from flight_agent.components.safety import check_proposal_state
 from flight_agent.contracts import (
+    AtomicActionProposal,
     MissionConstraints,
     MissionContract,
     NedGeofence,
     SafetyReasonCode,
     SkillName,
-    SkillProposal,
     WorldState,
 )
 
@@ -42,10 +42,10 @@ def make_contract() -> MissionContract:
     )
 
 
-def make_proposal(state_id: str = 'state-1') -> SkillProposal:
+def make_proposal(state_id: str = 'state-1') -> AtomicActionProposal:
     '''构造引用指定WorldState的Proposal。'''
 
-    return SkillProposal(
+    return AtomicActionProposal(
         proposal_id='proposal-1',
         mission_id='mission-1',
         plan_revision=0,
@@ -75,7 +75,7 @@ def test_state_at_freshness_boundary_is_allowed() -> None:
     '''验证状态年龄等于上限时仍属于新鲜状态。'''
 
     assert check_proposal_state(
-        make_proposal(), make_contract(), make_state(), now=NOW
+        make_proposal(), make_contract().constraints, make_state(), now=NOW
     ) == ()
 
 
@@ -83,7 +83,7 @@ def test_stale_state_is_rejected() -> None:
     '''验证超过Contract上限一毫秒的状态被拒绝。'''
 
     assert check_proposal_state(
-        make_proposal(), make_contract(), make_state(age_ms=1_001), now=NOW
+        make_proposal(), make_contract().constraints, make_state(age_ms=1_001), now=NOW
     ) == (SafetyReasonCode.STALE_STATE,)
 
 
@@ -91,7 +91,7 @@ def test_state_id_mismatch_is_rejected() -> None:
     '''验证Proposal不能使用不同版本的WorldState。'''
 
     assert check_proposal_state(
-        make_proposal('state-old'), make_contract(), make_state(), now=NOW
+        make_proposal('state-old'), make_contract().constraints, make_state(), now=NOW
     ) == (SafetyReasonCode.STATE_ID_MISMATCH,)
 
 
@@ -100,7 +100,7 @@ def test_state_failures_follow_stable_reason_order() -> None:
 
     assert check_proposal_state(
         make_proposal('state-old'),
-        make_contract(),
+        make_contract().constraints,
         make_state(age_ms=1_001),
         now=NOW,
     ) == (

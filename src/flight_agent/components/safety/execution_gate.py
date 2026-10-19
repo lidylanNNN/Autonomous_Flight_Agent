@@ -7,11 +7,11 @@ from collections.abc import Callable
 from flight_agent.components.safety.supervisor import SafetySupervisor
 from flight_agent.components.tracing import TraceRecorder
 from flight_agent.contracts import (
+    AtomicActionProposal,
     ControlAuthority,
     FlightExecutionBackendProtocol,
-    MissionContract,
+    MissionConstraints,
     SafetyDecision,
-    SkillProposal,
     SkillResult,
 )
 
@@ -33,9 +33,10 @@ class SafetyExecutionGate:
 
     async def submit(
         self,
-        proposal: SkillProposal,
-        contract: MissionContract,
+        proposal: AtomicActionProposal,
+        constraints: MissionConstraints,
         *,
+        expected_mission_id: str,
         execution_id: str,
     ) -> tuple[SafetyDecision, SkillResult | None]:
         '''Return the decision without dispatch unless Safety approved the proposal.'''
@@ -44,9 +45,10 @@ class SafetyExecutionGate:
         state = await self._backend.get_world_state()
         decision, command = await self._supervisor.prepare_command(
             proposal_snapshot,
-            contract,
+            constraints,
             state,
             self._authority_reader(),
+            expected_mission_id=expected_mission_id,
             execution_id=execution_id,
         )
         self._recorder.record_safety_decision(proposal_snapshot, decision)

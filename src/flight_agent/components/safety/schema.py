@@ -3,17 +3,18 @@
 from pydantic import ValidationError
 
 from flight_agent.contracts import (
-    MissionContract,
+    AtomicActionProposal,
+    MissionConstraints,
     SafetyReasonCode,
     SkillName,
-    SkillProposal,
     parse_skill_arguments,
 )
 
 
 def check_proposal_schema(
-    proposal: SkillProposal,
-    contract: MissionContract,
+    proposal: AtomicActionProposal,
+    constraints: MissionConstraints,
+    expected_mission_id: str,
 ) -> tuple[SafetyReasonCode, ...]:
     '''检查Proposal归属、Skill授权范围和参数结构。'''
 
@@ -22,7 +23,7 @@ def check_proposal_schema(
     except ValueError:
         return (SafetyReasonCode.SKILL_NOT_ALLOWED,)
 
-    invalid_schema = proposal.mission_id != contract.mission_id
+    invalid_schema = proposal.mission_id != expected_mission_id
     try:
         parse_skill_arguments(skill_name, proposal.arguments)
     except ValidationError:
@@ -31,6 +32,6 @@ def check_proposal_schema(
     reasons: list[SafetyReasonCode] = []
     if invalid_schema:
         reasons.append(SafetyReasonCode.INVALID_SCHEMA)
-    if skill_name not in contract.constraints.allowed_skills:
+    if skill_name not in constraints.allowed_skills:
         reasons.append(SafetyReasonCode.SKILL_NOT_ALLOWED)
     return tuple(reasons)

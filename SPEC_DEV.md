@@ -1,6 +1,6 @@
 # Autonomous Flight Agent 开发规格 v2.1
 
-> 状态：待评审。实现基线：2026-10-16 的 `8a13b81`；架构对齐依据为 ROS-LLM 论文 v3 与本次核对的开源主分支。本文只修订设计，不代表代码迁移已完成。
+> 状态：当前总体设计基线；待确认事项见第 10 节。实现基线：2026-10-16 的 `8a13b81`；架构对齐依据为 ROS-LLM 论文 v3 与本次核对的开源主分支。设计目标不代表代码迁移已完成。
 > 历史规格：[DEV_SPEC v1.44](docs/archive/DEV_SPEC_v1.44.md)。历史文件保留决策过程，不再作为当前实现或新开发的验收依据。
 > 适用范围：V1 飞行机器人任务系统、仓库结构、开发顺序、测评和版本管理。代码事实以实际生产入口及测试证据为准；本文目标不自动等于已实现。
 
@@ -41,7 +41,7 @@ V1 目标：初始观察 -> 人工任务 -> `RosAgent` 根据观察和动作库�
 
 ## 2. 当前实现基线
 
-下表描述仓库当前状态，不是目标架构图。`docs/milestones/M0.md` 至 `M4.md` 保存阶段记录；未建立的 M5 以后里程碑文件不能当作现存交付物。
+下表描述仓库当前状态，不是目标架构图。`plans/M0.md` 至 `M4.md` 保存阶段记录；未建立的 M5 以后里程碑文件不能当作现存交付物。
 
 | 能力 | 当前代码/入口 | 可声称的边界 |
 |---|---|---|
@@ -98,7 +98,11 @@ ros2_ws/src/px4_msgs/                与冻结 PX4 版本匹配的消息定义
 agent_benchmark_sets/               Agent 测评数据与 schema，不是在线任务或 PX4 Mission
 eval_harness/                        测评辅助代码；完整 Episode Runner 尚未实现
 tests/                               单元、契约和替身集成测试
-docs/、manifests/、configs/           阶段记录、环境声明和配置；预留配置不自动生效
+AGENT.md、SPEC_DEV.md                 长期规则与当前总体设计
+contracts/、modules/                 详细接口契约与复杂模块内部设计（区别于代码包）
+plans/、ADR/                          阶段计划与重要设计决策
+docs/                                历史归档、环境操作手册、测评辅助文档
+manifests/、configs/                 环境声明与配置；预留配置不自动生效
 ```
 
 核心代码不得直接依赖 `rclpy`、`px4_msgs` 或 ROS Topic 名；PX4 适配留在 ROS 包。`flight_agent` 不依赖 `eval_harness`，测评集不反向依赖产品代码。目录存在不等于能力已接入；新增目录应由实际生产调用链驱动，不先批量铺设空壳。
@@ -214,10 +218,10 @@ Observation Manager.get_observation() -> 新观察 -> 等待下一轮人工输�
 [flight_agent_ros.flight_atomic_action_server] --AtomicActionResponse(success, output=返航证据)--> [behavior_executor.sequence_executor]
 
 goto/rtl 共用的飞行原子动作内部链路（每次调用均执行）：
-[flight_agent_ros.flight_atomic_action_server] --SkillProposal + MissionContract + execution_id--> [flight_agent.components.safety.execution_gate]
+[flight_agent_ros.flight_atomic_action_server] --AtomicActionProposal + MissionConstraints + expected_mission_id + execution_id--> [flight_agent.components.safety.execution_gate]
 [flight_agent.components.safety.execution_gate] --状态读取请求--> [flight_agent_ros.adapters.flight_execution_backend]
 [flight_agent_ros.adapters.flight_execution_backend] --WorldState--> [flight_agent.components.safety.execution_gate]
-[flight_agent.components.safety.execution_gate] --SkillProposal + MissionContract + WorldState + ControlAuthority--> [flight_agent.components.safety.supervisor]
+[flight_agent.components.safety.execution_gate] --AtomicActionProposal + MissionConstraints + expected_mission_id + WorldState + ControlAuthority--> [flight_agent.components.safety.supervisor]
 [flight_agent.components.safety.supervisor] --SafetyDecision + flight_agent.contracts.AtomicAction(仅批准时)--> [flight_agent.components.safety.execution_gate]
 [flight_agent.components.safety.execution_gate] --flight_agent.contracts.AtomicAction(仅批准时)--> [flight_agent_ros.adapters.flight_execution_backend]
 [flight_agent_ros.adapters.flight_execution_backend] --SkillResult--> [flight_agent.components.safety.execution_gate]
@@ -228,7 +232,7 @@ goto/rtl 共用的飞行原子动作内部链路（每次调用均执行）：
 [observation_manager.observation_manager_node] --ObservationResponse(新观察)--> [agent_comm.ros_agent_srv]
 ```
 
-`ExecuteBehaviorRequest` 是整个序列的输入，`AtomicActionRequest` 是逐项调用的输入；`service_name` 选择 ROS 服务，不是 `AtomicActionRequest` 的字段。目标 `flight_agent.contracts.AtomicAction` 是 Safety 批准后的内部执行凭证，不是 `rosllm_srvs/srv/AtomicAction` 的未审查请求。原子动作仅向下一项传递紧邻前一项的 `output`；巡检照片和识别结论要独立保存，才能在返航后从新观察中取回。若任一步失败，序列停止；运行中安全处置不依赖序列尾部的 `rtl`。
+`ExecuteBehaviorRequest` 是整个序列的输入，`AtomicActionRequest` 是逐项调用的输入；`service_name` 选择 ROS 服务，不是 `AtomicActionRequest` 的字段。目标 `flight_agent.contracts.AtomicAction` 是 Safety 批准后的内部执行凭证，不是 `rosllm_srvs/srv/AtomicAction` 的未审查请求。飞行 Gate 只收冻结的 `MissionConstraints`，不要求完整 `MissionContract`；`expected_mission_id` 必须来自可信会话上下文，不能从 LLM 输出的 `AtomicActionProposal.mission_id` 回填。现有旧入口由 `MissionContract.mission_id` 提供该值；新 ROS 服务尚无可信会话来源，接入前必须设计并验证，不能仅改图后宣称可飞。原子动作仅向下一项传递紧邻前一项的 `output`；巡检照片和识别结论要独立保存，才能在返航后从新观察中取回。若任一步失败，序列停止；运行中安全处置不依赖序列尾部的 `rtl`。
 
 - **`RosAgent` 与 `RosEnv`** 对应上游两个对象：`RosAgent` 形成行为，`RosEnv` 执行一个行为并取得下一次观察；不让 `MissionService` 或 Hook 层成为第二决策者。
 - **Observation Manager** 是 Agent 读取环境的统一边界。初始观察和行为后的观察都要经此路径；其来源可包括 PX4 状态，但不能把直接读取 `WorldState` 当作已实现该节点。
@@ -243,7 +247,7 @@ goto/rtl 共用的飞行原子动作内部链路（每次调用均执行）：
 ## 5. 安全不变量
 
 1. 普通物理动作没有对应的 `SafetyDecision=APPROVE` 与 `ApprovedSkillCommand` 不得派发；拒绝、读取失败、Trace 写入失败均不得误放行。
-2. State 过期、State ID 不匹配、Authority 不可信、PX4 failsafe/健康证据不满足、越围栏/高度/半径、任务限速与飞控限速不一致时拒绝；具体字段、顺序与原因码以 `contracts/` 和 `components/safety/` 为准。
+2. State 过期、State ID 不匹配、Authority 不可信、PX4 failsafe/健康证据不满足、越围栏/高度/半径、任务限速与飞控限速不一致时拒绝；具体字段、顺序与原因码以 `src/flight_agent/contracts/` 和 `src/flight_agent/components/safety/` 的实现及 `contracts/` 的设计文档核对。
 3. 对 `UNKNOWN` Authority 必须维持拒绝。接入真实控制权来源前，不允许用测试注入的 `AGENT_ALLOWED` 宣称生产 Gate 可飞。
 4. Safety 拒绝、执行失败和不确定验证必须分别保留事实，不得映射为任务成功。`INCONCLUSIVE` 不是成功。
 5. 在途危险处置必须有独立于模型推理的路径；当前缺口写入 M7-S。任何测试不得用 PX4 原生 failsafe 覆盖这一缺口。
@@ -251,7 +255,7 @@ goto/rtl 共用的飞行原子动作内部链路（每次调用均执行）：
 
 ## 6. 契约与数据流
 
-现存核心模型位于 `src/flight_agent/contracts/models/`：`MissionRequest`、`MissionContract`、`WorldState`、`SkillProposal`、`SafetyDecision`、`ApprovedSkillCommand`、`SkillResult`，以及旧主链的 `MissionPlan`、`PlanStep`、`MissionRunResult` 和占位 `VerificationResult`。`FlightExecutionBackendProtocol` 是核心与 ROS 2 实现的调用边界。模型定义存在不代表相应完整业务已接入。
+现存核心模型位于 `src/flight_agent/contracts/models/`：`MissionRequest`、`MissionContract`、`MissionConstraints`、`WorldState`、`AtomicActionProposal`、`SafetyDecision`、`ApprovedSkillCommand`、`SkillResult`，以及旧主链的 `MissionPlan`、`PlanStep`、`MissionRunResult` 和占位 `VerificationResult`。`AtomicActionProposal` 是原 `SkillProposal` 的现名，仍表示 Safety 审查前的内部飞行动作提案。Gate 已改为接收 `MissionConstraints` 和独立的可信任务 ID；`FlightExecutionBackendProtocol` 是核心与 ROS 2 实现的调用边界。模型定义存在不代表相应完整业务已接入。
 
 **目标命名决定**：Agent 对象统一叫 `RosAgent`；对外动作统一叫 `AtomicAction`。当前内部模型 `ApprovedSkillCommand` 目标改名为 `flight_agent.contracts.AtomicAction`，表示 Safety 批准后的单次动作执行凭证；ROS 服务 `rosllm_srvs/srv/AtomicAction` 接收尚未审查的动作请求。两者同名但属于不同模块和信任边界，不得互换或因改名取消审批。现有代码、导出、测试和测评数据仍使用旧名；迁移须经契约评审并同步更新全部引用。
 
@@ -285,10 +289,10 @@ goto/rtl 共用的飞行原子动作内部链路（每次调用均执行）：
 ## 9. 开发与版本管理
 
 - 新功能先列生产入口、触发条件、输入输出、创建者/持有者、调用流和验证方式；优先最小纵向切片，再完善组件。不得把单测中的对象装配当作生产接入。
-- 修改业务代码、契约、测试或配置前，按 `Agent.md` 汇报本批变更、对象/函数输入输出、数据流节点和验证；涉及结构、Safety 或跨模块边界时先等用户确认。用户仅要求讨论或文档评审时不得擅改代码。
+- 修改业务代码、契约、测试或配置前，按 `AGENT.md` 汇报本批变更、对象/函数输入输出、数据流节点和验证；涉及结构、Safety 或跨模块边界时先等用户确认。用户仅要求讨论或文档评审时不得擅改代码。
 - 每批完成后列实际生产调用链和未接入环节，给出对应文件位置与测试结果。未经用户明确要求，不提交或推送。
 - `main` 保持可回归；采用短生命周期变更分支，禁止 force push `main`。提交使用中文说明并携带项目版本号；里程碑、冻结测评与发布须绑定 commit/tag/环境清单。具体版本号由当次变更确定，不把规格版本当软件发布版本。
-- 影响架构、契约、安全边界、里程碑、测评协议、仓库结构或发布门槛时，先修订本规格或新增 `docs/adr/` 决策。历史规格保留在 `docs/archive/`；旧章节编号不是当前规范。
+- 影响架构、安全边界、测评协议、仓库结构或发布门槛时，先修订本规格或新增 `ADR/` 决策；接口细节维护在 `contracts/`，只有复杂模块的内部设计进入 `modules/`，阶段计划维护在 `plans/`，测评辅助文档维护在 `docs/eval_doc/`。历史规格保留在 `docs/archive/`；旧章节编号不是当前规范。
 
 ## 10. 待确认事项
 

@@ -4,6 +4,7 @@ import pytest
 from pydantic import ValidationError
 
 from flight_agent.contracts import (
+    AtomicActionProposal,
     MissionConstraints,
     MissionContract,
     NedGeofence,
@@ -11,7 +12,6 @@ from flight_agent.contracts import (
     SafetyDecisionType,
     SafetyReasonCode,
     SkillName,
-    SkillProposal,
 )
 
 
@@ -111,7 +111,7 @@ def test_mission_constraints_reject_duplicate_or_legacy_approval_skills() -> Non
 def test_skill_proposal_preserves_unapproved_content_for_safety_review() -> None:
     '''验证Proposal保留未知Skill和原始参数，供Safety给出明确拒绝。'''
 
-    proposal = SkillProposal(
+    proposal = AtomicActionProposal(
         proposal_id='proposal-1',
         mission_id='mission-1',
         plan_revision=0,
@@ -124,7 +124,7 @@ def test_skill_proposal_preserves_unapproved_content_for_safety_review() -> None
     assert proposal.skill_name == 'teleport'
     assert proposal.arguments == {'unsafe_target': 999}
     with pytest.raises(ValidationError, match='Extra inputs'):
-        SkillProposal.model_validate(proposal.model_dump() | {'approved': True})
+        AtomicActionProposal.model_validate(proposal.model_dump() | {'approved': True})
 
 
 @pytest.mark.parametrize(

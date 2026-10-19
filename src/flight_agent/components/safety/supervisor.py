@@ -25,15 +25,15 @@ from flight_agent.components.safety.vehicle_state import check_vehicle_state
 from flight_agent.components.skills.registry import get_skill_spec
 from flight_agent.contracts import (
     ApprovedSkillCommand,
+    AtomicActionProposal,
     ControlAuthority,
     ControllerSpeedLimitProtocol,
-    MissionContract,
+    MissionConstraints,
     Px4ParameterReadError,
     SafetyDecision,
     SafetyDecisionType,
     SafetyReasonCode,
     SkillName,
-    SkillProposal,
     WorldState,
     parse_skill_arguments,
 )
@@ -62,20 +62,25 @@ class SafetySupervisor:
 
     async def prepare_command(
         self,
-        proposal: SkillProposal,
-        contract: MissionContract,
+        proposal: AtomicActionProposal,
+        constraints: MissionConstraints,
         state: WorldState,
         authority: ControlAuthority,
         *,
+        expected_mission_id: str,
         execution_id: str,
     ) -> tuple[SafetyDecision, ApprovedSkillCommand | None]:
         '''Recheck a copied proposal and create a command only after direct approval.'''
 
         proposal_snapshot = proposal.model_copy(deep=True)
-        contract_snapshot = contract.model_copy(deep=True)
+        constraints_snapshot = constraints.model_copy(deep=True)
         state_snapshot = state.model_copy(deep=True)
         decision = await self.evaluate(
-            proposal_snapshot, contract_snapshot, state_snapshot, authority
+            proposal_snapshot,
+            constraints_snapshot,
+            state_snapshot,
+            authority,
+            expected_mission_id=expected_mission_id,
         )
         if decision.decision is not SafetyDecisionType.APPROVE:
             return decision, None
@@ -93,17 +98,18 @@ class SafetySupervisor:
 
     async def evaluate(
         self,
-        proposal: SkillProposal,
-        contract: MissionContract,
+        proposal: AtomicActionProposal,
+        constraints: MissionConstraints,
         state: WorldState,
         authority: ControlAuthority,
+        *,
+        expected_mission_id: str,
     ) -> SafetyDecision:
         '''按冻结顺序检查所有可计算条件，失败时禁止后续放行。'''
 
-        constraints = contract.constraints
-        schema_reasons = check_proposal_schema(proposal, contract)
+        schema_reasons = check_proposal_schema(proposal, constraints, expected_mission_id)
         reasons: list[SafetyReasonCode] = list(schema_reasons)
-        reasons.extend(check_proposal_state(proposal, contract, state, now=self._clock()))
+        reasons.extend(check_proposal_state(proposal, constraints, state, now=self._clock()))
         reasons.extend(check_control_authority(authority))
 
         skill_name: SkillName | None = None
@@ -130,7 +136,7 @@ class SafetySupervisor:
                 else:
                     reasons.extend(check_controller_speed_limit(speed_limit, constraints))
                 late_state_reasons = check_proposal_state(
-                    proposal, contract, state, now=self._clock()
+                    proposal, constraints, state, now=self._clock()
                 )
                 reasons[:0] = late_state_reasons
 
@@ -144,7 +150,8 @@ class SafetySupervisor:
         identity = json.dumps(
             {
                 'proposal': proposal.model_dump(mode='json'),
-                'contract': contract.model_dump(mode='json'),
+                'constraints': constraints.model_dump(mode='json'),
+                'expected_mission_id': expected_mission_id,
                 'state': state.model_dump(mode='json'),
                 'authority': authority.value,
                 'decision': decision_type.value,

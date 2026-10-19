@@ -7,7 +7,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from flight_agent.contracts import SafetyDecision, SkillProposal, WorldState
+from flight_agent.contracts import AtomicActionProposal, SafetyDecision, WorldState
 
 
 class TraceRecorder:
@@ -25,7 +25,7 @@ class TraceRecorder:
         self._append({'type': 'world_state', 'state': state.model_dump(mode='json')})
 
     def record_safety_decision(
-        self, proposal: SkillProposal, decision: SafetyDecision
+        self, proposal: AtomicActionProposal, decision: SafetyDecision
     ) -> None:
         '''Record the proposal and its complete deterministic safety decision.'''
 

@@ -2,6 +2,8 @@
 
 状态：已接受
 
+适用范围：本 ADR 记录现有 Backend 输入边界及 M3 当时的决策。代码中的原始提案现名为 `AtomicActionProposal`；批准后命令仍名为 `ApprovedSkillCommand`，目标改名见 `SPEC_DEV.md`。旧 M3 调试入口可显式构造测试命令；“生产链路只能由 Safety 创建”是目标边界，不代表当前所有入口均已接入 Gate。
+
 ## 背景
 
 M3 需要在 M4 Safety Supervisor 尚未实现时先确定 Backend Protocol。如果允许
@@ -39,5 +41,5 @@ Safety Policy 不放进单个 Skill 或 Backend Adapter。M3 阶段允许脚本�
 
 ## 依据
 
-- `DEV_SPEC.md` 第 7.7、8.2、9、21.8.5 和 21.8.7 节。
+- `docs/archive/DEV_SPEC_v1.44.md` 第 7.7、8.2、9、21.8.5 和 21.8.7 节（当时的设计依据）。
 - `tests/contract/skills/` 下的 Contract Test。

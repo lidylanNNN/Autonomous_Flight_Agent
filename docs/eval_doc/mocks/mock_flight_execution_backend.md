@@ -6,7 +6,7 @@
 
 - 成功 `takeoff` 解锁、离地，并将 NED `z` 设为目标高度的负数。
 - 成功 `goto` 更新到命令中的 NED 北、东、正高度目标。
-- 成功 `hold` 保持状态；`rtl` 返回北、东原点；`land` 着陆并解除解锁。
+- 成功 `hold` 保持状态；`rtl` 在替身中返回局部 NED 北、东原点（不验证真实 Home）；`land` 着陆并解除解锁。
 - 只有成功推进 `WorldState`。拒绝、超时、无进展和取消不推进状态。
 
 Mock 从初始 `WorldState.received_at` 起使用虚拟时钟，不等待真实时间。成功、拒绝、无进展和取消固定推进一秒；超时推进命令的 `timeout_s`。以 `execution_id -> MockExecutionOutcome` 注入 `rejected`、`timed_out` 或 `no_progress`；协作式 `cancel()` 会使在途命令返回 `CANCELLED`。

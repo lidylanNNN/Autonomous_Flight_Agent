@@ -1,14 +1,15 @@
-# Mission 与 Safety Contract
+# 飞行 Safety Contract
 
 状态：M4-7 首批总仲裁与 PX4 限速校验已装配
 
 ## 目的
 
-M4 在 Planner 与 Flight Execution Backend 之间增加不可绕过的确定性仲裁边界：
+M4 为受控任务入口建立动作提案到 Flight Execution Backend 的确定性仲裁边界；旧 M3 调试入口仍能直连 Backend，不能宣称全仓库已不可绕过：
 
 ```text
-SkillProposal
-+ MissionContract
+AtomicActionProposal
++ MissionConstraints
++ expected_mission_id（可信会话上下文）
 + WorldState
 + ControlAuthority
         |
@@ -24,12 +25,12 @@ State ID 检查；M4-3 已实现 Authority、Vehicle State 和 Command Sequence 
 M4-4/M4-5 已实现独立围栏、包线、电池、健康与 Home 检查。
 M4-7 Safety Supervisor 已按固定顺序组合独立检查器，并通过 ROS 适配器读取、
 验证当前 PX4 `MPC_XY_VEL_MAX`；读数有效期为 2 秒，读取失败或超限拒绝。
-直接批准路径已可在输入快照上生成批准命令。Agent 侧 `SafetyExecutionGate` 已在派发前写入 Safety Trace，
+直接批准路径已可在输入快照上生成批准命令。当前旧 `MissionService` 使用的 `SafetyExecutionGate` 已在派发前写入 Safety Trace，
 只有直接 `APPROVE` 可以派发；旧 M3 调试脚本仍能直连后端。
 
-## Mission Contract
+## 安全约束
 
-`MissionContract` 保存 Planner 不能修改的任务目标与硬约束：
+`MissionConstraints` 保存动作提案不能修改的冻结安全限制：
 
 - 最大高度、最大水平速度和最大任务半径；
 - 最低电量；
@@ -37,11 +38,10 @@ M4-7 Safety Supervisor 已按固定顺序组合独立检查器，并通过 ROS �
 - 局部 NED Geofence；
 - 允许使用的 Skill；
 - 是否要求有效 Home；
-- 完成条件与中止条件。
 
-Contract 使用 Pydantic 冻结模型，拒绝未知字段、重复 Skill、非法数值与无效围栏。
-Planner 可以提出新 Plan，但不能原地修改 Contract。M4 不定义或执行规划软偏好；如
-M5 Planner 确有消费需求，再根据真实规划场景单独冻结偏好 Contract。
+约束模型拒绝未知字段、重复 Skill、非法数值与无效围栏。现有旧入口仍持有
+`MissionContract`，从中取出 `constraints` 和 `mission_id` 交给 Gate；新 ROS 飞行动作服务
+必须另接可信会话上下文，不能把 Proposal 自报的 `mission_id` 当作可信来源。
 
 ## 坐标约定
 
@@ -56,9 +56,9 @@ east_min_m  <= east  <= east_max_m
 沿用仿真表达，进入 Safety Fixture 时必须显式转换为 `north/east`，即 `x = north`、
 `y = east`。
 
-## Skill Proposal
+## Atomic Action Proposal
 
-`SkillProposal` 只是等待检查的请求外壳，不是执行命令。它故意保留原始 `skill_name`
+`AtomicActionProposal` 只是等待检查的请求外壳，不是执行命令。它故意保留原始 `skill_name`
 和 `arguments`，让未知 Skill、错误字段或非法参数能够由 Safety 返回稳定的拒绝原因，
 而不是在入口解析时丢失审计记录。
 
@@ -79,7 +79,7 @@ X1 已移除按 Skill 名触发的 Proposal 级审批分支；当前代码仍有
 
 `check_proposal_schema()` 按固定规则检查：
 
-- Proposal 的 `mission_id` 是否属于当前 Mission Contract；
+- Proposal 的 `mission_id` 是否匹配可信调用方提供的 `expected_mission_id`；
 - Skill 名是否存在且位于 `allowed_skills`；
 - Skill 参数是否能由对应的强类型参数模型解析。
 
@@ -122,7 +122,7 @@ GoTo 生效，以 `WorldState.home_position_ned_m` 为圆心计算目标的水�
 `max_mission_radius_m` 返回 `MISSION_RADIUS_EXCEEDED`，缺少有效局部 Home 返回
 `HOME_REFERENCE_UNAVAILABLE`。PX4 `HomePosition.valid_lpos` 和局部坐标数值共同
 决定参考是否有效，不把 NED 原点直接当 Home。现有 Skill 无目标速度参数，
-`SPEED_ABOVE_ENVELOPE` 还不会由当前检查器产生。
+`check_flight_envelope()` 尚无动作目标速度可检查；但 `check_controller_speed_limit()` 在 PX4 控制器限速高于冻结任务上限时会返回 `SPEED_ABOVE_ENVELOPE`。
 
 ## 原因码
 
@@ -144,12 +144,13 @@ GoTo 生效，以 `WorldState.home_position_ned_m` 为圆心计算目标的水�
 
 ## 当前边界
 
-已装配独立检查器、PX4 限速读取和 Agent 侧执行门，但当前尚未实现：
+已装配独立检查器、PX4 限速读取和旧任务入口的执行门。替身集成测试已覆盖旧入口经 Gate 派发、拒绝不派发与任务 ID 不匹配；ROS 入口工厂测试也覆盖 Gate 装配。但当前尚未完成：
 
 - 隔离旧 M3 调试脚本等可直接调用后端的路径；
-- Safety Boundary 的集成测试与 Gazebo 验证。
+- 新 ROS-LLM 飞行原子动作服务中的可信会话来源与 Gate 装配；
+- Safety Gate 的 PX4/Gazebo 受控链验证。
 
-因此当前可以声明总仲裁能确定性返回决定，但不能声明生产执行链已经不可绕过。
+因此当前可以声明旧受控入口的总仲裁能确定性返回决定，不能声明目标生产链已经接入或所有执行路径都经过 Gate。
 
 原 M4-6 Proposal 级审批协议、状态机和 Mock 仍在仓库，但不属于 M1–M8 设计或 V1 目标契约。X1 已移除 `human_approval_skills` 与 Supervisor 分支；相关原因码、决策枚举及原型公共导出仍待后续批次迁移。测评后的产品阶段需重新定义 Plan 级审批。
 

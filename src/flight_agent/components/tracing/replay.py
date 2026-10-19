@@ -10,7 +10,7 @@ from typing import Literal
 
 from pydantic import AwareDatetime, BaseModel, ConfigDict, ValidationError
 
-from flight_agent.contracts import SafetyDecision, SkillProposal, WorldState
+from flight_agent.contracts import AtomicActionProposal, SafetyDecision, WorldState
 
 
 class WorldStateTraceRecord(BaseModel):
@@ -30,7 +30,7 @@ class SafetyDecisionTraceRecord(BaseModel):
 
     recorded_at: AwareDatetime
     type: Literal['safety_decision']
-    proposal: SkillProposal
+    proposal: AtomicActionProposal
     decision: SafetyDecision
 
 
