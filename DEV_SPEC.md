@@ -20,7 +20,7 @@
 
 ### 1.1 V1 目标状态与对齐范围
 
-V1 目标：初始观察 -> 人工任务 -> Agent 根据观察和动作库生成行为序列 -> 执行器逐项执行、失败即停 -> 返回结果并更新观察 -> 等待人工反馈。任务成功须有状态证据，整条链须能在 PX4/Gazebo 测评。
+V1 目标：初始观察 -> 人工任务 -> `RosAgent` 根据观察和动作库生成行为序列 -> `SequenceExecutor` 逐项执行、失败即停 -> 返回结果并更新观察 -> 等待人工反馈。任务成功须有状态证据，整条链须能在 PX4/Gazebo 测评。
 
 **主调用拓扑与 ROS-LLM 相同**；V1 先验收 JSON 动作序列。行为树、状态机、代码执行和示教扩库未实现前，不声称全功能等价。无人自动续跑从 V1 删除。
 
@@ -30,7 +30,7 @@ V1 目标：初始观察 -> 人工任务 -> Agent 根据观察和动作库生成
 
 | ROS-LLM 依据 | 上游职责 | 本项目目标对应物 | 当前状态 |
 |---|---|---|---|
-| [`ros_agent_srv` 主循环](https://github.com/huawei-noah/HEBO/blob/master/ROSLLM/agent_comm/scripts/ros_agent_srv) | 先 `get_obs()`；等待人工输入；用动作库、观察和输入构造 prompt；调用 LLM；`env.step()` 执行行为后再次 `get_obs()` | 唯一的有人任务入口与 Agent/Environment 两个职责 | 未实现；现有 `mission_cli` 只进固定语句 `MissionService` |
+| [`ros_agent_srv` 主循环](https://github.com/huawei-noah/HEBO/blob/master/ROSLLM/agent_comm/scripts/ros_agent_srv) | 先 `get_obs()`；等待人工输入；用动作库、观察和输入构造 prompt；调用 LLM；`env.step()` 执行行为后再次 `get_obs()` | 唯一的有人任务入口，包含 `RosAgent` 决策和 `RosEnv` 环境交互两个职责 | 未实现；现有 `mission_cli` 只进固定语句 `MissionService` |
 | [`agent_comm`](https://github.com/huawei-noah/HEBO/tree/master/ROSLLM/agent_comm) | LLM 服务与 Agent 通信 | LLM Provider 和 prompt/行为提取 | 未实现 |
 | [`observation_manager`](https://github.com/huawei-noah/HEBO/tree/master/ROSLLM/observation_manager) | 聚合各观察服务，通过统一 `get_observation` 返回文本观察 | 由 `WorldState` 等来源构造统一观察，不让 Agent 直接消费 PX4 Topic | 尚无统一观察入口；现有状态聚合只是输入基础 |
 | [`behavior_executor`](https://github.com/huawei-noah/HEBO/tree/master/ROSLLM/behavior_executor) | `ExecuteBehavior` 服务接收行为；序列/行为树/代码等执行器返回成功标志与消息 | ROS 2 行为执行器；V1 先实现序列模式，逐项调用原子动作、失败即停止 | 服务未实现；旧 `MissionService.run()` 的逐步派发和失败停止逻辑可迁入，但现有计划只生成一步 |
@@ -115,7 +115,7 @@ ros2_ws/src/
     config/
       atomic_action_library.yaml      [待建；上游式动作名与描述索引]
     agent_comm/
-      ros_agent_srv.py                 [待建；唯一有人 Agent/Environment 主循环]
+      ros_agent_srv.py                 [待建；持有 RosAgent 与 RosEnv 的有人主循环]
       llm_node.py                      [待建；LLM 服务]
   observation_manager/                [待建；上游同名 ROS 包]
     package.xml
@@ -138,14 +138,16 @@ ros2_ws/src/
       LLM.srv                         [待建；模型调用契约]
   rosllm_msgs/                         [V1 无自定义消息时不创建]
   flight_agent_ros/                    [已存在；PX4/ROS 2 飞行适配]
-    flight_agent_ros/adapters/
-      px4_world_state_adapter.py      [已实现；观察源，不等于 Observation Manager]
-      px4_parameter_adapter.py        [已实现；飞行参数读取]
-      flight_execution_backend.py     [已实现；动作内调用，不等于 Behavior Executor]
-      px4_command_plan_mapper.py      [已实现；PX4 命令映射]
-      px4_command_plan_executor.py    [已实现；PX4 命令执行，不等于 sequence_executor]
-      px4_vehicle_command_adapter.py  [已实现；PX4 命令与 ACK]
-      px4_offboard_setpoint_adapter.py [已实现；PX4 Offboard]
+    flight_agent_ros/
+      flight_atomic_action_server.py  [待建；飞行 AtomicAction 服务，装配并调用 Safety Gate]
+      adapters/
+        px4_world_state_adapter.py      [已实现；观察源，不等于 Observation Manager]
+        px4_parameter_adapter.py        [已实现；飞行参数读取]
+        flight_execution_backend.py     [已实现；动作内调用，不等于 Behavior Executor]
+        px4_command_plan_mapper.py      [已实现；PX4 命令映射]
+        px4_command_plan_executor.py    [已实现；PX4 命令执行，不等于 sequence_executor]
+        px4_vehicle_command_adapter.py  [已实现；PX4 命令与 ACK]
+        px4_offboard_setpoint_adapter.py [已实现；PX4 Offboard]
   px4_msgs/                            [已存在；冻结 PX4 消息定义]
 src/flight_agent/
   contracts/                           [已存在；Pydantic 契约与 Protocol]
@@ -165,7 +167,7 @@ tests/                                [已存在；迁移后新增主链集成�
 | 已有模块 | 目标位置/名称 | 处理 |
 |---|---|---|
 | `WorldStateAggregator`、`Px4WorldStateAdapter` | 保持原名，供 `observation_manager_node` 读取 | 已完成状态聚合；不得直接改称 Observation Manager |
-| `SKILL_REGISTRY` 和五种动作映射 | 保持 `skills/registry.py`，供 `atomic_action_library.yaml` 的生成/校验复用 | 已有名称、描述、参数 schema 与命令映射；上游式描述文件和动作输出仍待实现 |
+| `SKILL_REGISTRY` 和五种动作映射 | 保持现有 `skills/registry.py`，供目标 `AtomicActionLibrary` 的生成/校验复用 | 已有名称、描述、参数 schema 与命令映射；上游式描述文件和动作输出仍待实现 |
 | `SafetyExecutionGate`、`Px4Ros2FlightExecutionBackend` 和 PX4 adapters | 保持飞行/PX4 名称，由 `AtomicAction` 服务实现调用 | 已有飞行部件；不改称 `behavior_executor` |
 | `mission_cli.py`、`MissionService` | 新建 `agent_comm/agent_comm/ros_agent_srv.py`；旧文件按 §2.1 删除 | 固定语句入口不是上游 Agent；不能只改文件名 |
 | `px4_command_plan_executor.py` | 保持原名；上层新建 `behavior_executor/behavior_executor/sequence_executor.py` | 前者执行动作内 PX4 命令，后者执行行为中的原子动作序列 |
@@ -174,12 +176,12 @@ tests/                                [已存在；迁移后新增主链集成�
 
 ## 4. ROS-LLM 对齐的目标调用链
 
-主链只采用 ROS-LLM 的一个环境步：先有 Observation，随后等待人输入；Agent 根据二者及动作库生成行为；Behavior Executor 执行完整行为或遇错停止；环境再获取 Observation；下一轮仍等待人反馈。LLM 不在每个原子动作后自动重规划，也不由执行器或 Runtime 建立另一套任务循环。以上是目标，不是现有实现。
+主链只采用 ROS-LLM 的一个环境步：先有 Observation，随后等待人输入；`RosAgent` 根据二者及动作库生成行为；`SequenceExecutor` 执行完整行为或遇错停止；`RosEnv` 再获取 Observation；下一轮仍等待人反馈。LLM 不在每个原子动作后自动重规划，也不由执行器或 Runtime 建立另一套任务循环。以上是目标，不是现有实现。
 
 ```text
 Observation Manager.get_observation() -> 当前观察
-人工输入 + 当前观察 + Atomic Action Library -> Agent prompt -> LLM
-LLM 行为序列 -> Behavior Executor.execute_behavior()
+人工输入 + 当前观察 + AtomicActionLibrary -> RosAgent prompt -> LLM
+LLM 行为序列 -> SequenceExecutor.execute_behavior()
   -> Atomic Action 1 -> ... -> Atomic Action N（首个失败即停止）
   -> 行为成功/失败标志及消息
 Observation Manager.get_observation() -> 新观察 -> 等待下一轮人工输入
@@ -190,33 +192,47 @@ Observation Manager.get_observation() -> 新观察 -> 等待下一轮人工输�
 不选择下一行为，不改变上面的 Agent 环境步调度。
 ```
 
-一次完整转换示例：用户说“去三号塔看看有没有异物，拍张照，然后回来”。此例**假设飞机已在空中**，三号塔位置库、相机和识别服务已经接入；这些视觉/位置服务当前尚未实现，不得把示例当作 V1 已有能力。
+一次完整转换示例：用户说“去三号塔看看有没有异物，拍张照，然后回来”。此例**假设飞机已在空中**，三号塔位置库、相机和识别服务已经接入；这些视觉/位置服务当前尚未实现，不得把示例当作 V1 已有能力。方括号内是模块、配置源或外部参与者，箭头上是输出的数据对象；`RosAgent`、`SequenceExecutor`、`SafetyExecutionGate` 等是对应模块持有的类对象，不是链路中的数据对象。以下为目标链路，标为“待建”的模块尚未接入生产。
 
 ```text
-HumanInput + ObservationResponse + AtomicActionLibrary
-  -> RosAgent / LLMRequest -> LLMResponse（逐行 JSON 行为文本）
-  -> ExecuteBehaviorRequest(behavior=行为文本)
-  -> SequenceExecutor：依次取出 (service_name, input)
-     resolve_poi：AtomicActionRequest(input="三号塔", prev_output="")
-       -> AtomicActionResponse(output=目标位置)
-     goto：AtomicActionRequest(input=飞行参数, prev_output=目标位置)
-       -> SkillProposal -> SafetyExecutionGate -> SafetySupervisor
-       -> ApprovedSkillCommand -> FlightExecutionBackend -> SkillResult
-       -> AtomicActionResponse(success=动作结果, output=到达证据)
-     capture_photo -> AtomicActionResponse(output=photo_id)
-     inspect_image(prev_output=photo_id) -> AtomicActionResponse(output=识别结论)
-     rtl -> SkillProposal -> SafetyExecutionGate -> SafetySupervisor
-       -> ApprovedSkillCommand -> FlightExecutionBackend -> SkillResult
-       -> AtomicActionResponse(success=动作结果, output=返航证据)
-  -> ExecuteBehaviorResponse(success, message, info)
-  -> ObservationManager.get_observation() -> 新 ObservationResponse
+[人工输入] --HumanInput("去三号塔看看有没有异物，拍张照，然后回来")--> [agent_comm.ros_agent_srv]
+[observation_manager.observation_manager_node] --ObservationResponse(当前观察)--> [agent_comm.ros_agent_srv]
+[agent_comm.config.atomic_action_library.yaml] --AtomicActionLibrary(动作描述)--> [agent_comm.ros_agent_srv]
+[agent_comm.ros_agent_srv] --LLMRequest(prompt)--> [agent_comm.llm_node]
+[agent_comm.llm_node] --LLMResponse(逐行 JSON 行为文本)--> [agent_comm.ros_agent_srv]
+[agent_comm.ros_agent_srv] --ExecuteBehaviorRequest(behavior=行为文本)--> [behavior_executor.sequence_executor]
+
+[behavior_executor.sequence_executor] --AtomicActionRequest(input="三号塔", prev_output="")--> [外部 resolve_poi 服务；未实现]
+[外部 resolve_poi 服务；未实现] --AtomicActionResponse(output=目标位置)--> [behavior_executor.sequence_executor]
+[behavior_executor.sequence_executor] --AtomicActionRequest(input=飞行参数, prev_output=目标位置)--> [flight_agent_ros.flight_atomic_action_server；待建]  (goto)
+[flight_agent_ros.flight_atomic_action_server] --AtomicActionResponse(success, output=到达证据)--> [behavior_executor.sequence_executor]
+[behavior_executor.sequence_executor] --AtomicActionRequest(input=拍照参数, prev_output=到达证据)--> [外部 capture_photo 服务；未实现]
+[外部 capture_photo 服务；未实现] --AtomicActionResponse(output=photo_id)--> [behavior_executor.sequence_executor]
+[behavior_executor.sequence_executor] --AtomicActionRequest(input=识别参数, prev_output=photo_id)--> [外部 inspect_image 服务；未实现]
+[外部 inspect_image 服务；未实现] --AtomicActionResponse(output=识别结论)--> [behavior_executor.sequence_executor]
+[behavior_executor.sequence_executor] --AtomicActionRequest(input=返航参数, prev_output=识别结论)--> [flight_agent_ros.flight_atomic_action_server；待建]  (rtl)
+[flight_agent_ros.flight_atomic_action_server] --AtomicActionResponse(success, output=返航证据)--> [behavior_executor.sequence_executor]
+
+goto/rtl 共用的飞行原子动作内部链路（每次调用均执行）：
+[flight_agent_ros.flight_atomic_action_server] --SkillProposal + MissionContract + execution_id--> [flight_agent.components.safety.execution_gate]
+[flight_agent.components.safety.execution_gate] --状态读取请求--> [flight_agent_ros.adapters.flight_execution_backend]
+[flight_agent_ros.adapters.flight_execution_backend] --WorldState--> [flight_agent.components.safety.execution_gate]
+[flight_agent.components.safety.execution_gate] --SkillProposal + MissionContract + WorldState + ControlAuthority--> [flight_agent.components.safety.supervisor]
+[flight_agent.components.safety.supervisor] --SafetyDecision + flight_agent.contracts.AtomicAction(仅批准时)--> [flight_agent.components.safety.execution_gate]
+[flight_agent.components.safety.execution_gate] --flight_agent.contracts.AtomicAction(仅批准时)--> [flight_agent_ros.adapters.flight_execution_backend]
+[flight_agent_ros.adapters.flight_execution_backend] --SkillResult--> [flight_agent.components.safety.execution_gate]
+[flight_agent.components.safety.execution_gate] --SafetyDecision + SkillResult(拒绝时为 None)--> [flight_agent_ros.flight_atomic_action_server]
+
+[behavior_executor.sequence_executor] --ExecuteBehaviorResponse(success, message, info)--> [agent_comm.ros_agent_srv]
+[agent_comm.ros_agent_srv] --ObservationRequest--> [observation_manager.observation_manager_node]
+[observation_manager.observation_manager_node] --ObservationResponse(新观察)--> [agent_comm.ros_agent_srv]
 ```
 
-`ExecuteBehaviorRequest` 是整个序列的输入，`AtomicActionRequest` 是逐项调用的输入；`service_name` 选择 ROS 服务，不是 `AtomicActionRequest` 的字段。`ApprovedSkillCommand` 是飞行原子动作内部的 Safety 批准凭证，不能与上游 `AtomicAction.srv` 请求混为一谈。原子动作仅向下一项传递紧邻前一项的 `output`；巡检照片和识别结论要独立保存，才能在返航后从新观察中取回。若任一步失败，序列停止；运行中安全处置不依赖序列尾部的 `rtl`。
+`ExecuteBehaviorRequest` 是整个序列的输入，`AtomicActionRequest` 是逐项调用的输入；`service_name` 选择 ROS 服务，不是 `AtomicActionRequest` 的字段。目标 `flight_agent.contracts.AtomicAction` 是 Safety 批准后的内部执行凭证，不是 `rosllm_srvs/srv/AtomicAction` 的未审查请求。原子动作仅向下一项传递紧邻前一项的 `output`；巡检照片和识别结论要独立保存，才能在返航后从新观察中取回。若任一步失败，序列停止；运行中安全处置不依赖序列尾部的 `rtl`。
 
-- **Agent/Environment** 对应上游 `RosAgent`/`RosEnv`：Agent 形成行为，Environment 执行一个行为并取得下一次观察；不让 `MissionService` 或 Hook 层成为第二决策者。
+- **`RosAgent` 与 `RosEnv`** 对应上游两个对象：`RosAgent` 形成行为，`RosEnv` 执行一个行为并取得下一次观察；不让 `MissionService` 或 Hook 层成为第二决策者。
 - **Observation Manager** 是 Agent 读取环境的统一边界。初始观察和行为后的观察都要经此路径；其来源可包括 PX4 状态，但不能把直接读取 `WorldState` 当作已实现该节点。
-- **Atomic Action Library / Behavior Executor** 对应上游动作描述与执行服务。V1 序列模式必须逐项执行、传递必要输出、失败即停，并把行为级结果返回 Environment。
+- **`AtomicActionLibrary` 与 `BehaviorExecutor`** 分别对应上游动作描述与执行服务。V1 序列模式必须逐项执行、传递必要输出、失败即停，并把行为级结果返回 `RosEnv`。
 - **飞行原子动作** 内部复用确定性 Gate/Backend/状态完成判定。物理动作没有 `APPROVE` 不得派发；ACK 不是动作完成证据。这是公开标记的飞行适配差异，不是 ROS-LLM 原生 Safety 设计。
 - **运行中安全路径** 只监测、抢占和处置飞行风险，不生成下一行为或推进人机任务步。PX4 原生 failsafe 仍独立存在。
 
@@ -237,7 +253,7 @@ HumanInput + ObservationResponse + AtomicActionLibrary
 
 现存核心模型位于 `src/flight_agent/contracts/models/`：`MissionRequest`、`MissionContract`、`WorldState`、`SkillProposal`、`SafetyDecision`、`ApprovedSkillCommand`、`SkillResult`，以及旧主链的 `MissionPlan`、`PlanStep`、`MissionRunResult` 和占位 `VerificationResult`。`FlightExecutionBackendProtocol` 是核心与 ROS 2 实现的调用边界。模型定义存在不代表相应完整业务已接入。
 
-**待迁移命名**：`ApprovedSkillCommand` 容易与 PX4 `VehicleCommand` 混淆，目标按 ROS-LLM 术语改为 `AtomicAction`（不是 `automicaction`）。迁移前须区分：上游 `AtomicAction.srv` 是动作调用接口，当前 `ApprovedSkillCommand` 是 Safety 批准后的内部执行凭证；不得因同名取消审批边界。代码、导出、测试和测评数据中的类型名暂不改动，待契约评审时一并迁移。
+**目标命名决定**：Agent 对象统一叫 `RosAgent`；对外动作统一叫 `AtomicAction`。当前内部模型 `ApprovedSkillCommand` 目标改名为 `flight_agent.contracts.AtomicAction`，表示 Safety 批准后的单次动作执行凭证；ROS 服务 `rosllm_srvs/srv/AtomicAction` 接收尚未审查的动作请求。两者同名但属于不同模块和信任边界，不得互换或因改名取消审批。现有代码、导出、测试和测评数据仍使用旧名；迁移须经契约评审并同步更新全部引用。
 
 目标 V1 每次动作至少关联任务、提案、决策、执行、状态验证 ID；Trace 要能按这些 ID 重建因果链。字段变动先审核契约和现有数据集，不以重命名作为功能完成证据。世界坐标、Home、NED/ENU 的实际映射以 `WorldState`、PX4 适配器和对应契约测试为准；不在规格中虚构未接入的状态来源。
 
@@ -250,7 +266,7 @@ HumanInput + ObservationResponse + AtomicActionLibrary
 | M2 WorldState/Trace 基础 | 已有阶段记录 | 状态时效与回放回归保持可用 |
 | M3 确定性飞行动作 | 已有阶段记录 | 保留调试入口与 Backend 回归，不把它计作 Agent 任务成功 |
 | M4 Contract/Safety Gate | **进行中** | 可信 Authority 来源；独立于旧 MissionService 的 Gate 装配；拒绝与批准 Trace；真实 PX4/Gazebo 受控链验证及边界回归 |
-| M5 ROS-LLM 有人主链 | 未开始 | 初始观察 -> 人工输入/动作库 -> LLM 行为 -> Behavior Executor 序列 -> 行为结果 -> 新观察 -> 等待人；从生产入口和替身/SITL 均可追踪 |
+| M5 ROS-LLM 有人主链 | 未开始 | 初始观察 -> 人工输入与 AtomicActionLibrary -> RosAgent -> LLM 行为 -> SequenceExecutor -> 行为结果 -> 新观察 -> 等待人；从生产入口和替身/SITL 均可追踪 |
 | M6 飞行原子动作完成判定 | 未开始 | 五个飞行动作以状态证据产生成功/失败标志、超时与假成功测试；不再把占位 `INCONCLUSIVE` 当作已完成结果 |
 | M7 人类反馈修正与失败报告 | 未开始 | 行为失败后停止序列、返回结果和新观察；仅在下一轮人工输入后让 Agent 生成修正行为。无人续跑移出 ROS-LLM 对齐基线 |
 | M7-S 飞行运行中安全专项 | 未开始 | 独立运行中监测、抢占仲裁、处置 Trace 与故障 SITL 测试；不创建任务调度循环 |
