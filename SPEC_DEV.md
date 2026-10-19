@@ -6,7 +6,7 @@
 
 ## 1. 项目定义
 
-本项目探索把自然语言任务变成可审查的飞行动作，并在 PX4/Gazebo 中验证执行结果。**目标主编排与 ROS-LLM 一致**：环境观察与人工输入进入 Agent，LLM 输出行为，Behavior Executor 执行原子动作，再获取环境观察并等待下一轮人工输入。ROS Noetic 到 ROS 2 Jazzy、机械臂到 PX4 飞行器的实现替换不得改变这个顺序。
+本项目探索把自然语言任务变成可审查的飞行动作，并在 PX4/Gazebo 中验证执行结果。主编排以 ROS-LLM 为基线；ROS Noetic 到 ROS 2 Jazzy、机械臂到 PX4 飞行器的实现替换不得改变其调用顺序。具体目标流程见第 4 章。
 
 目标使用场景是临时点位任务：操作员描述要去的位置和观察目的，系统选择受限动作、执行并返回可核对的飞行状态。相对手动逐条操控或预先制作固定航线，潜在收益是减少任务准备和重复操作；**节省的人力、时间与成本尚无实测，不能在对外材料中写成已取得的效果**。
 
@@ -28,14 +28,14 @@ V1 目标：初始观察 -> 人工任务 -> `RosAgent` 根据观察和动作库�
 
 ### 1.2 源码证据与一一映射
 
-| ROS-LLM 依据 | 上游职责 | 本项目目标对应物 | 当前状态 |
-|---|---|---|---|
-| [`ros_agent_srv` 主循环](https://github.com/huawei-noah/HEBO/blob/master/ROSLLM/agent_comm/scripts/ros_agent_srv) | `main()` 创建 `RosEnv` 与 `RosAgent`，先调用 `env.get_obs()`，等待人工输入，再调用 `agent.get_action(human, obs)` 和 `env.step(action)`；`step()` 内执行行为并再次获取观察 | 唯一的有人任务入口；主循环调度 `RosAgent` 决策和 `RosEnv` 环境交互，二者互不调度 | 未实现；现有 `mission_cli` 只进固定语句 `MissionService` |
-| [`agent_comm`](https://github.com/huawei-noah/HEBO/tree/master/ROSLLM/agent_comm) | LLM 服务与 Agent 通信 | LLM Provider 和 prompt/行为提取 | 未实现 |
-| [`observation_manager`](https://github.com/huawei-noah/HEBO/tree/master/ROSLLM/observation_manager) | 聚合各观察服务，通过统一 `get_observation` 返回文本观察 | 由 `WorldState` 等来源构造统一观察，不让 Agent 直接消费 PX4 Topic | 尚无统一观察入口；现有状态聚合只是输入基础 |
-| [`behavior_executor`](https://github.com/huawei-noah/HEBO/tree/master/ROSLLM/behavior_executor) | `ExecuteBehavior` 服务接收行为；序列/行为树/代码等执行器返回成功标志与消息 | ROS 2 行为执行器；V1 先实现序列模式，逐项调用原子动作、失败即停止 | 服务未实现；旧 `MissionService.run()` 的逐步派发和失败停止逻辑可迁入，但现有计划只生成一步 |
-| [论文 §3.1、§3.5](https://arxiv.org/html/2406.19741v3) | 带名称、类型、描述和输入/输出的原子动作库；JSON 序列中的动作依次执行，前项输出可传给后项 | 飞行原子动作描述库及 ROS 2 action/service 接口，内部复用 Gate/Backend | Skill Registry 与 Backend 可复用，尚无上游式动作描述与执行接口 |
-| [论文 §3.2–§3.4](https://arxiv.org/html/2406.19741v3) | 文本观察、人工反馈和动作库共同进入每轮 prompt；一轮行为结束后再等待人 | 飞行状态文本化、人工下一轮反馈 | 未实现 |
+| ROS-LLM 依据 | 上游职责 | 本项目目标对应物 |
+|---|---|---|
+| [`ros_agent_srv` 主循环](https://github.com/huawei-noah/HEBO/blob/master/ROSLLM/agent_comm/scripts/ros_agent_srv) | `main()` 创建 `RosEnv` 与 `RosAgent`，先调用 `env.get_obs()`，等待人工输入，再调用 `agent.get_action(human, obs)` 和 `env.step(action)`；`step()` 内执行行为并再次获取观察 | 唯一的有人任务入口；主循环调度 `RosAgent` 决策和 `RosEnv` 环境交互，二者互不调度 |
+| [`agent_comm`](https://github.com/huawei-noah/HEBO/tree/master/ROSLLM/agent_comm) | LLM 服务与 Agent 通信 | LLM Provider 和 prompt/行为提取 |
+| [`observation_manager`](https://github.com/huawei-noah/HEBO/tree/master/ROSLLM/observation_manager) | 聚合各观察服务，通过统一 `get_observation` 返回文本观察 | 由 `WorldState` 等来源构造统一观察，不让 Agent 直接消费 PX4 Topic |
+| [`behavior_executor`](https://github.com/huawei-noah/HEBO/tree/master/ROSLLM/behavior_executor) | `ExecuteBehavior` 服务接收行为；序列/行为树/代码等执行器返回成功标志与消息 | ROS 2 行为执行器；V1 先实现序列模式，逐项调用原子动作、失败即停止 |
+| [论文 §3.1、§3.5](https://arxiv.org/html/2406.19741v3) | 带名称、类型、描述和输入/输出的原子动作库；JSON 序列中的动作依次执行，前项输出可传给后项 | 飞行原子动作描述库及 ROS 2 action/service 接口，内部复用 Gate/Backend |
+| [论文 §3.2–§3.4](https://arxiv.org/html/2406.19741v3) | 文本观察、人工反馈和动作库共同进入每轮 prompt；一轮行为结束后再等待人 | 飞行状态文本化、人工下一轮反馈 |
 
 上游 prompt 允许多动作序列，`sequence_executor` 也按序列调用原子动作；但当前 `ros_agent_srv` 的提取正则只捕获代码块中的首个 JSON 对象，不能声称其入口已可靠传递多动作行为。本项目在 MX 支持固定两步行为的完整提取与对照测试，M5 再完善真实模型输出的解析和错误处理；这是补齐上游实现缺口，不改变主循环拓扑。以上链接当前指向主分支，正式对齐验收前须记录确切上游 commit。
 
@@ -169,15 +169,7 @@ tests/                                [已存在；迁移后新增主链集成�
 
 上游的 `behavior_tree_executor`、`code_executor`、视觉节点、示例包及 `GetUserInput.srv` 不进入 V1 文件树；有人入口先沿用上游 `ros_agent_srv` 的终端输入方式。V1 只实现序列模式。上述路径固定职责和迁移目标，**不表示已复制或实现上游代码**。`rosllm_srvs` 的字段须在实现批次核对 ROS 2 和飞行动作语义。
 
-| 已有模块 | 目标位置/名称 | 处理 |
-|---|---|---|
-| `WorldStateAggregator`、`Px4WorldStateAdapter` | 保持原名，供 `observation_manager_node` 读取 | 已完成状态聚合；不得直接改称 Observation Manager |
-| `SKILL_REGISTRY` 和五种动作映射 | 保持现有 `skills/registry.py`，供目标 `AtomicActionLibrary` 的生成/校验复用 | 已有名称、描述、参数 schema 与命令映射；上游式描述文件和动作输出仍待实现 |
-| `SafetyExecutionGate`、`Px4Ros2FlightExecutionBackend` 和 PX4 adapters | 保持飞行/PX4 名称，由 `AtomicAction` 服务实现调用 | 已有飞行部件；不改称 `behavior_executor` |
-| `mission_cli.py`、`MissionService` | 新建 `agent_comm/agent_comm/ros_agent_srv.py`；现有入口处置见第 2.1 节 | 固定语句入口不是上游 Agent；不能只改文件名 |
-| `px4_command_plan_executor.py` | 保持原名；上层新建 `behavior_executor/behavior_executor/sequence_executor.py` | 前者执行动作内 PX4 命令，后者执行行为中的原子动作序列 |
-
-**命名规则**：已完成且语义相同的模块在迁入目标包时同步改名并更新导入、入口和测试。上表中的已实现模块是飞行适配或基础能力，其名称已与目标树一致；不能为凑同名把它们改称尚未实现的上游模块。新模块只有生产调用链接入并通过集成测试后才标为已实现。
+现有模块的保留、复用和迁移决定见第 2.1 节。命名须反映实际职责：PX4 命令执行器不是行为序列执行器，状态聚合器不是 Observation Manager；不能为凑同名把已有模块改称尚未实现的上游模块。
 
 ## 4. ROS-LLM 对齐的目标调用链
 
@@ -248,14 +240,6 @@ goto/rtl 共用的飞行原子动作内部链路（每次调用均执行）：
 
 `ExecuteBehaviorRequest` 是整个序列的输入，`AtomicActionRequest` 是逐项调用的输入；`service_name` 选择 ROS 服务，不是 `AtomicActionRequest` 的字段。目标 `flight_agent.contracts.AtomicAction` 是 Safety 批准后的内部执行凭证，不是 `rosllm_srvs/srv/AtomicAction` 的未审查请求。飞行 Gate 只收冻结的 `MissionConstraints`，不要求完整 `MissionContract`；`expected_mission_id` 必须来自可信会话上下文，不能从 LLM 输出的 `AtomicActionProposal.mission_id` 回填。现有旧入口由 `MissionContract.mission_id` 提供该值；新 ROS 服务尚无可信会话来源，接入前必须设计并验证，不能仅改图后宣称可飞。原子动作仅向下一项传递紧邻前一项的 `output`；巡检照片和识别结论要独立保存，才能在返航后从新观察中取回。若任一步失败，序列停止；运行中安全处置不依赖序列尾部的 `rtl`。
 
-- **`ros_agent_srv.main()`、`RosAgent` 与 `RosEnv`** 对应上游主循环及两个对象：`main()` 创建二者并按顺序调用；`RosAgent` 形成行为，`RosEnv` 执行一个行为并取得下一次观察，二者不互相调度；不让 `MissionService` 或 Hook 层成为第二决策者。
-- **Observation Manager** 是 Agent 读取环境的统一边界。初始观察和行为后的观察都要经此路径；其来源可包括 PX4 状态，但不能把直接读取 `WorldState` 当作已实现该节点。
-- **`AtomicActionLibrary` 与 `BehaviorExecutor`** 分别对应上游动作描述与执行服务。V1 序列模式必须逐项执行、传递必要输出、失败即停，并把行为级结果返回 `RosEnv`。
-- **飞行原子动作** 内部复用确定性 Gate/Backend/状态完成判定。物理动作没有 `APPROVE` 不得派发；ACK 不是动作完成证据。这是公开标记的飞行适配差异，不是 ROS-LLM 原生 Safety 设计。
-- **运行中安全路径** 只监测、抢占和处置飞行风险，不生成下一行为或推进人机任务步。PX4 原生 failsafe 仍独立存在。
-
-现有模块、旧入口与测试的迁移和删除决定统一见第 2.1 节；本章只定义目标调用关系。
-
 ## 5. 安全不变量
 
 1. 普通物理动作没有对应的 `SafetyDecision=APPROVE` 与 `ApprovedSkillCommand` 不得派发；拒绝、读取失败、Trace 写入失败均不得误放行。
@@ -289,8 +273,6 @@ goto/rtl 共用的飞行原子动作内部链路（每次调用均执行）：
 | M7-S 飞行运行中安全专项 | 未开始 | 独立运行中监测、抢占仲裁、处置 Trace 与故障 SITL 测试；不创建任务调度循环 |
 | M8–M12 测评、消融与发布 | 未开始 | 完整 Episode Runner、冻结集、基线/消融、报告、Docker/CI；每阶段单独定义 DoD |
 
-MX 的入口、模块调用、内部固定返回、Safety 边界和验收步骤统一维护在 [MX 阶段计划](plans/MX.md)。M4 Gate 可与 MX 的非飞行骨架并行；MX 的替身测试不能替代 M4 受控 SITL 证据，M5 在贯通的模块链上替换固定返回。
-
 旧版工期数字位于归档规格，因 M5 对齐、M7 人类反馈边界及 M7-S 范围变化已失效。当前不承诺完成日期；M4 收口后基于纵向切片重新估时。
 
 ## 8. 测试、测评与证据
@@ -311,7 +293,7 @@ MX 的入口、模块调用、内部固定返回、Safety 边界和验收步骤�
 
 1. 可信 Authority 的生产来源与失联时行为；这直接决定 M4 是否能受控批准并完成 SITL 验收。
 2. MX 先冻结上游 `ExecuteBehavior`、`get_observation` 与原子动作库的 ROS 2 接口映射及内部固定对象；M5 再替换真实 LLM/行为解析。序列上限、动作失败后飞行安全处置条件，以及人工下一轮输入的触发方式仍待确认。
-3. 第 2.1 节所列旧模块迁移前，列出跨目录引用，迁出 `MissionService.run()` 的逐步执行逻辑并复核 `PlanStep` 用途；迁移测试和删除条件以该节为准。
+3. `PlanStep` 是否仍适合作为新行为序列中的飞行动作记录，需在第 2.1 节所列旧模块迁移前确认。
 4. M5/M7/M7-S 的实际工作量与时间表，待 M4 收口和第一条真实 Agent 纵向切片后重估；上游准确 commit 与序列执行对照测试待锁定。
 
 这些是待决策或待实现项，不得在进度表中提前标为完成。
