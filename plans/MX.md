@@ -1,6 +1,6 @@
 # MX — 主流程骨架贯通
 
-状态：进行中（规划和拆分已开始；生产主链代码尚未接入）
+状态：进行中（MX-1 接口包已构建；生产主链代码尚未接入）
 
 MX 在当前开发顺序中先于 M4 收口，再进入 M5；它不是新的任务决策循环。**调用链中的模块必须是 [SPEC_DEV.md 第 3.1、4 节](../SPEC_DEV.md)确定名称和职责的真实模块；占位只允许位于模块尚未开发的内部逻辑，不能用独立 Mock/Stub 模块顶替目标模块。**MX 可用替身验证外部 PX4/LLM 依赖，但真实飞行动作的批准和 SITL 验收仍受 M4 可信 Authority 前置条件约束。
 
@@ -22,7 +22,7 @@ MX 在当前开发顺序中先于 M4 收口，再进入 M5；它不是新的任�
 
 | 工作包 | 本批产物与验收 | 前置 | 估算 |
 |---|---|---|---|
-| MX-1 接口与装配 | 冻结 `Observation`、`LLM`、`ExecuteBehavior`、`AtomicAction` 的 ROS 2 字段及对象创建/持有关系；接口构建通过 | 现有包结构 | 1–1.5 天 |
+| MX-1 接口与装配 | 已完成：四个服务字段与对象创建/持有关系已冻结，接口构建通过；[结构变更单](MX-1-structure-change.md)、[服务契约](../contracts/rosllm_services.md) | 现有包结构 | 1–1.5 天 |
 | MX-2 有人入口与观察 | 真实 `ros_agent_srv.main` 分别调用 `RosEnv`、`RosAgent`，经 `observation_manager_node` 获取观察；内部固定返回标明来源；从入口验证初始观察与人工输入 | MX-1 | 1–1.5 天 |
 | MX-3 行为序列 | `RosAgent` 完整提取固定两步行为；真实 `sequence_executor` 逐项派发、传递结果并在失败时停止；从入口验证再观察 | MX-2 | 1–1.5 天 |
 | MX-4 飞行动作接线 | 真实 `flight_atomic_action_server` 调用现有 Gate、Supervisor、Backend/替身与 Safety Trace；覆盖 `UNKNOWN` 拒绝不派发和测试注入批准路径 | MX-1、MX-3 | 1.5–2.5 天 |
@@ -31,3 +31,7 @@ MX 在当前开发顺序中先于 M4 收口，再进入 M5；它不是新的任�
 ## 验收与后续
 
 MX-5 须从目标入口证明各模块被调用、对象逐节点传递，并报告仍返回固定对象的内部步骤。替身链路不称为 PX4/Gazebo 端到端或自主任务成功，也不进入正式测评。MX 完成后，M4 继续收口可信 Authority 和受控 SITL；M5 再替换固定返回与未实现的内部逻辑。
+
+## MX-1 验证记录
+
+基于 `929280e` 工作树（本批修改尚未提交），在本机 ROS 2 Jazzy 环境执行 `colcon build --packages-select rosllm_srvs`，结果为 `1 package finished`。加载 `/opt/ros/jazzy/setup.bash` 与 `ros2_ws/install/setup.bash` 后，四个 `ros2 interface show rosllm_srvs/srv/<Name>` 均显示与[服务契约](../contracts/rosllm_services.md)相符的字段。此证据只覆盖接口生成；节点、服务调用和 PX4/Gazebo 均尚未验证。

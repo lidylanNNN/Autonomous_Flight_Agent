@@ -1,0 +1,5 @@
+string input
+string prev_output
+---
+bool success
+string output

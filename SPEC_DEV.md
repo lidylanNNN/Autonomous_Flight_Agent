@@ -133,14 +133,14 @@ ros2_ws/src/
     setup.py
     behavior_executor/
       sequence_executor.py            [待建；ExecuteBehavior 序列执行；复用 MissionService.run() 的逐步派发、失败停止逻辑]
-  rosllm_srvs/                         [待建；上游同名接口包，ROS 2 构建]
+  rosllm_srvs/                         [已建；四个服务可构建，运行时节点尚未接入]
     package.xml
     CMakeLists.txt
     srv/
-      AtomicAction.srv                 [待建；飞行动作契约]
-      ExecuteBehavior.srv             [待建；行为执行契约]
-      Observation.srv                 [待建；统一观察契约]
-      LLM.srv                         [待建；模型调用契约]
+      AtomicAction.srv                 [已定义；原子动作契约]
+      ExecuteBehavior.srv             [已定义；行为执行契约]
+      Observation.srv                 [已定义；统一观察契约]
+      LLM.srv                         [已定义；模型调用契约]
   rosllm_msgs/                         [V1 无自定义消息时不创建]
   flight_agent_ros/                    [已存在；PX4/ROS 2 飞行适配]
     flight_agent_ros/
@@ -167,7 +167,7 @@ eval_harness/                         [已存在；测评执行辅助]
 tests/                                [已存在；迁移后新增主链集成测试]
 ```
 
-上游的 `behavior_tree_executor`、`code_executor`、视觉节点、示例包及 `GetUserInput.srv` 不进入 V1 文件树；有人入口先沿用上游 `ros_agent_srv` 的终端输入方式。V1 只实现序列模式。上述路径固定职责和迁移目标，**不表示已复制或实现上游代码**。`rosllm_srvs` 的字段须在实现批次核对 ROS 2 和飞行动作语义。
+上游的 `behavior_tree_executor`、`code_executor`、视觉节点、示例包及 `GetUserInput.srv` 不进入 V1 文件树；有人入口先沿用上游 `ros_agent_srv` 的终端输入方式。V1 只实现序列模式。上述路径固定职责和迁移目标，**不表示已复制或实现上游代码**。`rosllm_srvs` 的字段与失败语义见 [服务契约](contracts/rosllm_services.md)；接口构建证据见 [MX 记录](plans/MX.md)。
 
 现有模块的保留、复用和迁移决定见第 2.1 节。命名须反映实际职责：PX4 命令执行器不是行为序列执行器，状态聚合器不是 Observation Manager；不能为凑同名把已有模块改称尚未实现的上游模块。
 
@@ -288,7 +288,7 @@ goto/rtl 共用的飞行原子动作内部链路（每次调用均执行）：
 ## 10. 待确认事项
 
 1. 可信 Authority 的生产来源与失联时行为；这直接决定 M4 是否能受控批准并完成 SITL 验收。
-2. MX 先冻结上游 `ExecuteBehavior`、`get_observation` 与原子动作库的 ROS 2 接口映射及内部固定对象；M5 再替换真实 LLM/行为解析。序列上限、动作失败后飞行安全处置条件，以及人工下一轮输入的触发方式仍待确认。
+2. MX-1 已冻结四个 ROS 2 服务字段；后续节点批次仍需冻结内部固定对象，M5 再替换真实 LLM/行为解析。序列上限、动作失败后飞行安全处置条件，以及人工下一轮输入的触发方式仍待确认。
 3. `PlanStep` 是否仍适合作为新行为序列中的飞行动作记录，需在第 2.1 节所列旧模块迁移前确认。
 4. M5/M7/M7-S 的实际工作量与时间表，待 M4 收口和第一条真实 Agent 纵向切片后重估；上游准确 commit 与序列执行对照测试待锁定。
 

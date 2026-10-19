@@ -1,0 +1,5 @@
+string behavior
+---
+bool success
+string message
+int32 info
