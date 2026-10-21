@@ -12,7 +12,7 @@ class LLMNode(Node):
 
     def __init__(self) -> None:
         super().__init__('llm_node')
-        self.create_service(LLM, 'llm', self.get_response)
+        self.create_service(LLM, 'call_llm', self.get_response)
 
     def get_response(self, _request: LLM.Request, response: LLM.Response) -> LLM.Response:
         """Return an explicit failure for every prompt."""

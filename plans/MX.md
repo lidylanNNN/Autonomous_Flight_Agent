@@ -24,7 +24,7 @@ MX 在当前开发顺序中先于 M4 收口，再进入 M5；它不是新的任�
 |---|---|---|---|
 | MX-1 接口与装配 | 已完成：四个服务字段与对象创建/持有关系已冻结，接口构建通过；[结构变更单](MX-1-structure-change.md)、[服务契约](../contracts/rosllm_services.md) | 现有包结构 | 1–1.5 天 |
 | MX-2 有人入口与观察 | 已完成：`ros_agent_srv.main` 创建并调用 `RosEnv`、`RosAgent`，经 `observation_manager_node` 读取 PX4 状态；文本占位显式标源，默认 LLM 明确失败；入口测试覆盖初始观察、人工输入和再观察。见[结构变更单](MX-2-structure-change.md) | MX-1 | 1–1.5 天 |
-| MX-3 行为序列 | `RosAgent` 完整提取固定两步行为；真实 `sequence_executor` 逐项派发、传递结果并在失败时停止；从入口验证再观察 | MX-2 | 1–1.5 天 |
+| MX-3 行为序列 | 进行中：服务名称已统一；待完成 `RosAgent` 两步提取、真实 `sequence_executor` 逐项派发、失败停止及入口再观察。见[结构变更单](MX-3-structure-change.md) | MX-2 | 1–1.5 天 |
 | MX-4 飞行动作接线 | 真实 `flight_atomic_action_server` 调用现有 Gate、Supervisor、Backend/替身与 Safety Trace；覆盖 `UNKNOWN` 拒绝不派发和测试注入批准路径 | MX-1、MX-3 | 1.5–2.5 天 |
 | MX-5 主链回归与审计 | 从入口运行固定两步、失败停止、状态回读和 Trace 集成测试；列出仍返回固定对象的内部步骤与未接入服务 | MX-2 至 MX-4 | 1–2 天 |
 
@@ -41,3 +41,7 @@ MX-5 须从目标入口证明各模块被调用、对象逐节点传递，并报
 2026-10-19 工作树（本批修改尚未提交）：`colcon build --packages-up-to observation_manager` 构建 4 包通过；`colcon build --packages-up-to agent_comm` 构建 2 包通过。加载 ROS 2 Jazzy 和工作区，并使用项目 `.venv` 执行观察服务测试及 `ros_agent_srv.main()` 入口集成测试，各 1 项通过。入口测试使用真实 `ObservationManagerNode`、`LLMNode`、ROS 2 服务调用及测试注入的 `WorldStateAggregator` 快照，证明初始观察 -> 人工输入 -> LLM 明确失败 -> 再观察；真实 PX4 Topic、Gazebo、`ExecuteBehavior`、Safety Gate 和 Backend 未参与。固定对象为 `MX_UNIMPLEMENTED_TEXT_SUMMARY state_id=<真实 ID>`（`source=px4_world_state_adapter:mx_placeholder`）和失败 LLM 响应（`info=LLM_UNAVAILABLE_MX2`）；生成的动作描述仍将 `input`/`output` 标为 `MX_UNIMPLEMENTED`，不以此校验 I/O 有效性。
 
 生产入口为 `ros2 run observation_manager observation_manager_node`、`ros2 run agent_comm llm_node` 和 `ros2 run agent_comm ros_agent_srv` 三个进程。运行前须加载 ROS 2 Jazzy、工作区，并让 ROS 2 的系统 Python 能导入项目核心包及 `.venv` 依赖；当前仓库的 ROS 2 启动脚本用 `.venv` site-packages 和 `src` 加入 `PYTHONPATH`。本批额外验证了系统 Python 在相同路径设置下可以导入三个已安装入口；尚无 PX4/Gazebo 启动实测。
+
+## MX-3 名称统一批次验证记录
+
+2026-10-21 工作树（未提交）：LLM 服务客户端与服务端统一为 `call_llm`，未来行为服务名在契约中统一为 `execute_behavior`；后者尚未创建。加载 ROS 2 Jazzy 和工作区后，以项目 `.venv`、源码路径及 `ROS_LOG_DIR=/tmp/afa_mx3_ros_logs` 运行 `ros2_ws/src/agent_comm/test/test_ros_agent_srv.py`，结果 `1 passed`。该测试经真实 `ros_agent_srv.main()`、`RosAgent` 和 `LLMNode` 的 ROS 2 服务调用，证明新名称连通及失败后再观察；序列执行和 PX4/Gazebo 未参与。

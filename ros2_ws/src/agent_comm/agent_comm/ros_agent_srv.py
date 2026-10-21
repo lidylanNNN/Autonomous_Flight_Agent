@@ -69,7 +69,7 @@ class RosAgent:
     def __init__(self, node: Node, action_library: str) -> None:
         self._node = node
         self._action_library = action_library
-        self._llm_client = node.create_client(LLM, 'llm')
+        self._llm_client = node.create_client(LLM, 'call_llm')
 
     def get_action(self, human: str, obs: Observation.Response) -> LLM.Response:
         """Return the LLM result; failed observations cannot become flight plans."""

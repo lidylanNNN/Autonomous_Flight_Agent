@@ -9,6 +9,6 @@
 | `ExecuteBehavior` | `string behavior` | `bool success`, `string message`, `int32 info` | `success` 表示序列执行结果，`message` 是面向人的摘要。`info` 保留上游信息标志字段；MX-1 不定义其数值枚举，调用方不得把它当成飞行诊断或 Safety 决策。 |
 | `AtomicAction` | `string input`, `string prev_output` | `bool success`, `string output` | 具体动作由服务名选择。`input` 是动作参数文本，`prev_output` 是上一项输出；失败时 `output` 说明原因。飞行动作的成功只能由内部 Gate 和执行结果决定。 |
 
-目标服务名分别为 `get_observation`、`llm`、`behavior_executor` 和各动作自己的服务名。具体名称与客户端连接在后续节点批次实现时验证。`Observation` 的文本和来源字段替代上游 `rosllm_msgs/Observation[]`；`LLM` 把上游 `LLMResponse` 中当前主链所需的成功、回复和信息字段直接置于服务响应，暂不传请求编号与时间戳。V1 不处理图像观察，因而不创建无实际使用者的 `rosllm_msgs` 包。`ExecuteBehavior` 和 `AtomicAction` 保持上游字段名称和类型。
+目标服务名分别为 `get_observation`、`call_llm`、`execute_behavior` 和各动作自己的服务名。`call_llm` 已由 MX-3 名称迁移批次接通；`execute_behavior` 的服务端与客户端留待后续批次验证。`Observation` 的文本和来源字段替代上游 `rosllm_msgs/Observation[]`；`LLM` 把上游 `LLMResponse` 中当前主链所需的成功、回复和信息字段直接置于服务响应，暂不传请求编号与时间戳。V1 不处理图像观察，因而不创建无实际使用者的 `rosllm_msgs` 包。`ExecuteBehavior` 和 `AtomicAction` 保持上游字段名称和类型。
 
 上游字段依据：[Observation.srv](https://github.com/huawei-noah/HEBO/blob/master/ROSLLM/rosllm_srvs/srv/Observation.srv)、[LLM.srv](https://github.com/huawei-noah/HEBO/blob/master/ROSLLM/rosllm_srvs/srv/LLM.srv)、[ExecuteBehavior.srv](https://github.com/huawei-noah/HEBO/blob/master/ROSLLM/rosllm_srvs/srv/ExecuteBehavior.srv)、[AtomicAction.srv](https://github.com/huawei-noah/HEBO/blob/master/ROSLLM/rosllm_srvs/srv/AtomicAction.srv)。正式上游对照仍须绑定准确 commit。
