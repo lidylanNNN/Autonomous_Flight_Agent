@@ -1,6 +1,6 @@
 # MX — 主流程骨架贯通
 
-状态：进行中（MX-1 接口包已构建；生产主链代码尚未接入）
+状态：进行中（MX-1、MX-2 已实施；行为序列与飞行动作尚未接入）
 
 MX 在当前开发顺序中先于 M4 收口，再进入 M5；它不是新的任务决策循环。**调用链中的模块必须是 [SPEC_DEV.md 第 3.1、4 节](../SPEC_DEV.md)确定名称和职责的真实模块；占位只允许位于模块尚未开发的内部逻辑，不能用独立 Mock/Stub 模块顶替目标模块。**MX 可用替身验证外部 PX4/LLM 依赖，但真实飞行动作的批准和 SITL 验收仍受 M4 可信 Authority 前置条件约束。
 
@@ -23,7 +23,7 @@ MX 在当前开发顺序中先于 M4 收口，再进入 M5；它不是新的任�
 | 工作包 | 本批产物与验收 | 前置 | 估算 |
 |---|---|---|---|
 | MX-1 接口与装配 | 已完成：四个服务字段与对象创建/持有关系已冻结，接口构建通过；[结构变更单](MX-1-structure-change.md)、[服务契约](../contracts/rosllm_services.md) | 现有包结构 | 1–1.5 天 |
-| MX-2 有人入口与观察 | 真实 `ros_agent_srv.main` 分别调用 `RosEnv`、`RosAgent`，经 `observation_manager_node` 获取观察；内部固定返回标明来源；从入口验证初始观察与人工输入 | MX-1 | 1–1.5 天 |
+| MX-2 有人入口与观察 | 已完成：`ros_agent_srv.main` 创建并调用 `RosEnv`、`RosAgent`，经 `observation_manager_node` 读取 PX4 状态；文本占位显式标源，默认 LLM 明确失败；入口测试覆盖初始观察、人工输入和再观察。见[结构变更单](MX-2-structure-change.md) | MX-1 | 1–1.5 天 |
 | MX-3 行为序列 | `RosAgent` 完整提取固定两步行为；真实 `sequence_executor` 逐项派发、传递结果并在失败时停止；从入口验证再观察 | MX-2 | 1–1.5 天 |
 | MX-4 飞行动作接线 | 真实 `flight_atomic_action_server` 调用现有 Gate、Supervisor、Backend/替身与 Safety Trace；覆盖 `UNKNOWN` 拒绝不派发和测试注入批准路径 | MX-1、MX-3 | 1.5–2.5 天 |
 | MX-5 主链回归与审计 | 从入口运行固定两步、失败停止、状态回读和 Trace 集成测试；列出仍返回固定对象的内部步骤与未接入服务 | MX-2 至 MX-4 | 1–2 天 |
@@ -35,3 +35,9 @@ MX-5 须从目标入口证明各模块被调用、对象逐节点传递，并报
 ## MX-1 验证记录
 
 基于 `929280e` 工作树（本批修改尚未提交），在本机 ROS 2 Jazzy 环境执行 `colcon build --packages-select rosllm_srvs`，结果为 `1 package finished`。加载 `/opt/ros/jazzy/setup.bash` 与 `ros2_ws/install/setup.bash` 后，四个 `ros2 interface show rosllm_srvs/srv/<Name>` 均显示与[服务契约](../contracts/rosllm_services.md)相符的字段。此证据只覆盖接口生成；节点、服务调用和 PX4/Gazebo 均尚未验证。
+
+## MX-2 验证记录
+
+2026-10-19 工作树（本批修改尚未提交）：`colcon build --packages-up-to observation_manager` 构建 4 包通过；`colcon build --packages-up-to agent_comm` 构建 2 包通过。加载 ROS 2 Jazzy 和工作区，并使用项目 `.venv` 执行观察服务测试及 `ros_agent_srv.main()` 入口集成测试，各 1 项通过。入口测试使用真实 `ObservationManagerNode`、`LLMNode`、ROS 2 服务调用及测试注入的 `WorldStateAggregator` 快照，证明初始观察 -> 人工输入 -> LLM 明确失败 -> 再观察；真实 PX4 Topic、Gazebo、`ExecuteBehavior`、Safety Gate 和 Backend 未参与。固定对象为 `MX_UNIMPLEMENTED_TEXT_SUMMARY state_id=<真实 ID>`（`source=px4_world_state_adapter:mx_placeholder`）和失败 LLM 响应（`info=LLM_UNAVAILABLE_MX2`）；生成的动作描述仍将 `input`/`output` 标为 `MX_UNIMPLEMENTED`，不以此校验 I/O 有效性。
+
+生产入口为 `ros2 run observation_manager observation_manager_node`、`ros2 run agent_comm llm_node` 和 `ros2 run agent_comm ros_agent_srv` 三个进程。运行前须加载 ROS 2 Jazzy、工作区，并让 ROS 2 的系统 Python 能导入项目核心包及 `.venv` 依赖；当前仓库的 ROS 2 启动脚本用 `.venv` site-packages 和 `src` 加入 `PYTHONPATH`。本批额外验证了系统 Python 在相同路径设置下可以导入三个已安装入口；尚无 PX4/Gazebo 启动实测。

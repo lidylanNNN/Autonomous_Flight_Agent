@@ -1,0 +1,7 @@
+# MX-2 indexes existing Skill Registry descriptions; action IO is not implemented.
+skills:
+  - takeoff
+  - goto
+  - hold
+  - rtl
+  - land

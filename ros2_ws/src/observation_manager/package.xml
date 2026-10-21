@@ -1,0 +1,15 @@
+<?xml version="1.0"?>
+<package format="3">
+  <name>observation_manager</name>
+  <version>0.1.0</version>
+  <description>ROS-LLM observation service backed by PX4 world state.</description>
+  <maintainer email="lidylan008@gmail.com">Noah Li</maintainer>
+  <license>MIT</license>
+  <depend>rclpy</depend>
+  <depend>rosllm_srvs</depend>
+  <depend>flight_agent_ros</depend>
+  <test_depend>python3-pytest</test_depend>
+  <export>
+    <build_type>ament_python</build_type>
+  </export>
+</package>

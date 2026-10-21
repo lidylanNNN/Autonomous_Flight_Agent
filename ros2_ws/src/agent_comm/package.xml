@@ -1,0 +1,17 @@
+<?xml version="1.0"?>
+<package format="3">
+  <name>agent_comm</name>
+  <version>0.1.0</version>
+  <description>Human-driven ROS-LLM agent entrypoint.</description>
+  <maintainer email="lidylan008@gmail.com">Noah Li</maintainer>
+  <license>MIT</license>
+  <depend>rclpy</depend>
+  <depend>rosllm_srvs</depend>
+  <depend>ament_index_python</depend>
+  <exec_depend>python3-yaml</exec_depend>
+  <test_depend>python3-pytest</test_depend>
+  <test_depend>observation_manager</test_depend>
+  <export>
+    <build_type>ament_python</build_type>
+  </export>
+</package>
