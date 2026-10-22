@@ -1,6 +1,6 @@
 # MX-3 结构变更单：行为序列贯通
 
-状态：已确认；统一服务名及序列执行器批次已实施，入口行为批次待实施。依据：[当前规格](../SPEC_DEV.md)、[MX 计划](MX.md)、[服务契约](../contracts/rosllm_services.md)。
+状态：已确认；三个代码批次已实施，入口批次验证见 [MX 计划](MX.md)。依据：[当前规格](../SPEC_DEV.md)、[MX 计划](MX.md)、[服务契约](../contracts/rosllm_services.md)。
 
 ## 原因与范围
 
