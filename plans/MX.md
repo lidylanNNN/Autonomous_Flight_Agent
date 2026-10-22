@@ -24,7 +24,7 @@ MX 在当前开发顺序中先于 M4 收口，再进入 M5；它不是新的任�
 |---|---|---|---|
 | MX-1 接口与装配 | 已完成：四个服务字段与对象创建/持有关系已冻结，接口构建通过；[结构变更单](MX-1-structure-change.md)、[服务契约](../contracts/rosllm_services.md) | 现有包结构 | 1–1.5 天 |
 | MX-2 有人入口与观察 | 已完成：`ros_agent_srv.main` 创建并调用 `RosEnv`、`RosAgent`，经 `observation_manager_node` 读取 PX4 状态；文本占位显式标源，默认 LLM 明确失败；入口测试覆盖初始观察、人工输入和再观察。见[结构变更单](MX-2-structure-change.md) | MX-1 | 1–1.5 天 |
-| MX-3 行为序列 | 进行中：服务名称已统一；待完成 `RosAgent` 两步提取、真实 `sequence_executor` 逐项派发、失败停止及入口再观察。见[结构变更单](MX-3-structure-change.md) | MX-2 | 1–1.5 天 |
+| MX-3 行为序列 | 进行中：服务名称已统一，`sequence_executor` 已逐项派发并验证失败停止；待从有人入口接入两步行为与再观察。见[结构变更单](MX-3-structure-change.md) | MX-2 | 1–1.5 天 |
 | MX-4 飞行动作接线 | 真实 `flight_atomic_action_server` 调用现有 Gate、Supervisor、Backend/替身与 Safety Trace；覆盖 `UNKNOWN` 拒绝不派发和测试注入批准路径 | MX-1、MX-3 | 1.5–2.5 天 |
 | MX-5 主链回归与审计 | 从入口运行固定两步、失败停止、状态回读和 Trace 集成测试；列出仍返回固定对象的内部步骤与未接入服务 | MX-2 至 MX-4 | 1–2 天 |
 
@@ -45,3 +45,7 @@ MX-5 须从目标入口证明各模块被调用、对象逐节点传递，并报
 ## MX-3 名称统一批次验证记录
 
 2026-10-21 工作树（未提交）：LLM 服务客户端与服务端统一为 `call_llm`，未来行为服务名在契约中统一为 `execute_behavior`；后者尚未创建。加载 ROS 2 Jazzy 和工作区后，以项目 `.venv`、源码路径及 `ROS_LOG_DIR=/tmp/afa_mx3_ros_logs` 运行 `ros2_ws/src/agent_comm/test/test_ros_agent_srv.py`，结果 `1 passed`。该测试经真实 `ros_agent_srv.main()`、`RosAgent` 和 `LLMNode` 的 ROS 2 服务调用，证明新名称连通及失败后再观察；序列执行和 PX4/Gazebo 未参与。
+
+## MX-3 序列执行器批次验证记录
+
+2026-10-21 工作树（未提交）：新增 `behavior_executor.sequence_executor`，从现有动作库读取白名单，完整校验 JSON Lines 后依次调用 `AtomicAction`，传递紧邻前项输出并在失败时停止。`colcon build --packages-up-to behavior_executor` 构建 6 包通过；双线程 ROS 2 服务测试 `1 passed`，覆盖两步成功、首项失败、非法第二项零派发、空行为与动作服务不可用。测试动作服务仅为边界替身；有人入口、Gate、Backend 和 PX4/Gazebo 尚未参与本批验证。
