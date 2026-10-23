@@ -43,9 +43,12 @@ M4-7 Safety Supervisor 已按固定顺序组合独立检查器，并通过 ROS �
 - 允许使用的 Skill；
 - 是否要求有效 Home；
 
-约束模型拒绝未知字段、重复 Skill、非法数值与无效围栏。现有旧入口仍持有 `MissionContract`，但只把其中的 `constraints` 交给 Gate；它生成的 `proposal_id` 仍包含旧任务标识，待 MX-4 步骤 6 删除该入口。V1 飞行动作服务使用新 JSON 文件提供系统限制，不增加逐任务限制。该文件不包含 `MissionContract` 的任务字段。
-
-[`configs/flight_safety.example.json`](../configs/flight_safety.example.json) 是模型可解析的示例，数值沿用现有测试构造，不代表已批准的生产飞行限制。当前没有代码加载该文件；生产入口须在后续批次从显式指定的 JSON 路径加载并校验。
+- 约束模型拒绝未知字段、重复 Skill、非法数值与无效围栏。
+- 旧入口仍持有 `MissionContract`，但只把其中的 `constraints` 交给 Gate。
+- 旧入口的 `proposal_id` 仍包含任务标识；MX-4 步骤 6 将删除该入口。
+- [`flight_safety.example.json`](../configs/flight_safety.example.json) 可通过模型校验。其数值来自测试，未获批用于生产飞行。
+- `load_safety_constraints(path: Path)` 读取显式 JSON 路径，返回 `MissionConstraints`。读取或校验失败时抛出 `ValueError`，没有默认回退。
+- 当前生产入口尚未调用加载函数；MX-4 步骤 3 才接入 `--safety-json`。
 
 ## 坐标约定
 
