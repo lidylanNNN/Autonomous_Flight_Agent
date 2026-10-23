@@ -1,6 +1,6 @@
 # MX — 主流程骨架贯通
 
-状态：进行中（MX-1、MX-2 已实施；行为序列与飞行动作尚未接入）
+状态：进行中（MX-1 至 MX-3 已实施；飞行动作与主链审计待 MX-4、MX-5）。
 
 MX 在当前开发顺序中先于 M4 收口，再进入 M5；它不是新的任务决策循环。**调用链中的模块必须是 [SPEC_DEV.md 第 3.1、4 节](../SPEC_DEV.md)确定名称和职责的真实模块；占位只允许位于模块尚未开发的内部逻辑，不能用独立 Mock/Stub 模块顶替目标模块。**MX 可用替身验证外部 PX4/LLM 依赖，但真实飞行动作的批准和 SITL 验收仍受 M4 可信 Authority 前置条件约束。
 
@@ -52,4 +52,6 @@ MX-5 须从目标入口证明各模块被调用、对象逐节点传递，并报
 
 ## MX-3 有人入口批次验证记录
 
-2026-10-22 工作树（待评审）：`mx_fixed_behavior` 默认关闭；显式开启后 `LLMNode` 返回带来源标记的固定 `hold`、`rtl` 两步文本。`ros_agent_srv.main()` 提取完整代码块，经 `RosEnv.step()` 调用真实 `SequenceExecutor` 服务，并在成功、失败响应后重新观察。ROS 2 测试覆盖默认不派发、两步成功、首项失败停止、两次再观察和格式错误拒绝；动作服务由测试替身提供，不等于 PX4/Gazebo 或 Safety Gate 验证。
+2026-10-22 入口批次（`897709e`）：`mx_fixed_behavior` 默认关闭；显式开启后 `LLMNode` 返回带来源标记的固定 `hold`、`rtl` 两步文本。`ros_agent_srv.main()` 提取完整代码块，经 `RosEnv.step()` 调用真实 `SequenceExecutor` 服务，并在成功、失败响应后重新观察。ROS 2 测试覆盖默认不派发、两步成功、首项失败停止、两次再观察和格式错误拒绝；动作服务由测试替身提供，不等于 PX4/Gazebo 或 Safety Gate 验证。
+
+2026-10-22 MX-3 收尾（工作树待评审）：新增已接单但不回复的 `AtomicAction` 测试，确认 `SequenceExecutor` 返回 `ATOMIC_ACTION_TIMEOUT` 且不调用下一动作。与入口及执行器回归合计 `5 passed`；该超时由测试动作服务模拟，不是飞行在途超时证据。

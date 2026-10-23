@@ -1,6 +1,6 @@
 # Autonomous Flight Agent 开发规格 v2.1
 
-> 状态：当前总体设计基线；待确认事项见第 10 节。原实现基线：2026-10-16 的 `8a13b81`；MX-1、MX-2 后续进度见 [MX 计划](plans/MX.md)。架构对齐依据为 ROS-LLM 论文 v3 与本次核对的开源主分支。设计目标不代表代码迁移已完成。
+> 状态：当前总体设计基线；待确认事项见第 10 节。原实现基线：2026-10-16 的 `8a13b81`；MX 后续进度见 [MX 计划](plans/MX.md)。架构对齐依据为 ROS-LLM 论文 v3 与本次核对的开源主分支。设计目标不代表代码迁移已完成。
 > 历史规格：[DEV_SPEC v1.44](docs/archive/DEV_SPEC_v1.44.md)。历史文件保留决策过程，不再作为当前实现或新开发的验收依据。
 > 适用范围：V1 飞行机器人任务系统、仓库结构、开发顺序、测评和版本管理。代码事实以实际生产入口及测试证据为准；本文目标不自动等于已实现。
 
@@ -37,7 +37,7 @@ V1 目标：初始观察 -> 人工任务 -> `RosAgent` 根据观察和动作库�
 | [论文 §3.1、§3.5](https://arxiv.org/html/2406.19741v3) | 带名称、类型、描述和输入/输出的原子动作库；JSON 序列中的动作依次执行，前项输出可传给后项 | 飞行原子动作描述库及 ROS 2 action/service 接口，内部复用 Gate/Backend |
 | [论文 §3.2–§3.4](https://arxiv.org/html/2406.19741v3) | 文本观察、人工反馈和动作库共同进入每轮 prompt；一轮行为结束后再等待人 | 飞行状态文本化、人工下一轮反馈 |
 
-上游 prompt 允许多动作序列，`sequence_executor` 也按序列调用原子动作；但当前 `ros_agent_srv` 的提取正则只捕获代码块中的首个 JSON 对象，不能声称其入口已可靠传递多动作行为。本项目在 MX 支持固定两步行为的完整提取与对照测试，M5 再完善真实模型输出的解析和错误处理；这是补齐上游实现缺口，不改变主循环拓扑。以上链接当前指向主分支，正式对齐验收前须记录确切上游 commit。
+上游 prompt 允许多动作序列，`sequence_executor` 也按序列调用原子动作；但上游 `ros_agent_srv` 的提取正则只捕获代码块中的首个 JSON 对象。本项目在 MX-3 已验证固定两步行为的完整提取，M5 再完善真实模型输出的解析和错误处理；这是补齐上游实现缺口，不改变主循环拓扑。以上链接当前指向主分支，正式对齐验收前须记录确切上游 commit。
 
 ## 2. 当前实现基线
 
@@ -46,7 +46,7 @@ V1 目标：初始观察 -> 人工任务 -> `RosAgent` 根据观察和动作库�
 | 能力 | 当前代码/入口 | 可声称的边界 |
 |---|---|---|
 | 环境与状态 | `ros2_ws/`、`scripts/ros2_px4/`、`Px4WorldStateAdapter`、`WorldStateAggregator` | M1/M2 的 PX4/Gazebo、ROS 2 消息和状态聚合基础已建立；运行环境以 `manifests/environment.yaml` 为准 |
-| MX-2 有人入口与观察 | `ros_agent_srv.main()` -> `RosEnv.get_obs()` -> `observation_manager_node`；人工输入 -> `RosAgent.get_action()` -> `llm_node` | 观察服务读取 PX4 状态快照，文本摘要仍为标源占位；默认 LLM 明确失败并再次观察，尚无行为执行链；验证详见 [MX 计划](plans/MX.md) |
+| MX-3 有人入口与行为序列 | `ros_agent_srv.main()` -> `RosEnv.get_obs()` -> `observation_manager_node`；人工输入 -> `RosAgent.get_action()` -> `llm_node`；显式固定模式 -> `RosEnv.step()` -> `sequence_executor` -> 原子动作服务 -> 再观察 | 观察文本仍为标源占位，默认 LLM 明确失败；固定模式的两步调用由测试动作服务验证，生产飞行动作待 MX-4。证据见 [MX 计划](plans/MX.md) |
 | 确定性飞行动作 | `flight_execution_backend.py`、PX4 Command/Offboard adapters、Skill Registry | Takeoff、GoTo、Hold、RTL、Land 有代码映射；M3 调试脚本有 SITL 验证记录，不等于 Agent 任务闭环 |
 | 任务主链 | `mission_cli.py -> MissionService.run()` | 只识别固定语句 `起飞到10米`；其他语句返回 `UNSUPPORTED`，无 LLM 或通用规划器 |
 | 执行前 Safety | `SafetyExecutionGate -> SafetySupervisor -> FlightExecutionBackend` | Gate 和检查器、决策 Trace 已实现，并有替身集成测试；正式任务入口的 Authority 当前传入 `UNKNOWN`，因此不能声称已在真实任务入口获批飞行 |
@@ -121,20 +121,20 @@ ros2_ws/src/
     config/
       atomic_action_library.yaml      [MX-2 已建；输入/输出描述仍未实现]
     agent_comm/
-      ros_agent_srv.py                 [MX-2 已建；持有 RosAgent 与 RosEnv，行为执行待 MX-3]
-      llm_node.py                      [MX-2 已建；默认明确失败的 LLM 服务]
+      ros_agent_srv.py                 [MX-3 已接入行为执行与再观察]
+      llm_node.py                      [默认失败；显式固定两步开发模式]
   observation_manager/                [MX-2 已建；上游同名 ROS 包]
     package.xml
     setup.py
     observation_manager/
       observation_manager_node.py      [MX-2 已建；统一 get_observation，文本仍为占位]
       vehicle_state_summarizer.py      [待建；PX4 观察源，飞行差异]
-  behavior_executor/                  [待建；上游同名 ROS 包]
+  behavior_executor/                  [MX-3 已建；上游同名 ROS 包]
     package.xml
     setup.py
     behavior_executor/
-      sequence_executor.py            [待建；ExecuteBehavior 序列执行；复用 MissionService.run() 的逐步派发、失败停止逻辑]
-  rosllm_srvs/                         [已建；四个服务可构建，运行时节点尚未接入]
+      sequence_executor.py            [已建；ExecuteBehavior 序列执行，失败停止]
+  rosllm_srvs/                         [已建；四个服务接口供当前 ROS 节点引用]
     package.xml
     CMakeLists.txt
     srv/
@@ -266,7 +266,7 @@ goto/rtl 共用的飞行原子动作内部链路（每次调用均执行）：
 | M1 ROS 2/PX4/Gazebo 环境 | 已有阶段记录 | 重跑时记录冻结版本和真实 SITL 证据 |
 | M2 WorldState/Trace 基础 | 已有阶段记录 | 状态时效与回放回归保持可用 |
 | M3 确定性飞行动作 | 已有阶段记录 | 保留调试入口与 Backend 回归，不把它计作 Agent 任务成功 |
-| [MX 主流程骨架贯通](plans/MX.md) | **进行中**（MX-1、MX-2 已实施；行为执行尚未接入） | 先贯通真实模块调用；分项工期与占位边界见阶段计划 |
+| [MX 主流程骨架贯通](plans/MX.md) | **进行中**（MX-1 至 MX-3 已实施；飞行动作与主链审计待完成） | 接入 MX-4 飞行动作并完成 MX-5 主链审计；分项工期与占位边界见阶段计划 |
 | M4 Contract/Safety Gate | **进行中** | MX 骨架后收口可信 Authority、独立 Gate 装配及 PX4/Gazebo 受控链验证；MX 不替代 Safety 验收 |
 | M5 ROS-LLM 有人主链 | 未开始 | 在 MX 已贯通的模块链上替换固定返回：真实 LLM 决策、动作描述与稳健行为解析、完整人类反馈；从生产入口和替身/SITL 均可追踪 |
 | M6 飞行原子动作完成判定 | 未开始 | 五个飞行动作以状态证据产生成功/失败标志、超时与假成功测试；不再把占位 `INCONCLUSIVE` 当作已完成结果 |
