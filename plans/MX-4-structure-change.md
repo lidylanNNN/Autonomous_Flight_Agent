@@ -1,6 +1,6 @@
 # MX-4 结构变更单：飞行原子动作接线
 
-状态：1a、1b 已实施；步骤 2 待实施。生产飞行动作服务尚未接入。
+状态：1a、1b、2a 已实施；2b 待实施。生产飞行动作服务尚未接入。
 
 依据：[当前规格](../SPEC_DEV.md)、[MX 计划](MX.md)、[ROS-LLM 服务契约](../contracts/rosllm_services.md)、[Safety Contract](../contracts/safety_contract.md)。
 
@@ -12,6 +12,7 @@
 - `ExecuteBehavior` 请求只有行为文本；`AtomicAction` 请求只有 `input` 和 `prev_output`。两者都没有任务 ID 或版本字段。
 - Safety 动作提案、Gate、Supervisor 和 Schema 已移除旧任务身份；旧任务模型与 CLI 仍待步骤 6 清理。
 - 旧 `mission_cli` 从 JSON 加载 `MissionContract`；新 `ros_agent_srv` 主链不使用它。
+- 已有可解析的系统限制示例 JSON；尚无生产加载函数或飞行动作服务。
 - `sequence_executor` 默认单项等待 30 秒；Skill Registry 中 `rtl` 的 Backend 超时为 120 秒。
 - 显式 MX 固定行为把 `hold`、`rtl` 输入写成普通词，不符合飞行 Skill 参数格式。
 
@@ -86,7 +87,7 @@
    - 1a. **已完成**：核对 Proposal、Schema、Supervisor、Gate、旧调用方和 Trace 中的任务 ID 引用，冻结本批删除范围。
    - 1b. **已完成**：同一代码批次移除 Proposal、Schema、Supervisor、Gate 的任务 ID 字段与匹配参数，并同步旧调用方、Trace 回放及直接依赖该字段的测试。
 2. **接入系统限制 JSON**
-   - 2a. 新建仅含 `MissionConstraints` 根字段的 JSON 文件，并用模型解析测试验证字段和值。
+   - 2a. **已完成**：新建仅含 `MissionConstraints` 根字段的示例 JSON，并用模型解析测试验证字段和值。
    - 2b. 增加独立加载函数及测试，覆盖缺少文件、读取失败、未知字段和无效限制；ROS 服务装配留到步骤 3。
 3. **接入飞行动作**
    - 3a. 在 `contracts/rosllm_services.md` 冻结飞行动作的 JSON 参数、响应字段与失败语义。
@@ -132,6 +133,12 @@
 - 当前受控生产入口仍是旧 `mission_cli`；它调用的 `MissionService` 已适配新 Gate 签名。新飞行动作服务、系统 JSON 来源和生产获批路径尚未接入。
 - 决策 ID 的哈希输入已移除任务 ID，旧版外部 Safety Trace 因 Proposal 严格字段校验无法直接回放。旧 `MissionService` 的 `proposal_id` 仍含旧任务标识；该入口将在步骤 6 删除，新服务须生成独立动作 ID。
 - Safety 契约、单测、Trace 与旧入口集成测试为 `136 passed`；完整核心 `tests/` 为 `172 passed`。加载 ROS 2 Jazzy 和工作区后，旧 ROS CLI 测试为 `5 passed`。验证使用替身 Backend，不构成 PX4/Gazebo 端到端证据。
+
+## 2a 实施记录
+
+- 新增 [`configs/flight_safety.example.json`](../configs/flight_safety.example.json)。根对象只含 `MissionConstraints` 字段；高度、速度、半径、电量、状态年龄和局部 NED 围栏数值沿用现有测试构造。
+- 示例尚未由生产入口加载，也不代表获批的运行限制。2b 负责加载函数与无效文件拒绝；步骤 3 才接入 `--safety-json` 服务入口。
+- 2a 验证：Safety 契约测试 `14 passed`；示例 JSON 语法检查、Ruff 检查和 `git diff --check` 通过。
 
 ## 风险
 

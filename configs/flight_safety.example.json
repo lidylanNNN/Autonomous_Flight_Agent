@@ -1,0 +1,16 @@
+{
+  "max_altitude_m": 50.0,
+  "max_horizontal_speed_mps": 8.0,
+  "max_mission_radius_m": 100.0,
+  "min_battery_percent": 25.0,
+  "max_state_age_ms": 1000,
+  "geofence": {
+    "north_min_m": -100.0,
+    "north_max_m": 100.0,
+    "east_min_m": -100.0,
+    "east_max_m": 100.0,
+    "boundary_margin_m": 2.0
+  },
+  "allowed_skills": ["takeoff", "goto", "hold", "rtl", "land"],
+  "requires_home_position": true
+}

@@ -45,6 +45,8 @@ M4-7 Safety Supervisor 已按固定顺序组合独立检查器，并通过 ROS �
 
 约束模型拒绝未知字段、重复 Skill、非法数值与无效围栏。现有旧入口仍持有 `MissionContract`，但只把其中的 `constraints` 交给 Gate；它生成的 `proposal_id` 仍包含旧任务标识，待 MX-4 步骤 6 删除该入口。V1 飞行动作服务使用新 JSON 文件提供系统限制，不增加逐任务限制。该文件不包含 `MissionContract` 的任务字段。
 
+[`configs/flight_safety.example.json`](../configs/flight_safety.example.json) 是模型可解析的示例，数值沿用现有测试构造，不代表已批准的生产飞行限制。当前没有代码加载该文件；生产入口须在后续批次从显式指定的 JSON 路径加载并校验。
+
 ## 坐标约定
 
 `NedGeofence` 是局部 NED 平面中的矩形：
