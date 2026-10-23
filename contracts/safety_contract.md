@@ -1,23 +1,20 @@
 # 飞行 Safety Contract
 
-状态：M4-7 首批总仲裁与 PX4 限速校验已装配
+状态：M4-7 总仲裁与 PX4 限速校验已装配；MX-4 1b 已移除 Safety 动作提案的旧任务身份
 
 ## 现状
 
-M4 已为旧受控任务入口建立动作提案到 Flight Execution Backend 的确定性仲裁边界。旧 M3 调试入口仍能直连 Backend。当前 Gate 输入为：
+M4 已为旧受控任务入口建立动作提案到 Flight Execution Backend 的确定性仲裁边界。旧 M3 调试入口仍能直连 Backend。当前调用流为：
 
 ```text
-AtomicActionProposal
-+ MissionConstraints
-+ expected_mission_id（旧任务入口提供）
-+ WorldState
-+ ControlAuthority
-        |
-        v
-Safety Supervisor
-        |
-        v
-SafetyDecision
+[MissionService] --AtomicActionProposal + MissionConstraints + execution_id--> [SafetyExecutionGate]
+[SafetyExecutionGate] --WorldState 读取请求--> [FlightExecutionBackend]
+[FlightExecutionBackend] --WorldState--> [SafetyExecutionGate]
+[Authority reader] --ControlAuthority--> [SafetyExecutionGate]
+[SafetyExecutionGate] --AtomicActionProposal + MissionConstraints + WorldState + ControlAuthority--> [SafetySupervisor]
+[SafetySupervisor] --SafetyDecision + ApprovedSkillCommand(仅批准时)--> [SafetyExecutionGate]
+[SafetyExecutionGate] --AtomicActionProposal + SafetyDecision--> [TraceRecorder]
+[SafetyExecutionGate] --ApprovedSkillCommand(仅批准时)--> [FlightExecutionBackend]
 ```
 
 M4-1 冻结输入、输出和稳定原因码；M4-2 已实现独立的 Schema、State Freshness 和
@@ -30,10 +27,10 @@ M4-7 Safety Supervisor 已按固定顺序组合独立检查器，并通过 ROS �
 
 ## V1 目标
 
-- 飞行 Gate 接收 `AtomicActionProposal`、系统 `MissionConstraints`、`WorldState` 和 `ControlAuthority`，不接收 `expected_mission_id`。
+- 飞行服务接入后，Gate 使用从新 JSON 加载的系统 `MissionConstraints`、当前 `WorldState` 和 `ControlAuthority`。
 - Proposal、Safety 决策与 Trace 不使用任务 ID；保留提案、决策和执行 ID 追踪单次动作。
 - 飞行动作服务启动时从 `--safety-json` 指定的新 JSON 文件读取 `MissionConstraints` 根对象；文件缺少、不可读或校验失败时不发布服务。
-- 删除任务 ID 匹配检查时，保留其他 Safety 检查和拒绝语义。迁移步骤见 [MX-4 结构变更单](../plans/MX-4-structure-change.md)。
+- 保留参数、状态、Authority、围栏、包线和健康检查及拒绝语义。迁移步骤见 [MX-4 结构变更单](../plans/MX-4-structure-change.md)。
 
 ## 安全约束
 
@@ -46,7 +43,7 @@ M4-7 Safety Supervisor 已按固定顺序组合独立检查器，并通过 ROS �
 - 允许使用的 Skill；
 - 是否要求有效 Home；
 
-约束模型拒绝未知字段、重复 Skill、非法数值与无效围栏。现有旧入口仍持有 `MissionContract`，从中取出 `constraints` 和 `mission_id` 交给 Gate。V1 飞行动作服务使用新 JSON 文件提供系统限制，不增加逐任务限制。该文件不包含 `MissionContract` 的任务字段。
+约束模型拒绝未知字段、重复 Skill、非法数值与无效围栏。现有旧入口仍持有 `MissionContract`，但只把其中的 `constraints` 交给 Gate；它生成的 `proposal_id` 仍包含旧任务标识，待 MX-4 步骤 6 删除该入口。V1 飞行动作服务使用新 JSON 文件提供系统限制，不增加逐任务限制。该文件不包含 `MissionContract` 的任务字段。
 
 ## 坐标约定
 
@@ -67,7 +64,7 @@ east_min_m  <= east  <= east_max_m
 和 `arguments`，让未知 Skill、错误字段或非法参数能够由 Safety 返回稳定的拒绝原因，
 而不是在入口解析时丢失审计记录。
 
-Proposal 顶层结构仍然是严格的：额外字段、空 ID 和负 `plan_revision` 会被拒绝。
+Proposal 顶层结构仍然是严格的：额外字段、空 `proposal_id` 与空 `based_on_state_id` 会被拒绝。旧 `mission_id`、`plan_revision`、`step_id` 不再属于 Proposal。
 
 ## Safety Decision
 
@@ -84,12 +81,10 @@ X1 已移除按 Skill 名触发的 Proposal 级审批分支；当前代码仍有
 
 `check_proposal_schema()` 按固定规则检查：
 
-- Proposal 的 `mission_id` 是否匹配可信调用方提供的 `expected_mission_id`；
 - Skill 名是否存在且位于 `allowed_skills`；
 - Skill 参数是否能由对应的强类型参数模型解析。
 
-未知或未授权 Skill 返回 `SKILL_NOT_ALLOWED`。当前任务 ID 不匹配或参数错误返回
-`INVALID_SCHEMA`；多个错误按 `INVALID_SCHEMA -> SKILL_NOT_ALLOWED` 返回。V1 移除任务 ID 匹配分支。
+未知或未授权 Skill 返回 `SKILL_NOT_ALLOWED`。参数错误返回 `INVALID_SCHEMA`；多个错误按 `INVALID_SCHEMA -> SKILL_NOT_ALLOWED` 返回。
 
 `check_proposal_state()` 按固定顺序检查：
 
@@ -149,7 +144,7 @@ GoTo 生效，以 `WorldState.home_position_ned_m` 为圆心计算目标的水�
 
 ## 当前边界
 
-已装配独立检查器、PX4 限速读取和旧任务入口的执行门。替身集成测试已覆盖旧入口经 Gate 派发、拒绝不派发与任务 ID 不匹配；ROS 入口工厂测试也覆盖 Gate 装配。但当前尚未完成：
+已装配独立检查器、PX4 限速读取和旧任务入口的执行门。替身集成测试已覆盖旧入口经 Gate 派发与拒绝不派发；ROS 入口工厂测试也覆盖 Gate 装配。但当前尚未完成：
 
 - 隔离旧 M3 调试脚本等可直接调用后端的路径；
 - 新 ROS-LLM 飞行原子动作服务与 Gate 装配；

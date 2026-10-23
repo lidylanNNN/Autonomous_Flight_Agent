@@ -14,16 +14,15 @@ from flight_agent.contracts import (
 def check_proposal_schema(
     proposal: AtomicActionProposal,
     constraints: MissionConstraints,
-    expected_mission_id: str,
 ) -> tuple[SafetyReasonCode, ...]:
-    '''检查Proposal归属、Skill授权范围和参数结构。'''
+    '''检查Skill授权范围和参数结构。'''
 
     try:
         skill_name = SkillName(proposal.skill_name)
     except ValueError:
         return (SafetyReasonCode.SKILL_NOT_ALLOWED,)
 
-    invalid_schema = proposal.mission_id != expected_mission_id
+    invalid_schema = False
     try:
         parse_skill_arguments(skill_name, proposal.arguments)
     except ValidationError:

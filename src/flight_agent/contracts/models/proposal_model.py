@@ -13,9 +13,6 @@ class AtomicActionProposal(BaseModel):
     )
 
     proposal_id: str = Field(min_length=1)
-    mission_id: str = Field(min_length=1)
-    plan_revision: int = Field(ge=0)
-    step_id: str = Field(min_length=1)
     skill_name: str = Field(min_length=1)
     arguments: dict[str, Any]
     based_on_state_id: str = Field(min_length=1)

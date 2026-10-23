@@ -36,7 +36,6 @@ class SafetyExecutionGate:
         proposal: AtomicActionProposal,
         constraints: MissionConstraints,
         *,
-        expected_mission_id: str,
         execution_id: str,
     ) -> tuple[SafetyDecision, SkillResult | None]:
         '''Return the decision without dispatch unless Safety approved the proposal.'''
@@ -48,7 +47,6 @@ class SafetyExecutionGate:
             constraints,
             state,
             self._authority_reader(),
-            expected_mission_id=expected_mission_id,
             execution_id=execution_id,
         )
         self._recorder.record_safety_decision(proposal_snapshot, decision)

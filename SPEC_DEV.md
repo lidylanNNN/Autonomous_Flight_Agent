@@ -49,7 +49,7 @@ V1 目标：取得初始观察后等待人工输入。`RosAgent` 根据观察和
 | MX-3 有人入口与行为序列 | `ros_agent_srv.main()` 已装配 `RosEnv`、`RosAgent`、观察服务和行为执行器；逐边调用见第 4 节 | 观察文本仍为标源占位，默认 LLM 明确失败；固定模式的两步调用由测试动作服务验证，生产飞行动作待 MX-4。证据见 [MX 计划](plans/MX.md) |
 | 确定性飞行动作 | `flight_execution_backend.py`、PX4 Command/Offboard adapters、Skill Registry | Takeoff、GoTo、Hold、RTL、Land 有代码映射；M3 调试脚本有 SITL 验证记录，不等于 Agent 任务闭环 |
 | 旧任务入口 | `mission_cli.py` 调用 `MissionService.run()` | 只识别固定语句 `起飞到10米`；其他语句返回 `UNSUPPORTED`，无 LLM 或通用规划器 |
-| 执行前 Safety | `SafetyExecutionGate` 调用 `SafetySupervisor`，批准后调用 `FlightExecutionBackend` | Gate 和检查器、决策 Trace 已实现，并有替身集成测试；旧受控入口的 Authority 当前传入 `UNKNOWN`，因此不能声称已在生产入口获批飞行 |
+| 执行前 Safety | `SafetyExecutionGate` 调用 `SafetySupervisor`，批准后调用 `FlightExecutionBackend` | Gate 和检查器、决策 Trace 已实现；MX-4 1b 已移除 Proposal 与 Gate 的旧任务身份；旧受控入口的 Authority 当前传入 `UNKNOWN`，不能声称已在生产入口获批飞行 |
 | 验证与恢复 | `MissionService._verify_placeholder()`、`_recover_placeholder()` | 验证只返回 `INCONCLUSIVE`，恢复只返回 `None`；没有任务成功判定、重新规划或安全收尾实现 |
 | Trace | `TraceRecorder`、`TraceReplay` | 可记录/回放 WorldState 与 SafetyDecision；完整 Episode 因果链尚未完成 |
 | 测评数据 | `agent_benchmark_sets/`、schema 与 validation scripts | Dev 用例存在；Validation/Frozen Test 目前只是预留 manifest，不得报告冻结测评指标 |
@@ -222,7 +222,7 @@ goto/rtl 共用的飞行原子动作内部链路（每次调用均执行）：
 
 `ExecuteBehaviorRequest` 是整个序列的输入，`AtomicActionRequest` 是逐项调用的输入；`service_name` 选择 ROS 服务，不是 `AtomicActionRequest` 的字段。目标 `flight_agent.contracts.AtomicAction` 是 Safety 批准后的内部执行凭证，不是 `rosllm_srvs/srv/AtomicAction` 的未审查请求。
 
-V1 不建立任务 ID 或任务会话。飞行动作服务以 `--safety-json` 指定新 JSON 文件，启动时加载系统 `MissionConstraints`；缺少或无效文件时不发布服务。Gate 使用这些限制、当前状态和 Authority 等证据。现有 Proposal、Gate 和 Supervisor 中的 `mission_id` / `expected_mission_id` 属旧实现，须按 [MX-4 结构变更单](plans/MX-4-structure-change.md)分批移除，不能从 Proposal 回填一个虚假的可信 ID。
+V1 不建立任务 ID 或任务会话。飞行动作服务以 `--safety-json` 指定新 JSON 文件，启动时加载系统 `MissionConstraints`；缺少或无效文件时不发布服务。Gate 使用这些限制、当前状态和 Authority 等证据。MX-4 1b 已从 Proposal、Gate 和 Supervisor 移除旧任务身份；旧任务模型与 CLI 的清理仍按 [MX-4 步骤 6](plans/MX-4-structure-change.md#实施任务)进行。
 
 原子动作仅向下一项传递紧邻前一项的 `output`；巡检照片和识别结论要独立保存，才能在返航后从新观察中取回。若任一步失败，序列停止；运行中安全处置不依赖序列尾部的 `rtl`。
 
@@ -237,7 +237,7 @@ V1 不建立任务 ID 或任务会话。飞行动作服务以 `--safety-json` �
 
 ## 6. 契约与数据流
 
-现存核心模型位于 `src/flight_agent/contracts/models/`：`MissionRequest`、`MissionContract`、`MissionConstraints`、`WorldState`、`AtomicActionProposal`、`SafetyDecision`、`ApprovedSkillCommand`、`SkillResult`，以及旧主链的 `MissionPlan`、`PlanStep`、`MissionRunResult` 和占位 `VerificationResult`。`AtomicActionProposal` 是原 `SkillProposal` 的现名，仍表示 Safety 审查前的内部飞行动作提案。当前 Gate 仍接收 `MissionConstraints` 和旧的可信任务 ID；V1 目标移除后者。`FlightExecutionBackendProtocol` 是核心与 ROS 2 实现的调用边界。模型定义存在不代表相应完整业务已接入。
+现存核心模型位于 `src/flight_agent/contracts/models/`：`MissionRequest`、`MissionContract`、`MissionConstraints`、`WorldState`、`AtomicActionProposal`、`SafetyDecision`、`ApprovedSkillCommand`、`SkillResult`，以及旧主链的 `MissionPlan`、`PlanStep`、`MissionRunResult` 和占位 `VerificationResult`。`AtomicActionProposal` 是原 `SkillProposal` 的现名，仍表示 Safety 审查前的内部飞行动作提案。当前 Gate 只接收 `MissionConstraints`，不接收旧任务 ID；`FlightExecutionBackendProtocol` 是核心与 ROS 2 实现的调用边界。模型定义存在不代表相应完整业务已接入。
 
 **目标命名决定**：Agent 对象统一叫 `RosAgent`；对外动作统一叫 `AtomicAction`。当前内部模型 `ApprovedSkillCommand` 目标改名为 `flight_agent.contracts.AtomicAction`，表示 Safety 批准后的单次动作执行凭证；ROS 服务 `rosllm_srvs/srv/AtomicAction` 接收尚未审查的动作请求。两者同名但属于不同模块和信任边界，不得互换或因改名取消审批。MX-4 调用流沿用当前模型名；后续改名须经契约评审并同步代码、导出、测试和测评数据。
 

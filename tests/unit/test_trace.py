@@ -70,8 +70,7 @@ def test_safety_decision_shares_trace_without_breaking_world_state_replay(
     tmp_path: Path,
 ) -> None:
     proposal = AtomicActionProposal(
-        proposal_id='proposal-1', mission_id='mission-1', plan_revision=0,
-        step_id='step-1', skill_name='takeoff',
+        proposal_id='proposal-1', skill_name='takeoff',
         arguments={'target_altitude_m': 10.0}, based_on_state_id='state-1',
     )
     decision = SafetyDecision(
@@ -99,8 +98,7 @@ def test_safety_decision_shares_trace_without_breaking_world_state_replay(
 
 def test_safety_trace_rejects_mismatched_proposal_id(tmp_path: Path) -> None:
     proposal = AtomicActionProposal(
-        proposal_id='proposal-1', mission_id='mission-1', plan_revision=0,
-        step_id='step-1', skill_name='takeoff',
+        proposal_id='proposal-1', skill_name='takeoff',
         arguments={'target_altitude_m': 10.0}, based_on_state_id='state-1',
     )
     decision = SafetyDecision(

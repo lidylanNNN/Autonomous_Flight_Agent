@@ -1,6 +1,6 @@
 # MX-4 结构变更单：飞行原子动作接线
 
-状态：1a 引用核对已完成；1b 待实施。尚未修改业务代码、测试或运行配置。
+状态：1a、1b 已实施；步骤 2 待实施。生产飞行动作服务尚未接入。
 
 依据：[当前规格](../SPEC_DEV.md)、[MX 计划](MX.md)、[ROS-LLM 服务契约](../contracts/rosllm_services.md)、[Safety Contract](../contracts/safety_contract.md)。
 
@@ -10,7 +10,7 @@
 - 旧 `MissionService` 已调用 `SafetyExecutionGate`。Gate 写入决策 Trace 后，仅对批准的命令调用 Backend。
 - 生产 Authority 目前为 `UNKNOWN`；旧受控任务入口不能获批飞行。
 - `ExecuteBehavior` 请求只有行为文本；`AtomicAction` 请求只有 `input` 和 `prev_output`。两者都没有任务 ID 或版本字段。
-- 现有 `AtomicActionProposal`、Gate、Supervisor 和 Safety Schema 仍引用旧 `mission_id` / `expected_mission_id`；新主链尚未迁移这些字段。
+- Safety 动作提案、Gate、Supervisor 和 Schema 已移除旧任务身份；旧任务模型与 CLI 仍待步骤 6 清理。
 - 旧 `mission_cli` 从 JSON 加载 `MissionContract`；新 `ros_agent_srv` 主链不使用它。
 - `sequence_executor` 默认单项等待 30 秒；Skill Registry 中 `rtl` 的 Backend 超时为 120 秒。
 - 显式 MX 固定行为把 `hold`、`rtl` 输入写成普通词，不符合飞行 Skill 参数格式。
@@ -83,8 +83,8 @@
 保留六个实施步骤。每个子项完成后展示本批差异和验证结果，供单独审阅；下一子项不混入当前批。
 
 1. **迁移 Safety 契约**
-   - 1a. 核对 Proposal、Schema、Supervisor、Gate、旧调用方和 Trace 中的任务 ID 引用，冻结本批删除范围。
-   - 1b. 同一代码批次移除 Proposal、Schema、Supervisor、Gate 的任务 ID 字段与匹配参数，并同步旧调用方、Trace 回放及直接依赖该字段的测试。字段与函数签名不能拆开，否则中间状态无法通过 Safety 回归。
+   - 1a. **已完成**：核对 Proposal、Schema、Supervisor、Gate、旧调用方和 Trace 中的任务 ID 引用，冻结本批删除范围。
+   - 1b. **已完成**：同一代码批次移除 Proposal、Schema、Supervisor、Gate 的任务 ID 字段与匹配参数，并同步旧调用方、Trace 回放及直接依赖该字段的测试。
 2. **接入系统限制 JSON**
    - 2a. 新建仅含 `MissionConstraints` 根字段的 JSON 文件，并用模型解析测试验证字段和值。
    - 2b. 增加独立加载函数及测试，覆盖缺少文件、读取失败、未知字段和无效限制；ROS 服务装配留到步骤 3。
@@ -117,14 +117,21 @@
 - 步骤 6：逐批检查无旧入口和旧任务模型引用，运行主链与 Safety 回归。
 - 每批执行 `git diff --check`，并记录本批实际调用流、未接入组件和回滚点。
 
-## 1a 核对记录
+## 1a 核对记录（迁移前）
 
-- `AtomicActionProposal` 的 `mission_id`、`plan_revision`、`step_id` 都来自旧任务计划。Safety 检查不使用后两个字段；单次动作已有 `proposal_id`。1b 一并移除这三个字段，保留 `proposal_id`、`skill_name`、`arguments` 和 `based_on_state_id`。
-- `check_proposal_schema()` 比较 Proposal 的 `mission_id` 与 `expected_mission_id`；`SafetySupervisor.evaluate()` 将后者加入决策 ID 哈希；`SafetyExecutionGate.submit()` 继续传递该参数。1b 同批删除这条匹配链，保留参数、状态、Authority、围栏、包线和健康检查。
-- 旧 `MissionService` 是当前生产调用方。1b 只改它构造 Proposal 和调用 Gate 的方式；`MissionContract`、`MissionRequest`、`MissionPlan`、`MissionRunResult` 及旧 CLI 留到步骤 6。
-- `TraceRecorder` 序列化整个 Proposal，`TraceReplay` 严格解析 Proposal。1b 同步 Trace 测试；Safety 决策模型本身没有任务 ID 字段，但决策 ID 哈希会改变。仓库没有已提交的 Safety JSONL 记录；旧版外部 Trace 的回放兼容性须在 1b 结果中说明。
+- `AtomicActionProposal` 的 `mission_id`、`plan_revision`、`step_id` 都来自旧任务计划。Safety 检查不使用后两个字段；单次动作已有 `proposal_id`。1b 范围包含这三个字段。
+- `check_proposal_schema()` 比较 Proposal 的 `mission_id` 与 `expected_mission_id`；`SafetySupervisor.evaluate()` 将后者加入决策 ID 哈希；`SafetyExecutionGate.submit()` 继续传递该参数。1b 范围包含这条匹配链。
+- 旧 `MissionService` 是当前生产调用方。1b 范围只涉及它构造 Proposal 和调用 Gate 的方式；`MissionContract`、`MissionRequest`、`MissionPlan`、`MissionRunResult` 及旧 CLI 留到步骤 6。
+- `TraceRecorder` 序列化整个 Proposal，`TraceReplay` 严格解析 Proposal。Safety 决策模型本身没有任务 ID 字段，但决策 ID 哈希会改变。仓库没有已提交的 Safety JSONL 记录。
 - 直接受影响的测试位于 `tests/contract/safety/`、`tests/unit/safety/`、`tests/unit/test_trace.py`、`tests/integration/test_mission_flow.py` 和 `ros2_ws/src/flight_agent_ros/test/test_mission_cli.py`。`agent_benchmark_sets/` 与 `eval_harness/` 未发现这些字段的引用。
 - 1a 基线：运行 Safety 契约、单测、Trace 与旧受控入口集成测试，`137 passed`；ROS 包的 `test_mission_cli.py` 仍须在 1b 批次验证。
+
+## 1b 实施记录
+
+- Proposal 保留 `proposal_id`、`skill_name`、`arguments` 和 `based_on_state_id`。Schema、Supervisor 和 Gate 不再接收或校验 `expected_mission_id`；其他 Safety 检查及先写 Trace 再派发的顺序未改。
+- 当前受控生产入口仍是旧 `mission_cli`；它调用的 `MissionService` 已适配新 Gate 签名。新飞行动作服务、系统 JSON 来源和生产获批路径尚未接入。
+- 决策 ID 的哈希输入已移除任务 ID，旧版外部 Safety Trace 因 Proposal 严格字段校验无法直接回放。旧 `MissionService` 的 `proposal_id` 仍含旧任务标识；该入口将在步骤 6 删除，新服务须生成独立动作 ID。
+- Safety 契约、单测、Trace 与旧入口集成测试为 `136 passed`；完整核心 `tests/` 为 `172 passed`。加载 ROS 2 Jazzy 和工作区后，旧 ROS CLI 测试为 `5 passed`。验证使用替身 Backend，不构成 PX4/Gazebo 端到端证据。
 
 ## 风险
 

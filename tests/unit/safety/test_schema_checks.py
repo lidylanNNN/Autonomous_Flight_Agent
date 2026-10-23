@@ -33,7 +33,6 @@ def make_constraints(
 
 def make_proposal(
     *,
-    mission_id: str = 'mission-1',
     skill_name: str = 'takeoff',
     arguments: dict[str, object] | None = None,
 ) -> AtomicActionProposal:
@@ -44,9 +43,6 @@ def make_proposal(
     )
     return AtomicActionProposal(
         proposal_id='proposal-1',
-        mission_id=mission_id,
-        plan_revision=0,
-        step_id='step-1',
         skill_name=skill_name,
         arguments=proposal_arguments,
         based_on_state_id='state-1',
@@ -56,14 +52,14 @@ def make_proposal(
 def test_valid_proposal_schema_has_no_rejection_reason() -> None:
     '''验证合法Proposal通过Schema检查。'''
 
-    assert check_proposal_schema(make_proposal(), make_constraints(), 'mission-1') == ()
+    assert check_proposal_schema(make_proposal(), make_constraints()) == ()
 
 
 def test_unknown_or_contract_disallowed_skill_is_rejected() -> None:
     '''验证未知Skill和Contract未授权Skill使用同一稳定原因码。'''
 
     assert check_proposal_schema(
-        make_proposal(skill_name='teleport'), make_constraints(), 'mission-1'
+        make_proposal(skill_name='teleport'), make_constraints()
     ) == (SafetyReasonCode.SKILL_NOT_ALLOWED,)
     assert check_proposal_schema(
         make_proposal(
@@ -76,18 +72,14 @@ def test_unknown_or_contract_disallowed_skill_is_rejected() -> None:
             },
         ),
         make_constraints((SkillName.TAKEOFF, SkillName.LAND)),
-        'mission-1',
     ) == (SafetyReasonCode.SKILL_NOT_ALLOWED,)
 
 
-def test_wrong_mission_or_arguments_are_invalid_schema() -> None:
-    '''验证任务归属错误和Skill参数错误被确定性拒绝。'''
+def test_invalid_arguments_are_invalid_schema() -> None:
+    '''验证Skill参数错误被确定性拒绝。'''
 
     assert check_proposal_schema(
-        make_proposal(mission_id='mission-2'), make_constraints(), 'mission-1'
-    ) == (SafetyReasonCode.INVALID_SCHEMA,)
-    assert check_proposal_schema(
-        make_proposal(arguments={'target_altitude_m': -1.0}), make_constraints(), 'mission-1'
+        make_proposal(arguments={'target_altitude_m': -1.0}), make_constraints()
     ) == (SafetyReasonCode.INVALID_SCHEMA,)
 
 
@@ -96,12 +88,10 @@ def test_multiple_schema_failures_follow_stable_reason_order() -> None:
 
     reasons = check_proposal_schema(
         make_proposal(
-            mission_id='mission-2',
             skill_name='goto',
             arguments={'north_m': 1.0},
         ),
         make_constraints((SkillName.TAKEOFF,)),
-        'mission-1',
     )
 
     assert reasons == (

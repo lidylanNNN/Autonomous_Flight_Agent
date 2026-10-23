@@ -67,7 +67,6 @@ class SafetySupervisor:
         state: WorldState,
         authority: ControlAuthority,
         *,
-        expected_mission_id: str,
         execution_id: str,
     ) -> tuple[SafetyDecision, ApprovedSkillCommand | None]:
         '''Recheck a copied proposal and create a command only after direct approval.'''
@@ -80,7 +79,6 @@ class SafetySupervisor:
             constraints_snapshot,
             state_snapshot,
             authority,
-            expected_mission_id=expected_mission_id,
         )
         if decision.decision is not SafetyDecisionType.APPROVE:
             return decision, None
@@ -102,12 +100,10 @@ class SafetySupervisor:
         constraints: MissionConstraints,
         state: WorldState,
         authority: ControlAuthority,
-        *,
-        expected_mission_id: str,
     ) -> SafetyDecision:
         '''按冻结顺序检查所有可计算条件，失败时禁止后续放行。'''
 
-        schema_reasons = check_proposal_schema(proposal, constraints, expected_mission_id)
+        schema_reasons = check_proposal_schema(proposal, constraints)
         reasons: list[SafetyReasonCode] = list(schema_reasons)
         reasons.extend(check_proposal_state(proposal, constraints, state, now=self._clock()))
         reasons.extend(check_control_authority(authority))
@@ -151,7 +147,6 @@ class SafetySupervisor:
             {
                 'proposal': proposal.model_dump(mode='json'),
                 'constraints': constraints.model_dump(mode='json'),
-                'expected_mission_id': expected_mission_id,
                 'state': state.model_dump(mode='json'),
                 'authority': authority.value,
                 'decision': decision_type.value,

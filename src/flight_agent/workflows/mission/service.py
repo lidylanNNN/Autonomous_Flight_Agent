@@ -64,9 +64,6 @@ class MissionService:
                 attempt_id += f'-revision-{plan.plan_revision}'
             proposal = AtomicActionProposal(
                 proposal_id=attempt_id,
-                mission_id=request.mission_id,
-                plan_revision=plan.plan_revision,
-                step_id=step.step_id,
                 skill_name=step.skill_name.value,
                 arguments=step.arguments,
                 based_on_state_id=state.state_id,
@@ -74,7 +71,6 @@ class MissionService:
             decision, result = await self._gate.submit(
                 proposal,
                 contract.constraints,
-                expected_mission_id=contract.mission_id,
                 execution_id=f'{attempt_id}-execution',
             )
             decisions.append(decision)

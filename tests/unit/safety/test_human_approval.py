@@ -29,9 +29,6 @@ def make_request(
         approval_id=approval_id,
         proposal=AtomicActionProposal(
             proposal_id=proposal_id,
-            mission_id='mission-1',
-            plan_revision=0,
-            step_id='step-1',
             skill_name='takeoff',
             arguments={'target_altitude_m': 10.0},
             based_on_state_id='state-1',

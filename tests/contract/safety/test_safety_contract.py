@@ -113,9 +113,6 @@ def test_skill_proposal_preserves_unapproved_content_for_safety_review() -> None
 
     proposal = AtomicActionProposal(
         proposal_id='proposal-1',
-        mission_id='mission-1',
-        plan_revision=0,
-        step_id='step-1',
         skill_name='teleport',
         arguments={'unsafe_target': 999},
         based_on_state_id='state-1',
@@ -123,8 +120,10 @@ def test_skill_proposal_preserves_unapproved_content_for_safety_review() -> None
 
     assert proposal.skill_name == 'teleport'
     assert proposal.arguments == {'unsafe_target': 999}
+    payload = proposal.model_dump()
+    payload['approved'] = True
     with pytest.raises(ValidationError, match='Extra inputs'):
-        AtomicActionProposal.model_validate(proposal.model_dump() | {'approved': True})
+        AtomicActionProposal.model_validate(payload)
 
 
 @pytest.mark.parametrize(
