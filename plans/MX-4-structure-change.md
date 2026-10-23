@@ -1,6 +1,6 @@
 # MX-4 结构变更单：飞行原子动作接线
 
-状态：设计方向已确认；实施批次待逐批评审。尚未修改业务代码、测试或运行配置。
+状态：1a 引用核对已完成；1b 待实施。尚未修改业务代码、测试或运行配置。
 
 依据：[当前规格](../SPEC_DEV.md)、[MX 计划](MX.md)、[ROS-LLM 服务契约](../contracts/rosllm_services.md)、[Safety Contract](../contracts/safety_contract.md)。
 
@@ -116,6 +116,15 @@
 - 步骤 1 至 5 完成后：从生产装配路径验证一轮人工输入、动作执行、结果返回和再观察；标明替身 Backend 与固定 LLM 的边界。
 - 步骤 6：逐批检查无旧入口和旧任务模型引用，运行主链与 Safety 回归。
 - 每批执行 `git diff --check`，并记录本批实际调用流、未接入组件和回滚点。
+
+## 1a 核对记录
+
+- `AtomicActionProposal` 的 `mission_id`、`plan_revision`、`step_id` 都来自旧任务计划。Safety 检查不使用后两个字段；单次动作已有 `proposal_id`。1b 一并移除这三个字段，保留 `proposal_id`、`skill_name`、`arguments` 和 `based_on_state_id`。
+- `check_proposal_schema()` 比较 Proposal 的 `mission_id` 与 `expected_mission_id`；`SafetySupervisor.evaluate()` 将后者加入决策 ID 哈希；`SafetyExecutionGate.submit()` 继续传递该参数。1b 同批删除这条匹配链，保留参数、状态、Authority、围栏、包线和健康检查。
+- 旧 `MissionService` 是当前生产调用方。1b 只改它构造 Proposal 和调用 Gate 的方式；`MissionContract`、`MissionRequest`、`MissionPlan`、`MissionRunResult` 及旧 CLI 留到步骤 6。
+- `TraceRecorder` 序列化整个 Proposal，`TraceReplay` 严格解析 Proposal。1b 同步 Trace 测试；Safety 决策模型本身没有任务 ID 字段，但决策 ID 哈希会改变。仓库没有已提交的 Safety JSONL 记录；旧版外部 Trace 的回放兼容性须在 1b 结果中说明。
+- 直接受影响的测试位于 `tests/contract/safety/`、`tests/unit/safety/`、`tests/unit/test_trace.py`、`tests/integration/test_mission_flow.py` 和 `ros2_ws/src/flight_agent_ros/test/test_mission_cli.py`。`agent_benchmark_sets/` 与 `eval_harness/` 未发现这些字段的引用。
+- 1a 基线：运行 Safety 契约、单测、Trace 与旧受控入口集成测试，`137 passed`；ROS 包的 `test_mission_cli.py` 仍须在 1b 批次验证。
 
 ## 风险
 
