@@ -2,14 +2,14 @@
 
 状态：M4-7 首批总仲裁与 PX4 限速校验已装配
 
-## 目的
+## 现状
 
-M4 为受控任务入口建立动作提案到 Flight Execution Backend 的确定性仲裁边界；旧 M3 调试入口仍能直连 Backend，不能宣称全仓库已不可绕过：
+M4 已为旧受控任务入口建立动作提案到 Flight Execution Backend 的确定性仲裁边界。旧 M3 调试入口仍能直连 Backend。当前 Gate 输入为：
 
 ```text
 AtomicActionProposal
 + MissionConstraints
-+ expected_mission_id（可信会话上下文）
++ expected_mission_id（旧任务入口提供）
 + WorldState
 + ControlAuthority
         |
@@ -28,9 +28,16 @@ M4-7 Safety Supervisor 已按固定顺序组合独立检查器，并通过 ROS �
 直接批准路径已可在输入快照上生成批准命令。当前旧 `MissionService` 使用的 `SafetyExecutionGate` 已在派发前写入 Safety Trace，
 只有直接 `APPROVE` 可以派发；旧 M3 调试脚本仍能直连后端。
 
+## V1 目标
+
+- 飞行 Gate 接收 `AtomicActionProposal`、系统 `MissionConstraints`、`WorldState` 和 `ControlAuthority`，不接收 `expected_mission_id`。
+- Proposal、Safety 决策与 Trace 不使用任务 ID；保留提案、决策和执行 ID 追踪单次动作。
+- 飞行动作服务启动时从 `--safety-json` 指定的新 JSON 文件读取 `MissionConstraints` 根对象；文件缺少、不可读或校验失败时不发布服务。
+- 删除任务 ID 匹配检查时，保留其他 Safety 检查和拒绝语义。迁移步骤见 [MX-4 结构变更单](../plans/MX-4-structure-change.md)。
+
 ## 安全约束
 
-`MissionConstraints` 保存动作提案不能修改的冻结安全限制：
+`MissionConstraints` 模型保存动作提案不能修改的安全限制：
 
 - 最大高度、最大水平速度和最大任务半径；
 - 最低电量；
@@ -39,9 +46,7 @@ M4-7 Safety Supervisor 已按固定顺序组合独立检查器，并通过 ROS �
 - 允许使用的 Skill；
 - 是否要求有效 Home；
 
-约束模型拒绝未知字段、重复 Skill、非法数值与无效围栏。现有旧入口仍持有
-`MissionContract`，从中取出 `constraints` 和 `mission_id` 交给 Gate；新 ROS 飞行动作服务
-必须另接可信会话上下文，不能把 Proposal 自报的 `mission_id` 当作可信来源。
+约束模型拒绝未知字段、重复 Skill、非法数值与无效围栏。现有旧入口仍持有 `MissionContract`，从中取出 `constraints` 和 `mission_id` 交给 Gate。V1 飞行动作服务使用新 JSON 文件提供系统限制，不增加逐任务限制。该文件不包含 `MissionContract` 的任务字段。
 
 ## 坐标约定
 
@@ -83,8 +88,8 @@ X1 已移除按 Skill 名触发的 Proposal 级审批分支；当前代码仍有
 - Skill 名是否存在且位于 `allowed_skills`；
 - Skill 参数是否能由对应的强类型参数模型解析。
 
-未知或未授权 Skill 返回 `SKILL_NOT_ALLOWED`。任务归属错误或参数错误返回
-`INVALID_SCHEMA`；多个错误按 `INVALID_SCHEMA -> SKILL_NOT_ALLOWED` 返回。
+未知或未授权 Skill 返回 `SKILL_NOT_ALLOWED`。当前任务 ID 不匹配或参数错误返回
+`INVALID_SCHEMA`；多个错误按 `INVALID_SCHEMA -> SKILL_NOT_ALLOWED` 返回。V1 移除任务 ID 匹配分支。
 
 `check_proposal_state()` 按固定顺序检查：
 
@@ -122,7 +127,7 @@ GoTo 生效，以 `WorldState.home_position_ned_m` 为圆心计算目标的水�
 `max_mission_radius_m` 返回 `MISSION_RADIUS_EXCEEDED`，缺少有效局部 Home 返回
 `HOME_REFERENCE_UNAVAILABLE`。PX4 `HomePosition.valid_lpos` 和局部坐标数值共同
 决定参考是否有效，不把 NED 原点直接当 Home。现有 Skill 无目标速度参数，
-`check_flight_envelope()` 尚无动作目标速度可检查；但 `check_controller_speed_limit()` 在 PX4 控制器限速高于冻结任务上限时会返回 `SPEED_ABOVE_ENVELOPE`。
+`check_flight_envelope()` 尚无动作目标速度可检查；但 `check_controller_speed_limit()` 在 PX4 控制器限速高于 `MissionConstraints` 上限时会返回 `SPEED_ABOVE_ENVELOPE`。
 
 ## 原因码
 
@@ -147,7 +152,7 @@ GoTo 生效，以 `WorldState.home_position_ned_m` 为圆心计算目标的水�
 已装配独立检查器、PX4 限速读取和旧任务入口的执行门。替身集成测试已覆盖旧入口经 Gate 派发、拒绝不派发与任务 ID 不匹配；ROS 入口工厂测试也覆盖 Gate 装配。但当前尚未完成：
 
 - 隔离旧 M3 调试脚本等可直接调用后端的路径；
-- 新 ROS-LLM 飞行原子动作服务中的可信会话来源与 Gate 装配；
+- 新 ROS-LLM 飞行原子动作服务与 Gate 装配；
 - Safety Gate 的 PX4/Gazebo 受控链验证。
 
 因此当前可以声明旧受控入口的总仲裁能确定性返回决定，不能声明目标生产链已经接入或所有执行路径都经过 Gate。

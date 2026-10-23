@@ -20,7 +20,7 @@
 
 ### 1.1 V1 目标状态与对齐范围
 
-V1 目标：初始观察 -> 人工任务 -> `RosAgent` 根据观察和动作库生成行为序列 -> `SequenceExecutor` 逐项执行、失败即停 -> 返回结果并更新观察 -> 等待人工反馈。任务成功须有状态证据，整条链须能在 PX4/Gazebo 测评。
+V1 目标：取得初始观察后等待人工输入。`RosAgent` 根据观察和动作库生成行为序列；`SequenceExecutor` 逐项执行，失败即停；系统返回结果并更新观察，再等待人工反馈。任务成功须有状态证据，整条链须能在 PX4/Gazebo 测评。
 
 **主调用拓扑与 ROS-LLM 相同**；V1 先验收 JSON 动作序列。行为树、状态机、代码执行和示教扩库未实现前，不声称全功能等价。V1 不包含无人自动续跑。
 
@@ -46,10 +46,10 @@ V1 目标：初始观察 -> 人工任务 -> `RosAgent` 根据观察和动作库�
 | 能力 | 当前代码/入口 | 可声称的边界 |
 |---|---|---|
 | 环境与状态 | `ros2_ws/`、`scripts/ros2_px4/`、`Px4WorldStateAdapter`、`WorldStateAggregator` | M1/M2 的 PX4/Gazebo、ROS 2 消息和状态聚合基础已建立；运行环境以 `manifests/environment.yaml` 为准 |
-| MX-3 有人入口与行为序列 | `ros_agent_srv.main()` -> `RosEnv.get_obs()` -> `observation_manager_node`；人工输入 -> `RosAgent.get_action()` -> `llm_node`；显式固定模式 -> `RosEnv.step()` -> `sequence_executor` -> 原子动作服务 -> 再观察 | 观察文本仍为标源占位，默认 LLM 明确失败；固定模式的两步调用由测试动作服务验证，生产飞行动作待 MX-4。证据见 [MX 计划](plans/MX.md) |
+| MX-3 有人入口与行为序列 | `ros_agent_srv.main()` 已装配 `RosEnv`、`RosAgent`、观察服务和行为执行器；逐边调用见第 4 节 | 观察文本仍为标源占位，默认 LLM 明确失败；固定模式的两步调用由测试动作服务验证，生产飞行动作待 MX-4。证据见 [MX 计划](plans/MX.md) |
 | 确定性飞行动作 | `flight_execution_backend.py`、PX4 Command/Offboard adapters、Skill Registry | Takeoff、GoTo、Hold、RTL、Land 有代码映射；M3 调试脚本有 SITL 验证记录，不等于 Agent 任务闭环 |
-| 任务主链 | `mission_cli.py -> MissionService.run()` | 只识别固定语句 `起飞到10米`；其他语句返回 `UNSUPPORTED`，无 LLM 或通用规划器 |
-| 执行前 Safety | `SafetyExecutionGate -> SafetySupervisor -> FlightExecutionBackend` | Gate 和检查器、决策 Trace 已实现，并有替身集成测试；正式任务入口的 Authority 当前传入 `UNKNOWN`，因此不能声称已在真实任务入口获批飞行 |
+| 旧任务入口 | `mission_cli.py` 调用 `MissionService.run()` | 只识别固定语句 `起飞到10米`；其他语句返回 `UNSUPPORTED`，无 LLM 或通用规划器 |
+| 执行前 Safety | `SafetyExecutionGate` 调用 `SafetySupervisor`，批准后调用 `FlightExecutionBackend` | Gate 和检查器、决策 Trace 已实现，并有替身集成测试；旧受控入口的 Authority 当前传入 `UNKNOWN`，因此不能声称已在生产入口获批飞行 |
 | 验证与恢复 | `MissionService._verify_placeholder()`、`_recover_placeholder()` | 验证只返回 `INCONCLUSIVE`，恢复只返回 `None`；没有任务成功判定、重新规划或安全收尾实现 |
 | Trace | `TraceRecorder`、`TraceReplay` | 可记录/回放 WorldState 与 SafetyDecision；完整 Episode 因果链尚未完成 |
 | 测评数据 | `agent_benchmark_sets/`、schema 与 validation scripts | Dev 用例存在；Validation/Frozen Test 目前只是预留 manifest，不得报告冻结测评指标 |
@@ -59,31 +59,23 @@ V1 目标：初始观察 -> 人工任务 -> `RosAgent` 根据观察和动作库�
 
 | 现有文件/组 | 决定 | 实施条件 |
 |---|---|---|
-| `src/flight_agent/workflows/mission/service.py`、其 `__init__.py` 导出 | **抽取逐步派发/失败停止逻辑后删除旧入口** | 先迁出 M4 Gate 装配；新 Agent 入口和 Behavior Executor 多步测试通过后，删除固定语句规划与旧恢复循环 |
-| `mission_flow_model.py` 中的 `MissionPlan`、`PlanStep`、`MissionRunResult` 及公共导出 | **保留并复核 `PlanStep`；删除旧任务级类型** | `PlanStep` 可作序列中一个飞行 Skill 的记录，不是 Skill 内部的 PX4 命令；它也不能直接代表所有 ROS-LLM 原子动作。迁移引用后删除 `MissionPlan`、`MissionRunResult`，保留 `MissionRequest`，复核 `VerificationResult` |
-| `mission_cli.py`、ROS 包的 `setup.py` | **改造** | 接入有人入口、Observation Manager 和 Behavior Executor；M3 直连调试入口独立保留 |
+| `src/flight_agent/workflows/mission/service.py`、其 `__init__.py` 导出 | **删除旧入口** | 新飞行动作服务接入 Gate、单轮主链验证通过后，按 [MX-4 步骤 6](plans/MX-4-structure-change.md#实施任务)删除固定语句规划与旧恢复循环 |
+| `mission_flow_model.py` 中的 `MissionRequest`、`MissionPlan`、`PlanStep`、`MissionRunResult` 及公共导出 | **删除旧任务级类型，复核 `PlanStep`** | V1 有人入口直接接收人工文本，不使用 `mission_id`；旧入口迁移后删除 `MissionRequest`、`MissionPlan`、`MissionRunResult`。`PlanStep` 仅在证明为最小闭环所需时保留；复核 `VerificationResult` |
+| `mission_cli.py`、ROS 包的 `setup.py` | **迁出 M3 调试入口后删除旧 CLI，调整入口注册** | 有人入口已由 `ros_agent_srv.main()` 提供；MX-4 新增飞行动作服务入口，旧 CLI 在单轮链验证后删除 |
 | `tests/integration/test_mission_flow.py`、ROS 包的 `test_mission_cli.py` | **删除旧测试，编写新集成测试** | 新测试从生产入口覆盖观察、人工输入、LLM、执行、再观察和失败停止 |
 | `components/skills/registry.py`、`skill_model.py` | **保留并扩展** | 动作定义补齐名称、类型、描述、输入/输出，供 prompt 与执行器共用 |
 | `components/vehicle/state/`、`Px4WorldStateAdapter` | **保留并接入观察层** | 新建统一观察入口；行为执行后再次读取 |
-| `components/safety/`、`safety_model.py`、PX4 Backend/adapters | **保留并复用** | 飞行原子动作继续调用现有 `SafetyExecutionGate -> SafetySupervisor -> Backend`；物理动作仍须经 Gate 和状态判定 |
+| `components/safety/`、`safety_model.py`、PX4 Backend/adapters | **保留并复用** | 飞行原子动作经 Gate 调用 Supervisor；只有批准命令才交给 Backend。逐边数据见第 4 节 |
 | `components/tracing/`、`agent_benchmark_sets/`、`eval_harness/` | **保留并扩展** | 提供审计与测评，不参与任务决策 |
 | 旧 `human_approval` 组件、模型、协议、Mock、公共导出及专属测试 | **删除** | 逐 Proposal 审批不在 V1；历史由 Git 保存，未来产品审批另行设计 |
-| 旧设计中的通用 `PreToolUse`/`PostToolUse`/`OnToolError`/`Stop` Hooks 与第二套 Tool Invocation 工作流 | **从目标架构删除** | 当前无对应生产模块；记录、超时、取消属于 Behavior Executor 或飞行原子动作内部，不新增第二套任务调度 |
+| 旧设计中的通用 `PreToolUse`/`PostToolUse`/`OnToolError`/`Stop` Hooks 与第二套 Tool Invocation 工作流 | **从目标架构删除** | 当前无对应生产模块；记录与超时由 Behavior Executor 或飞行原子动作处理，不新增第二套任务调度。V1 暂不实现取消协议 |
 
-`configs/safety.yaml` 按原决策保留为未生效的预留配置。表中删除是确定目标；代码迁移按实施条件分批进行。
+`configs/safety.yaml` 仍是未生效的预留配置。MX-4 另建安全 JSON，由 `--safety-json` 加载系统 `MissionConstraints`；两者不能混作已生效来源。表中删除是确定目标；代码迁移按实施条件分批进行。
 
 **两条实际入口必须分开报告：**
 
-```text
-受控任务入口：mission_cli --instruction/--contract-json
-  -> MissionService 固定语句占位 -> Proposal -> Gate -> Supervisor
-  -> 仅 APPROVE 才可 Backend.execute -> SkillResult -> INCONCLUSIVE
-  当前 Authority=UNKNOWN；不能把替身测试的批准说成 SITL 任务批准。
-
-M3 调试入口：mission_cli --legacy-m3-direct
-  -> 固定飞行脚本 -> PX4 ROS 2 Backend -> PX4
-  显式绕过任务 Gate，只作 M3 调试与回归，不进入自主安全测评。
-```
+- 旧受控任务入口 `mission_cli --instruction/--contract-json` 调用 `MissionService` 的固定语句逻辑，生成 Proposal 并经 Gate 仲裁；当前 Authority 为 `UNKNOWN`，不能把替身测试的批准说成 SITL 任务批准。
+- M3 调试入口 `mission_cli --legacy-m3-direct` 直接调用 PX4 ROS 2 Backend，显式绕过 Gate；只作 M3 调试与回归，不进入自主安全测评。删除旧 CLI 前须迁出这条独立调试路径。
 
 ## 3. 固定环境与仓库边界
 
@@ -176,22 +168,7 @@ tests/                                [已存在；迁移后新增主链集成�
 
 主链只采用 ROS-LLM 的一个环境步：`ros_agent_srv.main()` 先调用 `RosEnv.get_obs()`，等待人工输入，调用 `RosAgent.get_action(human, obs)` 得到行为，再调用 `RosEnv.step(action)`；`step()` 调用 Behavior Executor 执行行为并再次获取观察。下一轮仍由 `main()` 等待人输入。`RosEnv` 不调用 `RosAgent`，LLM 不在每个原子动作后自动重规划，执行器或 Runtime 也不建立另一套任务循环。以上是目标，不是现有实现。
 
-```text
-ros_agent_srv.main(): 创建 RosEnv，读取 AtomicActionLibrary 并创建 RosAgent
-main() -> RosEnv.get_obs() -> Observation Manager -> 当前观察
-main(): 等待人工输入
-main() -> RosAgent.get_action(人工输入, 当前观察) -> LLM -> 行为
-main() -> RosEnv.step(行为) -> SequenceExecutor.execute_behavior()
-  -> Atomic Action 1 -> ... -> Atomic Action N（首个失败即停止）
-  -> 行为成功/失败标志及消息
-RosEnv.step() -> RosEnv.get_obs() -> Observation Manager -> 新观察
-RosEnv.step() -> main(): (obs, reward, done, info) -> 等待下一轮人工输入
-
-飞行原子动作的内部：参数解析 -> Safety Gate -> PX4 Backend
-  -> 飞行状态完成判定 -> 原子动作成功/失败及输出。
-运行中安全监测和 PX4 failsafe 是飞行平台的独立安全路径，
-不选择下一行为，不改变上面的 Agent 环境步调度。
-```
+下方示例逐边标明模块间传递的数据。飞行动作内部的 Safety、Backend 和 Trace 边见 [MX-4 调用流](plans/MX-4-structure-change.md#调用流)。飞行状态完成判定属于 M6；MX-4 只保留 `INCONCLUSIVE` 事实。运行中安全监测和 PX4 failsafe 是独立安全路径，不选择下一行为。
 
 一次完整转换示例：用户说“去三号塔看看有没有异物，拍张照，然后回来”。此例**假设飞机已在空中**，三号塔位置库、相机和识别服务已经接入；这些视觉/位置服务当前尚未实现，不得把示例当作 V1 已有能力。方括号内是模块、配置源或外部参与者，箭头上是输出的数据对象；`RosAgent`、`SequenceExecutor`、`SafetyExecutionGate` 等是对应模块持有的类对象，不是链路中的数据对象。以下为目标链路，标为“待建”的模块尚未接入生产。
 
@@ -202,7 +179,7 @@ RosEnv.step() -> main(): (obs, reward, done, info) -> 等待下一轮人工输�
 [agent_comm.RosEnv] --ObservationRequest--> [observation_manager.observation_manager_node]
 [observation_manager.observation_manager_node] --ObservationResponse(当前观察)--> [agent_comm.RosEnv]
 [agent_comm.RosEnv] --当前观察--> [agent_comm.ros_agent_srv.main]
-[人工输入] --HumanInput("去三号塔看看有没有异物，拍张照，然后回来")--> [agent_comm.ros_agent_srv.main]
+[操作员] --HumanInput("去三号塔看看有没有异物，拍张照，然后回来")--> [agent_comm.ros_agent_srv.main]
 [agent_comm.ros_agent_srv.main] --HumanInput + 当前观察--> [agent_comm.RosAgent.get_action]
 [agent_comm.RosAgent.get_action] --LLMRequest(prompt)--> [agent_comm.llm_node]
 [agent_comm.llm_node] --LLMResponse(逐行 JSON 行为文本)--> [agent_comm.RosAgent.get_action]
@@ -222,12 +199,16 @@ RosEnv.step() -> main(): (obs, reward, done, info) -> 等待下一轮人工输�
 [flight_agent_ros.flight_atomic_action_server] --AtomicActionResponse(success, output=返航证据)--> [behavior_executor.sequence_executor]
 
 goto/rtl 共用的飞行原子动作内部链路（每次调用均执行）：
-[flight_agent_ros.flight_atomic_action_server] --AtomicActionProposal + MissionConstraints + expected_mission_id + execution_id--> [flight_agent.components.safety.execution_gate]
-[flight_agent.components.safety.execution_gate] --状态读取请求--> [flight_agent_ros.adapters.flight_execution_backend]
+[安全 JSON] --MissionConstraints--> [flight_agent_ros.flight_atomic_action_server.main]
+[flight_agent_ros.flight_atomic_action_server.main] --已校验的 MissionConstraints--> [flight_agent_ros.flight_atomic_action_server]
+[flight_agent_ros.flight_atomic_action_server] --AtomicActionProposal + MissionConstraints + execution_id--> [flight_agent.components.safety.execution_gate]
+[flight_agent.components.safety.execution_gate] --get_world_state()--> [flight_agent_ros.adapters.flight_execution_backend]
 [flight_agent_ros.adapters.flight_execution_backend] --WorldState--> [flight_agent.components.safety.execution_gate]
-[flight_agent.components.safety.execution_gate] --AtomicActionProposal + MissionConstraints + expected_mission_id + WorldState + ControlAuthority--> [flight_agent.components.safety.supervisor]
-[flight_agent.components.safety.supervisor] --SafetyDecision + flight_agent.contracts.AtomicAction(仅批准时)--> [flight_agent.components.safety.execution_gate]
-[flight_agent.components.safety.execution_gate] --flight_agent.contracts.AtomicAction(仅批准时)--> [flight_agent_ros.adapters.flight_execution_backend]
+[Authority reader] --ControlAuthority--> [flight_agent.components.safety.execution_gate]
+[flight_agent.components.safety.execution_gate] --AtomicActionProposal + MissionConstraints + WorldState + ControlAuthority--> [flight_agent.components.safety.supervisor]
+[flight_agent.components.safety.supervisor] --SafetyDecision + ApprovedSkillCommand(仅批准时)--> [flight_agent.components.safety.execution_gate]
+[flight_agent.components.safety.execution_gate] --AtomicActionProposal + SafetyDecision--> [TraceRecorder]
+[flight_agent.components.safety.execution_gate] --ApprovedSkillCommand(仅批准时)--> [flight_agent_ros.adapters.flight_execution_backend]
 [flight_agent_ros.adapters.flight_execution_backend] --SkillResult--> [flight_agent.components.safety.execution_gate]
 [flight_agent.components.safety.execution_gate] --SafetyDecision + SkillResult(拒绝时为 None)--> [flight_agent_ros.flight_atomic_action_server]
 
@@ -236,15 +217,19 @@ goto/rtl 共用的飞行原子动作内部链路（每次调用均执行）：
 [agent_comm.RosEnv] --ObservationRequest--> [observation_manager.observation_manager_node]
 [observation_manager.observation_manager_node] --ObservationResponse(新观察)--> [agent_comm.RosEnv]
 [agent_comm.RosEnv.step] --(obs, reward, done, info)；执行诊断仅作为飞行扩展保留--> [agent_comm.ros_agent_srv.main]
-[agent_comm.ros_agent_srv.main] --等待下一轮 HumanInput--> [人工输入]
+[操作员] --HumanInput(下一轮；行为完成并再观察后)--> [agent_comm.ros_agent_srv.main]
 ```
 
-`ExecuteBehaviorRequest` 是整个序列的输入，`AtomicActionRequest` 是逐项调用的输入；`service_name` 选择 ROS 服务，不是 `AtomicActionRequest` 的字段。目标 `flight_agent.contracts.AtomicAction` 是 Safety 批准后的内部执行凭证，不是 `rosllm_srvs/srv/AtomicAction` 的未审查请求。飞行 Gate 只收冻结的 `MissionConstraints`，不要求完整 `MissionContract`；`expected_mission_id` 必须来自可信会话上下文，不能从 LLM 输出的 `AtomicActionProposal.mission_id` 回填。现有旧入口由 `MissionContract.mission_id` 提供该值；新 ROS 服务尚无可信会话来源，接入前必须设计并验证，不能仅改图后宣称可飞。原子动作仅向下一项传递紧邻前一项的 `output`；巡检照片和识别结论要独立保存，才能在返航后从新观察中取回。若任一步失败，序列停止；运行中安全处置不依赖序列尾部的 `rtl`。
+`ExecuteBehaviorRequest` 是整个序列的输入，`AtomicActionRequest` 是逐项调用的输入；`service_name` 选择 ROS 服务，不是 `AtomicActionRequest` 的字段。目标 `flight_agent.contracts.AtomicAction` 是 Safety 批准后的内部执行凭证，不是 `rosllm_srvs/srv/AtomicAction` 的未审查请求。
+
+V1 不建立任务 ID 或任务会话。飞行动作服务以 `--safety-json` 指定新 JSON 文件，启动时加载系统 `MissionConstraints`；缺少或无效文件时不发布服务。Gate 使用这些限制、当前状态和 Authority 等证据。现有 Proposal、Gate 和 Supervisor 中的 `mission_id` / `expected_mission_id` 属旧实现，须按 [MX-4 结构变更单](plans/MX-4-structure-change.md)分批移除，不能从 Proposal 回填一个虚假的可信 ID。
+
+原子动作仅向下一项传递紧邻前一项的 `output`；巡检照片和识别结论要独立保存，才能在返航后从新观察中取回。若任一步失败，序列停止；运行中安全处置不依赖序列尾部的 `rtl`。
 
 ## 5. 安全不变量
 
 1. 普通物理动作没有对应的 `SafetyDecision=APPROVE` 与 `ApprovedSkillCommand` 不得派发；拒绝、读取失败、Trace 写入失败均不得误放行。
-2. State 过期、State ID 不匹配、Authority 不可信、PX4 failsafe/健康证据不满足、越围栏/高度/半径、任务限速与飞控限速不一致时拒绝；具体字段、顺序与原因码以 `src/flight_agent/contracts/` 和 `src/flight_agent/components/safety/` 的实现及 `contracts/` 的设计文档核对。
+2. State 过期、State ID 不匹配、Authority 不可信、PX4 failsafe/健康证据不满足、越围栏/高度/半径、系统限速与飞控限速不一致时拒绝；具体字段、顺序与原因码以 `src/flight_agent/contracts/` 和 `src/flight_agent/components/safety/` 的实现及 `contracts/` 的设计文档核对。
 3. 对 `UNKNOWN` Authority 必须维持拒绝。接入真实控制权来源前，不允许用测试注入的 `AGENT_ALLOWED` 宣称生产 Gate 可飞。
 4. Safety 拒绝、执行失败和不确定验证必须分别保留事实，不得映射为任务成功。`INCONCLUSIVE` 不是成功。
 5. 在途危险处置必须有独立于模型推理的路径；当前缺口写入 M7-S。任何测试不得用 PX4 原生 failsafe 覆盖这一缺口。
@@ -252,11 +237,11 @@ goto/rtl 共用的飞行原子动作内部链路（每次调用均执行）：
 
 ## 6. 契约与数据流
 
-现存核心模型位于 `src/flight_agent/contracts/models/`：`MissionRequest`、`MissionContract`、`MissionConstraints`、`WorldState`、`AtomicActionProposal`、`SafetyDecision`、`ApprovedSkillCommand`、`SkillResult`，以及旧主链的 `MissionPlan`、`PlanStep`、`MissionRunResult` 和占位 `VerificationResult`。`AtomicActionProposal` 是原 `SkillProposal` 的现名，仍表示 Safety 审查前的内部飞行动作提案。Gate 已改为接收 `MissionConstraints` 和独立的可信任务 ID；`FlightExecutionBackendProtocol` 是核心与 ROS 2 实现的调用边界。模型定义存在不代表相应完整业务已接入。
+现存核心模型位于 `src/flight_agent/contracts/models/`：`MissionRequest`、`MissionContract`、`MissionConstraints`、`WorldState`、`AtomicActionProposal`、`SafetyDecision`、`ApprovedSkillCommand`、`SkillResult`，以及旧主链的 `MissionPlan`、`PlanStep`、`MissionRunResult` 和占位 `VerificationResult`。`AtomicActionProposal` 是原 `SkillProposal` 的现名，仍表示 Safety 审查前的内部飞行动作提案。当前 Gate 仍接收 `MissionConstraints` 和旧的可信任务 ID；V1 目标移除后者。`FlightExecutionBackendProtocol` 是核心与 ROS 2 实现的调用边界。模型定义存在不代表相应完整业务已接入。
 
-**目标命名决定**：Agent 对象统一叫 `RosAgent`；对外动作统一叫 `AtomicAction`。当前内部模型 `ApprovedSkillCommand` 目标改名为 `flight_agent.contracts.AtomicAction`，表示 Safety 批准后的单次动作执行凭证；ROS 服务 `rosllm_srvs/srv/AtomicAction` 接收尚未审查的动作请求。两者同名但属于不同模块和信任边界，不得互换或因改名取消审批。现有代码、导出、测试和测评数据仍使用旧名；迁移须经契约评审并同步更新全部引用。
+**目标命名决定**：Agent 对象统一叫 `RosAgent`；对外动作统一叫 `AtomicAction`。当前内部模型 `ApprovedSkillCommand` 目标改名为 `flight_agent.contracts.AtomicAction`，表示 Safety 批准后的单次动作执行凭证；ROS 服务 `rosllm_srvs/srv/AtomicAction` 接收尚未审查的动作请求。两者同名但属于不同模块和信任边界，不得互换或因改名取消审批。MX-4 调用流沿用当前模型名；后续改名须经契约评审并同步代码、导出、测试和测评数据。
 
-目标 V1 每次动作至少关联任务、提案、决策、执行、状态验证 ID；Trace 要能按这些 ID 重建因果链。字段变动先审核契约和现有数据集，不以重命名作为功能完成证据。世界坐标、Home、NED/ENU 的实际映射以 `WorldState`、PX4 适配器和对应契约测试为准；不在规格中虚构未接入的状态来源。
+目标 V1 每次飞行动作至少关联提案、决策、执行和状态验证 ID；Trace 按这些 ID 重建动作因果链，不引入任务 ID。字段变动先审核契约和现有数据集，不以重命名作为功能完成证据。世界坐标、Home、NED/ENU 的实际映射以 `WorldState`、PX4 适配器和对应契约测试为准；不在规格中虚构未接入的状态来源。
 
 ## 7. 阶段与验收
 
@@ -289,7 +274,7 @@ goto/rtl 共用的飞行原子动作内部链路（每次调用均执行）：
 ## 10. 待确认事项
 
 1. 可信 Authority 的生产来源与失联时行为；这直接决定 M4 是否能受控批准并完成 SITL 验收。
-2. MX-1 已冻结四个 ROS 2 服务字段；后续节点批次仍需冻结内部固定对象，M5 再替换真实 LLM/行为解析。序列上限、动作失败后飞行安全处置条件，以及人工下一轮输入的触发方式仍待确认。
+2. 序列上限与动作失败后的飞行安全处置条件仍待确认；MX-4 的飞行动作 JSON 输入输出语义按 [结构变更单](plans/MX-4-structure-change.md)分批冻结。
 3. `PlanStep` 是否仍适合作为新行为序列中的飞行动作记录，需在第 2.1 节所列旧模块迁移前确认。
 4. M5/M7/M7-S 的实际工作量与时间表，待 M4 收口和第一条真实 Agent 纵向切片后重估；上游准确 commit 与序列执行对照测试待锁定。
 
