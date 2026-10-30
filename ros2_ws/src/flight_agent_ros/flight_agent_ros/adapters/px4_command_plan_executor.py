@@ -4,29 +4,13 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import dataclass
-from typing import Protocol
 
 from flight_agent_ros.adapters.px4_command_plan_mapper import Px4CommandPlan
 from flight_agent_ros.adapters.px4_vehicle_command_adapter import (
     Px4CommandAck,
     Px4CommandAckStatus,
-    VehicleCommandParameters,
+    Px4VehicleCommandAdapter,
 )
-
-
-class _VehicleCommandSubmitter(Protocol):
-    '''PX4 command transport shape consumed by the command-plan executor.'''
-
-    async def submit_and_wait(
-        self,
-        *,
-        execution_id: str,
-        command_id: int,
-        timeout_s: float,
-        parameters: VehicleCommandParameters | None = None,
-    ) -> Px4CommandAck: ...
-
-    async def cancel(self, execution_id: str) -> bool: ...
 
 
 @dataclass(frozen=True)
@@ -55,8 +39,8 @@ class Px4CommandPlanReceipt:
 class Px4CommandPlanExecutor:
     '''Submit PX4 commands serially under one Agent Flight Skill timeout budget.'''
 
-    def __init__(self, command_submitter: _VehicleCommandSubmitter) -> None:
-        '''Bind the executor to one serialized PX4 command transport.'''
+    def __init__(self, command_submitter: Px4VehicleCommandAdapter) -> None:
+        '''持有 PX4 命令适配器，按计划顺序提交命令。'''
 
         self._command_submitter = command_submitter
 
