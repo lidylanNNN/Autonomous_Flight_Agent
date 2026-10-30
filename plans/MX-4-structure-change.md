@@ -1,18 +1,19 @@
 # MX-4 结构变更单：飞行原子动作接线
 
-状态：步骤 1、2 已实施；步骤 3 待实施。生产飞行动作服务尚未接入。
+状态：步骤 1、2、3a、3b 已实施；3c 待实施。生产入口已发布 `hold`，其余飞行动作尚未接入。
 
 依据：[当前规格](../SPEC_DEV.md)、[MX 计划](MX.md)、[ROS-LLM 服务契约](../contracts/rosllm_services.md)、[Safety Contract](../contracts/safety_contract.md)。
 
 ## 现状
 
-- `sequence_executor` 已按动作名调用 `AtomicAction` 服务；仓库没有生产飞行动作服务。MX-3 的动作成功证据来自测试替身。
+- `sequence_executor` 已按动作名调用 `AtomicAction` 服务；生产入口已发布 `hold`，其余动作尚未接入。MX-3 的动作成功证据来自测试替身。
 - 旧 `MissionService` 已调用 `SafetyExecutionGate`。Gate 写入决策 Trace 后，仅对批准的命令调用 Backend。
 - 生产 Authority 目前为 `UNKNOWN`；旧受控任务入口不能获批飞行。
 - `ExecuteBehavior` 请求只有行为文本；`AtomicAction` 请求只有 `input` 和 `prev_output`。两者都没有任务 ID 或版本字段。
 - Safety 动作提案、Gate、Supervisor 和 Schema 已移除旧任务身份；旧任务模型与 CLI 仍待步骤 6 清理。
 - 旧 `mission_cli` 从 JSON 加载 `MissionContract`；新 `ros_agent_srv` 主链不使用它。
-- 已有可解析的系统限制示例 JSON 和独立加载函数；生产入口尚未调用该函数，飞行动作服务尚未建立。
+- 系统限制示例 JSON 和加载函数已接入 `flight_atomic_action_server` 入口；无效文件在发布 `hold` 前失败。
+- 当前入口为 `ros2 run flight_agent_ros flight_atomic_action_server --safety-json <JSON 文件路径> [--trace-path <路径>]`，仅发布 `hold`。
 - `sequence_executor` 默认单项等待 30 秒；Skill Registry 中 `rtl` 的 Backend 超时为 120 秒。
 - 显式 MX 固定行为把 `hold`、`rtl` 输入写成普通词，不符合飞行 Skill 参数格式。
 
@@ -29,8 +30,6 @@
 - 有人主循环继续按 ROS-LLM 的一轮一行为方式运行。V1 不使用 `mission_id`、任务会话、任务版本或逐任务限制。
 - MX-4 贯通一轮人工输入、行为执行、动作结果和再观察；本轮不实现动作取消。
 - MX-4 生产路径维持拒绝态；批准路径只用测试注入与 Backend 替身验证。
-
-拟议服务入口：`ros2 run flight_agent_ros flight_atomic_action_server --safety-json <JSON 文件路径> [--trace-path <路径>]`。该命令尚未实现。
 
 ## 约束
 
@@ -51,12 +50,12 @@
 - 生产入口从 `--safety-json` 指定的新 JSON 文件加载系统限制；装配函数接收已校验的 `MissionConstraints`、Trace 路径，以及可注入的 Backend、Authority reader 和速度源。生产入口只装配真实 Backend 与 `UNKNOWN` Authority。
 - 回调输入为 `AtomicAction.Request(input, prev_output)`；`input` 是单个 JSON 对象的文本，字段由现有 Skill 参数模型定义。
 - `prev_output` 仅保留上游传递事实，不解析为飞行目标或授权。
-- 非法 JSON 或非对象直接失败；JSON 对象内的非法参数交由 Gate 返回 `INVALID_SCHEMA` 决策并写 Trace。
+- 非法 JSON、非对象或 `hold` 缺少有效时长时，服务入口直接失败；其余非法参数交由 Gate 产生含 `INVALID_SCHEMA` 的决策并写 Trace。
 - 服务端用系统 `MissionConstraints` 和当前状态构造不含任务 ID 的 `AtomicActionProposal`，再调用已迁移的 `SafetyExecutionGate.submit()`。
 - `SafetyDecision=APPROVE` 且 `SkillResult.status=SUCCEEDED` 时，`AtomicAction.Response.success` 才为 `true`。
-- 拒绝、执行失败或异常返回失败；`output` 为 JSON 文本，保留已知的来源、Proposal/Decision/Execution ID、原因码、执行状态、失败码及 `verification=INCONCLUSIVE`。
+- 拒绝、执行失败或异常返回失败；`output` 字段与失败码见 [飞行动作服务契约](../contracts/rosllm_services.md#mx-4-飞行动作服务契约)。
 
-输入输出字段与失败语义须在代码批次前写入 [服务契约](../contracts/rosllm_services.md)。
+输入输出字段与失败语义以 [服务契约](../contracts/rosllm_services.md) 为准。
 
 ### 调用流
 
@@ -90,10 +89,11 @@
    - 2a. **已完成**：新建仅含 `MissionConstraints` 根字段的示例 JSON，并用模型解析测试验证字段和值。
    - 2b. **已完成**：增加独立加载函数及测试，覆盖缺少文件、读取失败、未知字段和无效限制；ROS 服务装配留到步骤 3。
 3. **接入飞行动作**
-   - 3a. 在 `contracts/rosllm_services.md` 冻结飞行动作的 JSON 参数、响应字段与失败语义。
-   - 3b. 新增 `flight_atomic_action_server` 入口和装配，先只接 `hold`；从 JSON 加载限制，经真实 ROS 服务进入 Gate，生产 Authority 固定 `UNKNOWN`。
-   - 3c. 在同一服务端逐个增加 `takeoff`、`goto`、`rtl`、`land`；每个动作单独一批。
-   - 3d. 从真实动作服务验证拒绝、Trace 和 Backend 零调用；批准与执行失败只用测试注入的 Authority 和 Backend 替身验证。
+   - 3a. **已完成**：在 `contracts/rosllm_services.md` 冻结飞行动作的 JSON 参数、响应字段与失败语义。
+   - 3b. **已完成**：新增 `flight_atomic_action_server` 入口和装配，先只接 `hold`；从 JSON 加载限制，经真实 ROS 服务进入 Gate，生产 Authority 固定 `UNKNOWN`。
+   - 3c. 调整执行身份：Gate 写入获批决策 Trace 后才分配 `execution_id`，创建绑定 `decision_id` 的命令；拒绝和 Trace 失败不分配。同步 Supervisor、Gate、飞行服务、旧调用方及契约。
+   - 3d. 在同一服务端逐个增加 `takeoff`、`goto`、`rtl`、`land`；每个动作单独一批。
+   - 3e. 从真实动作服务验证拒绝、Trace 和 Backend 零调用；批准与执行失败只用测试注入的 Authority 和 Backend 替身验证。
 4. **修正固定行为参数**
    - 将 `agent_comm.llm_node` 显式 MX 模式中的 `hold` 输入改为 `{"duration_s":1.0}`、`rtl` 输入改为 `{}`；同步入口测试。这一步单独一批。
 5. **协调执行器超时**
@@ -110,8 +110,9 @@
 - 步骤 2：验证合法 JSON 加载；缺少、不可读、未知字段及无效限制均失败。
 - 步骤 3a：核对 `.srv` 现有字段和文档中的请求、响应、失败字段一致。
 - 步骤 3b：构建 ROS 包；从真实 `hold` 服务进入 Gate，`UNKNOWN` 时 Trace 记录 `AUTHORITY_NOT_GRANTED` 且 Backend 零调用；缺少有效安全 JSON 时不发布服务。
-- 步骤 3c：每个新增动作分别验证合法参数、非法参数、拒绝响应及测试注入的批准/执行失败响应；外部 Backend 使用替身。
-- 步骤 3d：验证 Trace 写入失败时不派发、执行失败返回失败响应。
+- 步骤 3c：验证批准且 Trace 成功后才分配 `execution_id`；拒绝和 Trace 失败不分配、不派发，拒绝响应的 `execution_id=null`。运行 Safety、旧调用方和 ROS 服务回归。
+- 步骤 3d：每个新增动作分别验证合法参数、非法参数、拒绝响应及测试注入的批准/执行失败响应；外部 Backend 使用替身。
+- 步骤 3e：验证 Trace 写入失败时不派发、执行失败返回失败响应。
 - 步骤 4：验证固定 `hold` 和 `rtl` 文本符合 Skill 参数模型。
 - 步骤 5：验证长于旧 30 秒的合法等待边界，以及单项超时后不派发下一项。
 - 步骤 1 至 5 完成后：从生产装配路径验证一轮人工输入、动作执行、结果返回和再观察；标明替身 Backend 与固定 LLM 的边界。
@@ -146,6 +147,21 @@
 - 读取或校验失败时抛出含路径的 `ValueError`；没有默认回退。
 - 当前没有生产调用方；服务启动和 `--safety-json` 接线留在步骤 3。
 - 加载测试覆盖有效文件和五类无效输入，`6 passed`。
+
+## 3a 实施记录
+
+- 飞行动作沿用 `AtomicAction.srv` 字段；五个服务以服务名选择 Skill，`input` 是单个 JSON 对象文本。
+- 服务响应的 `output` 定义了固定 JSON 字段，以及输入失败、Safety 拒绝、执行失败和调用异常的返回方式。
+- 无取消接口的 MX-4 服务要求 `hold.duration_s` 为正数；现有 `HoldArgs` 仍允许省略或传 `null`，3b 须在服务入口拒绝。
+- 本批只修改服务契约和计划；生产飞行动作服务尚未建立。
+- 3a 验证：`.srv` 请求与响应字段一致；五个 JSON 示例通过现有参数模型；`git diff --check` 通过。
+
+## 3b 实施记录
+
+- `flight_atomic_action_server.main()` 先加载 `--safety-json`，再装配 PX4 适配器、Backend、Gate 与 `hold` ROS 服务。
+- `FlightAtomicActionServer` 持有已校验限制、Backend 和 Gate；服务回调校验有限时长，生成独立动作 ID，再提交 Gate。
+- 生产 Authority 固定 `UNKNOWN`。真实 ROS 服务测试中，`hold` 请求获得拒绝响应和 Safety Trace，Backend 执行次数为零。
+- 无效安全 JSON 在 ROS 初始化前失败。ROS 包构建通过；飞行服务、配置加载和旧 CLI 测试共 `13 passed`。
 
 ## 风险
 

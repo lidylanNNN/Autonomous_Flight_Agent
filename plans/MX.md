@@ -25,7 +25,7 @@ MX 在当前开发顺序中先于 M4 收口，再进入 M5；它不是新的任�
 | MX-1 接口与装配 | 已完成：四个服务字段与对象创建/持有关系已冻结，接口构建通过；[结构变更单](MX-1-structure-change.md)、[服务契约](../contracts/rosllm_services.md) | 现有包结构 | 1–1.5 天 |
 | MX-2 有人入口与观察 | 已完成：`ros_agent_srv.main` 创建并调用 `RosEnv`、`RosAgent`，经 `observation_manager_node` 读取 PX4 状态；文本占位显式标源，默认 LLM 明确失败；入口测试覆盖初始观察、人工输入和再观察。见[结构变更单](MX-2-structure-change.md) | MX-1 | 1–1.5 天 |
 | MX-3 行为序列 | 代码批次已完成：有人入口在显式固定模式下提取两步行为，调用 `sequence_executor` 并再观察；测试动作服务为替身，飞行动作待 MX-4。见[结构变更单](MX-3-structure-change.md) | MX-2 | 1–1.5 天 |
-| MX-4 飞行动作接线 | 迁移任务 ID、从新 JSON 加载系统限制、接入五个飞行动作；验证 `UNKNOWN` 拒绝和测试注入批准路径；分步实施见[结构变更单](MX-4-structure-change.md) | MX-1、MX-3 | 待重估 |
+| MX-4 飞行动作接线 | 1、2、3a、3b 已实施：新 JSON 限制接入 `hold` 服务，ROS 测试验证 `UNKNOWN` 拒绝、Trace 与 Backend 零执行；其余动作和测试注入批准路径待后续批次。见[结构变更单](MX-4-structure-change.md) | MX-1、MX-3 | 待重估 |
 | MX-5 主链回归与审计 | 在 MX-4 单轮集成后回归固定两步、失败停止、状态回读和 Trace；列出仍返回固定对象的内部步骤与未接入服务 | MX-2 至 MX-4 | 1–2 天 |
 
 ## 验收与后续
