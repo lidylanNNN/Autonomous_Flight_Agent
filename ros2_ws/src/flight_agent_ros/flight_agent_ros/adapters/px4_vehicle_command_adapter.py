@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Generator
+from contextlib import contextmanager
 from dataclasses import dataclass
 from enum import StrEnum
 from math import nan
@@ -109,6 +111,7 @@ class Px4VehicleCommandAdapter(Node):
         self._submission_lock = asyncio.Lock()
         self._agent_loop: asyncio.AbstractEventLoop | None = None
         self._agent_loop_lock = Lock()
+        self._active_calls = 0
         px4_qos = QoSProfile(depth=10, reliability=ReliabilityPolicy.BEST_EFFORT)
         self._command_publisher = self.create_publisher(
             VehicleCommand, '/fmu/in/vehicle_command', px4_qos
@@ -128,11 +131,10 @@ class Px4VehicleCommandAdapter(Node):
         timeout_s: float,
         parameters: VehicleCommandParameters | None = None,
     ) -> Px4CommandAck:
-        '''Publish one PX4 VehicleCommand and wait for its terminal ACK result.
+        '''串行发送命令并等待终态 ACK；空闲时允许更换调用方事件循环。
 
-        PX4's VehicleCommandAck has no caller-generated request ID. The adapter therefore
-        serializes submissions, so a terminal ACK for ``command_id`` maps to exactly one
-        ``execution_id``. This ACK remains transport evidence, not Skill completion evidence.
+        ACK 按 command_id 匹配当前等待，不能排除上一条同类命令的迟到 ACK。
+        返回值只代表命令确认，不代表飞行动作完成。
         '''
 
         if not execution_id:
@@ -142,58 +144,54 @@ class Px4VehicleCommandAdapter(Node):
         if timeout_s <= 0.0:
             raise ValueError('timeout_s must be positive')
 
-        self._bind_agent_loop()
-        async with self._submission_lock:
-            pending = _PendingCommand(
-                execution_id=execution_id,
-                command_id=command_id,
-                resolved=asyncio.Event(),
-            )
-            self._pending = pending
-            self._command_publisher.publish(
-                self._make_command(command_id, parameters or VehicleCommandParameters())
-            )
-            try:
-                await asyncio.wait_for(pending.resolved.wait(), timeout=timeout_s)
-            except TimeoutError:
-                return Px4CommandAck(
+        with self._command_lifecycle():
+            async with self._submission_lock:
+                pending = _PendingCommand(
                     execution_id=execution_id,
                     command_id=command_id,
-                    status=Px4CommandAckStatus.TIMED_OUT,
-                    ack_name=None,
-                    failure_code='PX4_ACK_TIMEOUT',
+                    resolved=asyncio.Event(),
                 )
-            finally:
-                if self._pending is pending:
-                    self._pending = None
+                self._pending = pending
+                try:
+                    self._command_publisher.publish(
+                        self._make_command(command_id, parameters or VehicleCommandParameters())
+                    )
+                    await asyncio.wait_for(pending.resolved.wait(), timeout=timeout_s)
+                except TimeoutError:
+                    return Px4CommandAck(
+                        execution_id=execution_id,
+                        command_id=command_id,
+                        status=Px4CommandAckStatus.TIMED_OUT,
+                        ack_name=None,
+                        failure_code='PX4_ACK_TIMEOUT',
+                    )
+                finally:
+                    if self._pending is pending:
+                        self._pending = None
 
-            assert pending.outcome is not None
-            return pending.outcome
+                assert pending.outcome is not None
+                return pending.outcome
 
     async def cancel(self, execution_id: str) -> bool:
-        '''End the local wait for a matching command; repeated or unknown cancels are inert.
+        '''结束匹配执行 ID 的本地等待；不代表停止 PX4 已接受的飞行动作。'''
 
-        This method does not claim to stop an already accepted PX4 flight action. The Skill
-        Backend must issue its explicit hold or safety-mode command in M3-4/M3-5.
-        '''
-
-        self._bind_agent_loop()
-        pending = self._pending
-        if (
-            pending is None
-            or pending.execution_id != execution_id
-            or pending.outcome is not None
-        ):
-            return False
-        pending.outcome = Px4CommandAck(
-            execution_id=execution_id,
-            command_id=pending.command_id,
-            status=Px4CommandAckStatus.CANCELLED,
-            ack_name=None,
-            failure_code='CANCELLED_BY_REQUEST',
-        )
-        pending.resolved.set()
-        return True
+        with self._command_lifecycle():
+            pending = self._pending
+            if (
+                pending is None
+                or pending.execution_id != execution_id
+                or pending.outcome is not None
+            ):
+                return False
+            pending.outcome = Px4CommandAck(
+                execution_id=execution_id,
+                command_id=pending.command_id,
+                status=Px4CommandAckStatus.CANCELLED,
+                ack_name=None,
+                failure_code='CANCELLED_BY_REQUEST',
+            )
+            pending.resolved.set()
+            return True
 
     def _handle_command_ack(self, message: VehicleCommandAck) -> None:
         '''Transfer an ACK from the ROS executor thread to the Agent event loop.'''
@@ -242,15 +240,23 @@ class Px4VehicleCommandAdapter(Node):
         )
         pending.resolved.set()
 
-    def _bind_agent_loop(self) -> None:
-        '''Bind mutable command lifecycle state to exactly one asyncio event loop.'''
+    @contextmanager
+    def _command_lifecycle(self) -> Generator[None, None, None]:
+        '''在空闲时切换循环；执行中和排队中的调用共同阻止跨循环切换。'''
 
         current_loop = asyncio.get_running_loop()
         with self._agent_loop_lock:
-            if self._agent_loop is None:
+            if self._agent_loop is not current_loop:
+                if self._active_calls:
+                    raise RuntimeError('adapter command lifecycle is active on another event loop')
                 self._agent_loop = current_loop
-            elif self._agent_loop is not current_loop:
-                raise RuntimeError('adapter command lifecycle belongs to another event loop')
+                self._submission_lock = asyncio.Lock()
+            self._active_calls += 1
+        try:
+            yield
+        finally:
+            with self._agent_loop_lock:
+                self._active_calls -= 1
 
     def _make_command(
         self, command_id: int, parameters: VehicleCommandParameters
