@@ -109,8 +109,8 @@ class Px4VehicleCommandAdapter(Node):
         self._source_component = source_component
         self._pending: _PendingCommand | None = None
         self._submission_lock = asyncio.Lock()
-        self._agent_loop: asyncio.AbstractEventLoop | None = None
-        self._agent_loop_lock = Lock()
+        self._bound_loop: asyncio.AbstractEventLoop | None = None
+        self._lifecycle_lock = Lock()
         self._active_calls = 0
         px4_qos = QoSProfile(depth=10, reliability=ReliabilityPolicy.BEST_EFFORT)
         self._command_publisher = self.create_publisher(
@@ -202,12 +202,12 @@ class Px4VehicleCommandAdapter(Node):
             result_param1=int(message.result_param1),
             result_param2=int(message.result_param2),
         )
-        with self._agent_loop_lock:
-            agent_loop = self._agent_loop
-        if agent_loop is None or agent_loop.is_closed():
+        with self._lifecycle_lock:
+            bound_loop = self._bound_loop
+        if bound_loop is None or bound_loop.is_closed():
             return
         try:
-            agent_loop.call_soon_threadsafe(self._resolve_command_ack, notification)
+            bound_loop.call_soon_threadsafe(self._resolve_command_ack, notification)
         except RuntimeError:
             return
 
@@ -245,17 +245,17 @@ class Px4VehicleCommandAdapter(Node):
         '''在空闲时切换循环；执行中和排队中的调用共同阻止跨循环切换。'''
 
         current_loop = asyncio.get_running_loop()
-        with self._agent_loop_lock:
-            if self._agent_loop is not current_loop:
+        with self._lifecycle_lock:
+            if self._bound_loop is not current_loop:
                 if self._active_calls:
                     raise RuntimeError('adapter command lifecycle is active on another event loop')
-                self._agent_loop = current_loop
+                self._bound_loop = current_loop
                 self._submission_lock = asyncio.Lock()
             self._active_calls += 1
         try:
             yield
         finally:
-            with self._agent_loop_lock:
+            with self._lifecycle_lock:
                 self._active_calls -= 1
 
     def _make_command(
