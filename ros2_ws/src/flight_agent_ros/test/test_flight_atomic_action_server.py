@@ -36,6 +36,7 @@ def action_arguments(service_name: str) -> dict[str, float]:
         'hold': {'duration_s': 1.0},
         'takeoff': {'target_altitude_m': 10.0},
         'rtl': {},
+        'land': {},
         'goto': {
             'north_m': 1.0, 'east_m': 2.0,
             'altitude_m': 10.0, 'acceptance_radius_m': 1.0,
@@ -80,7 +81,7 @@ class UnusedSpeedSource:
         raise AssertionError('UNKNOWN authority must not request speed approval')
 
 
-@pytest.mark.parametrize('service_name', ['hold', 'takeoff', 'goto', 'rtl'])
+@pytest.mark.parametrize('service_name', ['hold', 'takeoff', 'goto', 'rtl', 'land'])
 def test_action_ros_service_rejects_unknown_authority_and_records_trace(
     tmp_path: Path, service_name: str,
 ) -> None:
@@ -163,7 +164,7 @@ def test_action_ros_service_rejects_unknown_authority_and_records_trace(
                 {'north_m': 'bad'}, {'skill_name': 'land'},
             ]:
                 invalid_inputs.append((json.dumps(arguments | changes), None))
-        if service_name == 'rtl':
+        if service_name in {'rtl', 'land'}:
             invalid_inputs = [
                 ('{"target_altitude_m":10}', None), ('{"skill_name":"land"}', None),
                 ('[]', 'INVALID_INPUT'), ('{', 'INVALID_INPUT'),
@@ -215,9 +216,9 @@ def test_invalid_safety_json_prevents_ros_initialization(
 
 @pytest.mark.parametrize(('service_name', 'outcome'), [
     (name, outcome)
-    for name in ['hold', 'takeoff', 'goto', 'rtl']
+    for name in ['hold', 'takeoff', 'goto', 'rtl', 'land']
     for outcome in ['success', 'execution_failure', 'trace_failure']
-] + [('rtl', 'home_unavailable')])
+] + [('rtl', 'home_unavailable'), ('land', 'already_landed'), ('land', 'invalid_position')])
 def test_action_execution_identity_requires_recorded_approval(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, service_name: str, outcome: str,
 ) -> None:
@@ -233,11 +234,17 @@ def test_action_execution_identity_requires_recorded_approval(
             return 8.0
 
     trace_fails = outcome == 'trace_failure'
+    rejection_reason = {
+        'home_unavailable': 'HOME_REFERENCE_UNAVAILABLE',
+        'already_landed': 'INVALID_COMMAND_SEQUENCE',
+        'invalid_position': 'INVALID_VEHICLE_STATE',
+    }.get(outcome)
     example = Path(__file__).resolve().parents[4] / 'configs/flight_safety.example.json'
     state = RecordingBackend().state.model_copy(update={
         'home_valid': outcome != 'home_unavailable',
         'armed': service_name != 'takeoff',
-        'landed': service_name == 'takeoff',
+        'landed': service_name == 'takeoff' or outcome == 'already_landed',
+        'position_valid': outcome != 'invalid_position',
         'home_position_ned_m': Vector3(x=0.0, y=0.0, z=0.0),
         'position_ned_m': Vector3(x=0.0, y=0.0, z=0.0 if service_name == 'takeoff' else -2.0),
         'home_position_wgs84': GlobalPosition(latitude_deg=47.0, longitude_deg=8.0, altitude_amsl_m=500.0),
@@ -258,7 +265,7 @@ def test_action_execution_identity_requires_recorded_approval(
     monkeypatch.setattr(backend, 'execute', execute)
     if trace_fails:
         monkeypatch.setattr(TraceRecorder, 'record_safety_decision', Mock(side_effect=OSError('trace unavailable')))
-    if trace_fails or outcome == 'home_unavailable':
+    if trace_fails or rejection_reason is not None:
         allocate = Mock(side_effect=AssertionError('must not allocate'))
         monkeypatch.setattr('flight_agent.components.safety.execution_gate.uuid4', allocate)
     trace_path = tmp_path / 'safety.jsonl'
@@ -285,11 +292,11 @@ def test_action_execution_identity_requires_recorded_approval(
         )
         assert response is not None
         output = json.loads(response.output)
-        if trace_fails or outcome == 'home_unavailable':
+        if trace_fails or rejection_reason is not None:
             assert not response.success
             assert output['error_code'] == ('SERVICE_ERROR' if trace_fails else None)
-            if outcome == 'home_unavailable':
-                assert 'HOME_REFERENCE_UNAVAILABLE' in output['reason_codes']
+            if rejection_reason is not None:
+                assert rejection_reason in output['reason_codes']
                 record = json.loads(trace_path.read_text().strip())
                 assert record['decision']['decision_id'] == output['decision_id']
             assert output['execution_id'] is None

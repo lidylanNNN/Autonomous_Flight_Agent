@@ -1,19 +1,19 @@
 # MX-4 结构变更单：飞行原子动作接线
 
-状态：步骤 1、2、3a、3b、3c 已实施；3d 的 takeoff、goto、rtl 子批次已实施，land 子批次待实施。生产入口已发布 `hold`、`takeoff`、`goto`、`rtl`。
+状态：步骤 1、2、3a 至 3d 已实施；3e 待实施。生产入口已发布五个飞行动作服务。
 
 依据：[当前规格](../SPEC_DEV.md)、[MX 计划](MX.md)、[ROS-LLM 服务契约](../contracts/rosllm_services.md)、[Safety Contract](../contracts/safety_contract.md)。
 
 ## 现状
 
-- `sequence_executor` 已按动作名调用 `AtomicAction` 服务；生产入口已发布 `hold`、`takeoff`、`goto`、`rtl`，land 尚未接入。MX-3 的动作成功证据来自测试替身。
+- `sequence_executor` 已按动作名调用 `AtomicAction` 服务；生产入口已发布五个飞行动作服务。MX-3 的动作成功证据来自测试替身。
 - 旧 `MissionService` 已调用 `SafetyExecutionGate`。Gate 写入决策 Trace 后，仅对批准的命令调用 Backend。
 - 生产 Authority 目前为 `UNKNOWN`；旧受控任务入口不能获批飞行。
 - `ExecuteBehavior` 请求只有行为文本；`AtomicAction` 请求只有 `input` 和 `prev_output`。两者都没有任务 ID 或版本字段。
 - Safety 动作提案、Gate、Supervisor 和 Schema 已移除旧任务身份；旧任务模型与 CLI 仍待步骤 6 清理。
 - 旧 `mission_cli` 从 JSON 加载 `MissionContract`；新 `ros_agent_srv` 主链不使用它。
 - 系统限制示例 JSON 和加载函数已接入 `flight_atomic_action_server` 入口；无效文件在发布 `hold` 前失败。
-- 当前入口为 `ros2 run flight_agent_ros flight_atomic_action_server --safety-json <JSON 文件路径> [--trace-path <路径>]`，发布 `hold`、`takeoff`、`goto`、`rtl`。
+- 当前入口为 `ros2 run flight_agent_ros flight_atomic_action_server --safety-json <JSON 文件路径> [--trace-path <路径>]`，发布 `hold`、`takeoff`、`goto`、`rtl`、`land`。
 - `sequence_executor` 默认单项等待 30 秒；Skill Registry 中 `rtl` 的 Backend 超时为 120 秒。
 - 显式 MX 固定行为把 `hold`、`rtl` 输入写成普通词，不符合飞行 Skill 参数格式。
 
@@ -96,7 +96,7 @@
      - takeoff：**已完成**，复用 Gate 与响应封装。
      - goto：**已完成**，复用 Gate 的坐标参数与围栏检查。
      - rtl：**已完成**，复用 Gate 的空参数与 Home 检查。
-     - land：待实施.
+     - land：**已完成**，复用 Gate 的空参数与飞行状态检查。
    - 3e. 从真实动作服务验证拒绝、Trace 和 Backend 零调用；批准与执行失败只用测试注入的 Authority 和 Backend 替身验证。
 4. **修正固定行为参数**
    - 将 `agent_comm.llm_node` 显式 MX 模式中的 `hold` 输入改为 `{"duration_s":1.0}`、`rtl` 输入改为 `{}`；同步入口测试。这一步单独一批。
@@ -213,6 +213,15 @@
 - 生产权限仍为 `UNKNOWN`；测试批准路径使用权限、限速来源和 Backend 替身，不代表真实返航或 SITL 验证。
 - 服务测试 `18 passed`；相关 ROS 模块回归共 `38 passed`。colcon 构建、Ruff 与 `git diff --check` 通过。
 - land 待下一子批次；执行器 30 秒等待与 RTL 120 秒预算的协调保留在步骤 5。
+
+## 3d 实施记录：land
+
+- 现有节点新增 `land` 服务，接收 `{}` 并复用 Gate、执行 ID 与响应封装；无新增节点或模型。
+- 真实 ROS 服务测试覆盖无效 JSON、额外字段、权限拒绝、替身成功/失败与 Trace 失败。
+- 测试授权为允许时，已在地面或位置无效仍须拒绝，记录决策且不分配执行 ID、不派发。
+- 五个动作服务均已接入；生产权限仍为 `UNKNOWN`。批准路径的权限、参数源和 Backend 是测试替身，不代表真实降落或 SITL 验证。
+- 服务测试 `24 passed`；相关 ROS 模块回归共 `44 passed`。colcon 构建、Ruff 与 `git diff --check` 通过。
+- 下一批为 3e 综合失败覆盖；固定行为参数、执行器超时和旧入口清理仍按后续步骤实施。
 
 ## 风险
 
