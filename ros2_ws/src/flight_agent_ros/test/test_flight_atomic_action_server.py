@@ -19,8 +19,12 @@ from rclpy.executors import MultiThreadedExecutor
 from rosllm_srvs.srv import AtomicAction
 
 from flight_agent.contracts import (
+    ApprovedSkillCommand,
     ControlAuthority,
     GlobalPosition,
+    SkillExecutionStatus,
+    SkillName,
+    SkillResult,
     Vector3,
     WorldState,
 )
@@ -63,9 +67,11 @@ class UnusedSpeedSource:
         raise AssertionError('UNKNOWN authority must not request speed approval')
 
 
-def test_hold_ros_service_rejects_unknown_authority_and_records_trace(
-    tmp_path: Path,
+@pytest.mark.parametrize('service_name', ['hold', 'takeoff'])
+def test_action_ros_service_rejects_unknown_authority_and_records_trace(
+    tmp_path: Path, service_name: str,
 ) -> None:
+    '''从真实 ROS 服务验证权限拒绝、参数拒绝与 Trace，禁止派发。'''
     example = Path(__file__).resolve().parents[4] / 'configs/flight_safety.example.json'
     constraints = load_safety_constraints(example)
     backend = RecordingBackend()
@@ -80,7 +86,7 @@ def test_hold_ros_service_rejects_unknown_authority_and_records_trace(
         speed_limit_source=UnusedSpeedSource(),
     )
     client_node = rclpy.create_node('flight_hold_client')
-    client = client_node.create_client(AtomicAction, 'hold')
+    client = client_node.create_client(AtomicAction, service_name)
     executor = MultiThreadedExecutor(num_threads=2)
     executor.add_node(server)
     executor.add_node(client_node)
@@ -89,7 +95,10 @@ def test_hold_ros_service_rejects_unknown_authority_and_records_trace(
     try:
         assert client.wait_for_service(timeout_sec=2.0)
         result = client.call(
-            AtomicAction.Request(input='{"duration_s":1.0}', prev_output='prior-result'),
+            AtomicAction.Request(
+                input=json.dumps({'duration_s': 1.0} if service_name == 'hold' else {'target_altitude_m': 10.0}),
+                prev_output='prior-result',
+            ),
             timeout_sec=2.0,
         )
         assert result is not None
@@ -121,13 +130,31 @@ def test_hold_ros_service_rejects_unknown_authority_and_records_trace(
         assert 'INVALID_SCHEMA' in json.loads(invalid_fields.output)['reason_codes']
         assert len(trace_path.read_text().splitlines()) == 2
 
-        invalid = client.call(
-            AtomicAction.Request(input='{}', prev_output=''), timeout_sec=2.0
+        invalid_inputs = (
+            [('{}', 'INVALID_INPUT'), ('[]', 'INVALID_INPUT'), ('{', 'INVALID_INPUT')]
+            if service_name == 'hold' else [
+                ('{}', None), ('{"target_altitude_m":0}', None),
+                ('{"target_altitude_m":-1}', None), ('{"target_altitude_m":"bad"}', None),
+                ('{"target_altitude_m":10,"skill_name":"land"}', None),
+                ('[]', 'INVALID_INPUT'), ('{', 'INVALID_INPUT'),
+            ]
         )
-        assert invalid is not None
-        assert invalid.success is False
-        assert json.loads(invalid.output)['error_code'] == 'INVALID_INPUT'
-        assert len(trace_path.read_text().splitlines()) == 2
+        trace_count = 2
+        for payload, error_code in invalid_inputs:
+            invalid = client.call(
+                AtomicAction.Request(input=payload, prev_output=''), timeout_sec=2.0,
+            )
+            assert invalid is not None and not invalid.success
+            invalid_output = json.loads(invalid.output)
+            assert invalid_output['error_code'] == error_code
+            assert invalid_output['execution_id'] is None
+            if error_code is None:
+                assert 'INVALID_SCHEMA' in invalid_output['reason_codes']
+                trace_count += 1
+            else:
+                assert invalid_output['decision_id'] is None
+            assert len(trace_path.read_text().splitlines()) == trace_count
+        assert backend.executions == 0
     finally:
         executor.shutdown()
         thread.join(timeout=5.0)
@@ -147,9 +174,10 @@ def test_invalid_safety_json_prevents_ros_initialization(
     assert not rclpy.ok()
 
 
-@pytest.mark.parametrize('trace_fails', [False, True])
-def test_hold_execution_identity_requires_recorded_approval(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, trace_fails: bool,
+@pytest.mark.parametrize('service_name', ['hold', 'takeoff'])
+@pytest.mark.parametrize('outcome', ['success', 'execution_failure', 'trace_failure'])
+def test_action_execution_identity_requires_recorded_approval(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, service_name: str, outcome: str,
 ) -> None:
     '''通过真实 ROS 服务验证批准后的 ID 返回，以及 Trace 失败时零分配零派发。'''
     from unittest.mock import AsyncMock, Mock
@@ -162,13 +190,29 @@ def test_hold_execution_identity_requires_recorded_approval(
             '''仅为测试提供可信限速读数。'''
             return 8.0
 
+    trace_fails = outcome == 'trace_failure'
     example = Path(__file__).resolve().parents[4] / 'configs/flight_safety.example.json'
     state = RecordingBackend().state.model_copy(update={
         'home_valid': True,
+        'armed': service_name != 'takeoff',
+        'landed': service_name == 'takeoff',
+        'home_position_ned_m': Vector3(x=0.0, y=0.0, z=0.0),
+        'position_ned_m': Vector3(x=0.0, y=0.0, z=0.0 if service_name == 'takeoff' else -2.0),
         'home_position_wgs84': GlobalPosition(latitude_deg=47.0, longitude_deg=8.0, altitude_amsl_m=500.0),
     })
     backend = MockFlightExecutionBackend(state)
-    execute = AsyncMock(wraps=backend.execute)
+    original_execute = backend.execute
+
+    async def execute_result(command: ApprovedSkillCommand) -> SkillResult:
+        '''保留模拟执行，仅在指定场景返回失败结果。'''
+        result = await original_execute(command)
+        if outcome == 'execution_failure':
+            return result.model_copy(update={
+                'status': SkillExecutionStatus.FAILED, 'failure_code': 'TEST_EXECUTION_FAILURE',
+            })
+        return result
+
+    execute = AsyncMock(side_effect=execute_result)
     monkeypatch.setattr(backend, 'execute', execute)
     if trace_fails:
         monkeypatch.setattr(TraceRecorder, 'record_safety_decision', Mock(side_effect=OSError('trace unavailable')))
@@ -182,7 +226,7 @@ def test_hold_execution_identity_requires_recorded_approval(
         speed_limit_source=FixedSpeedSource(),
     )
     client_node = rclpy.create_node('hold_identity_client')
-    client = client_node.create_client(AtomicAction, 'hold')
+    client = client_node.create_client(AtomicAction, service_name)
     executor = MultiThreadedExecutor(num_threads=2)
     executor.add_node(server)
     executor.add_node(client_node)
@@ -191,7 +235,10 @@ def test_hold_execution_identity_requires_recorded_approval(
     try:
         assert client.wait_for_service(timeout_sec=2.0)
         response = client.call(
-            AtomicAction.Request(input='{"duration_s":1.0}', prev_output=''), timeout_sec=2.0,
+            AtomicAction.Request(
+                input=json.dumps({'duration_s': 1.0} if service_name == 'hold' else {'target_altitude_m': 10.0}),
+                prev_output='{"skill_name":"land","target_altitude_m":999}',
+            ), timeout_sec=2.0,
         )
         assert response is not None
         output = json.loads(response.output)
@@ -202,8 +249,15 @@ def test_hold_execution_identity_requires_recorded_approval(
             allocate.assert_not_called()
             execute.assert_not_called()
         else:
-            assert response.success
+            assert response.success is (outcome == 'success')
+            assert output['error_code'] is None
+            assert output['execution_status'] == ('SUCCEEDED' if outcome == 'success' else 'FAILED')
+            assert output['failure_code'] == (None if outcome == 'success' else 'TEST_EXECUTION_FAILURE')
+            execute.assert_awaited_once()
             command = execute.call_args.args[0]
+            assert command.skill_name is SkillName(service_name)
+            if service_name == 'takeoff':
+                assert command.arguments.target_altitude_m == 10.0
             assert output['execution_id'] == command.execution_id
             assert output['decision_id'] == command.decision_id
             assert output['proposal_id'] == command.proposal_id

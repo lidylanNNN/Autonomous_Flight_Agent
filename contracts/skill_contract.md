@@ -53,7 +53,7 @@ approved_state_id
 
 M3 调试脚本可直接构造该命令；这条显式调试路径不证明 Safety Gate 已覆盖所有执行入口。
 受控入口由 Gate 创建命令，身份生成顺序见 [Safety 契约](safety_contract.md#safety-decision)。
-`AtomicActionProposal` 不得越过 Gate 直接交给 Backend。当前飞行动作服务已接入 `hold`。
+`AtomicActionProposal` 不得越过 Gate 直接交给 Backend。当前已接入服务范围见 [SPEC_DEV](../SPEC_DEV.md#2-当前实现基线)。
 
 Backend 的 `cancel(execution_id)` 使用已分配的执行 ID 定位在途命令；MX-4 飞行动作服务不暴露取消接口。
 
