@@ -35,6 +35,7 @@ def action_arguments(service_name: str) -> dict[str, float]:
     return {
         'hold': {'duration_s': 1.0},
         'takeoff': {'target_altitude_m': 10.0},
+        'rtl': {},
         'goto': {
             'north_m': 1.0, 'east_m': 2.0,
             'altitude_m': 10.0, 'acceptance_radius_m': 1.0,
@@ -79,7 +80,7 @@ class UnusedSpeedSource:
         raise AssertionError('UNKNOWN authority must not request speed approval')
 
 
-@pytest.mark.parametrize('service_name', ['hold', 'takeoff', 'goto'])
+@pytest.mark.parametrize('service_name', ['hold', 'takeoff', 'goto', 'rtl'])
 def test_action_ros_service_rejects_unknown_authority_and_records_trace(
     tmp_path: Path, service_name: str,
 ) -> None:
@@ -162,6 +163,11 @@ def test_action_ros_service_rejects_unknown_authority_and_records_trace(
                 {'north_m': 'bad'}, {'skill_name': 'land'},
             ]:
                 invalid_inputs.append((json.dumps(arguments | changes), None))
+        if service_name == 'rtl':
+            invalid_inputs = [
+                ('{"target_altitude_m":10}', None), ('{"skill_name":"land"}', None),
+                ('[]', 'INVALID_INPUT'), ('{', 'INVALID_INPUT'),
+            ]
         trace_count = 2
         for payload, error_code in invalid_inputs:
             invalid = client.call(
@@ -207,8 +213,11 @@ def test_invalid_safety_json_prevents_ros_initialization(
     assert not rclpy.ok()
 
 
-@pytest.mark.parametrize('service_name', ['hold', 'takeoff', 'goto'])
-@pytest.mark.parametrize('outcome', ['success', 'execution_failure', 'trace_failure'])
+@pytest.mark.parametrize(('service_name', 'outcome'), [
+    (name, outcome)
+    for name in ['hold', 'takeoff', 'goto', 'rtl']
+    for outcome in ['success', 'execution_failure', 'trace_failure']
+] + [('rtl', 'home_unavailable')])
 def test_action_execution_identity_requires_recorded_approval(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, service_name: str, outcome: str,
 ) -> None:
@@ -226,7 +235,7 @@ def test_action_execution_identity_requires_recorded_approval(
     trace_fails = outcome == 'trace_failure'
     example = Path(__file__).resolve().parents[4] / 'configs/flight_safety.example.json'
     state = RecordingBackend().state.model_copy(update={
-        'home_valid': True,
+        'home_valid': outcome != 'home_unavailable',
         'armed': service_name != 'takeoff',
         'landed': service_name == 'takeoff',
         'home_position_ned_m': Vector3(x=0.0, y=0.0, z=0.0),
@@ -249,6 +258,7 @@ def test_action_execution_identity_requires_recorded_approval(
     monkeypatch.setattr(backend, 'execute', execute)
     if trace_fails:
         monkeypatch.setattr(TraceRecorder, 'record_safety_decision', Mock(side_effect=OSError('trace unavailable')))
+    if trace_fails or outcome == 'home_unavailable':
         allocate = Mock(side_effect=AssertionError('must not allocate'))
         monkeypatch.setattr('flight_agent.components.safety.execution_gate.uuid4', allocate)
     trace_path = tmp_path / 'safety.jsonl'
@@ -275,9 +285,13 @@ def test_action_execution_identity_requires_recorded_approval(
         )
         assert response is not None
         output = json.loads(response.output)
-        if trace_fails:
+        if trace_fails or outcome == 'home_unavailable':
             assert not response.success
-            assert output['error_code'] == 'SERVICE_ERROR'
+            assert output['error_code'] == ('SERVICE_ERROR' if trace_fails else None)
+            if outcome == 'home_unavailable':
+                assert 'HOME_REFERENCE_UNAVAILABLE' in output['reason_codes']
+                record = json.loads(trace_path.read_text().strip())
+                assert record['decision']['decision_id'] == output['decision_id']
             assert output['execution_id'] is None
             allocate.assert_not_called()
             execute.assert_not_called()

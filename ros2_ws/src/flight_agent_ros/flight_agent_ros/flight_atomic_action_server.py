@@ -55,7 +55,7 @@ def _output() -> dict[str, object]:
 
 
 class FlightAtomicActionServer(Node):
-    '''持有 hold、takeoff、goto 服务、固定限制及 Safety Gate。'''
+    '''持有 hold、takeoff、goto、rtl 服务、固定限制及 Safety Gate。'''
 
     def __init__(
         self,
@@ -72,6 +72,7 @@ class FlightAtomicActionServer(Node):
         self.create_service(AtomicAction, 'hold', self.hold)
         self.create_service(AtomicAction, 'takeoff', self.takeoff)
         self.create_service(AtomicAction, 'goto', self.goto)
+        self.create_service(AtomicAction, 'rtl', self.rtl)
 
     def hold(
         self, request: AtomicAction.Request, response: AtomicAction.Response
@@ -90,6 +91,12 @@ class FlightAtomicActionServer(Node):
     ) -> AtomicAction.Response:
         '''按 goto 服务名提交局部坐标目标，参数和围栏交给 Gate 校验。'''
         return self._handle_action(SkillName.GOTO, request, response)
+
+    def rtl(
+        self, request: AtomicAction.Request, response: AtomicAction.Response
+    ) -> AtomicAction.Response:
+        '''按 rtl 服务名提交返航提案，由 Gate 检查空参数和 Home 条件。'''
+        return self._handle_action(SkillName.RTL, request, response)
 
     def _handle_action(
         self,
