@@ -217,7 +217,10 @@ def test_invalid_safety_json_prevents_ros_initialization(
 @pytest.mark.parametrize(('service_name', 'outcome'), [
     (name, outcome)
     for name in ['hold', 'takeoff', 'goto', 'rtl', 'land']
-    for outcome in ['success', 'execution_failure', 'trace_failure']
+    for outcome in [
+        'success', 'execution_failure', 'trace_failure',
+        'initial_state_error', 'gate_state_error', 'execution_error',
+    ]
 ] + [('rtl', 'home_unavailable'), ('land', 'already_landed'), ('land', 'invalid_position')])
 def test_action_execution_identity_requires_recorded_approval(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, service_name: str, outcome: str,
@@ -234,6 +237,7 @@ def test_action_execution_identity_requires_recorded_approval(
             return 8.0
 
     trace_fails = outcome == 'trace_failure'
+    state_fails = outcome in {'initial_state_error', 'gate_state_error'}
     rejection_reason = {
         'home_unavailable': 'HOME_REFERENCE_UNAVAILABLE',
         'already_landed': 'INVALID_COMMAND_SEQUENCE',
@@ -250,10 +254,20 @@ def test_action_execution_identity_requires_recorded_approval(
         'home_position_wgs84': GlobalPosition(latitude_deg=47.0, longitude_deg=8.0, altitude_amsl_m=500.0),
     })
     backend = MockFlightExecutionBackend(state)
+    if state_fails:
+        reads = [OSError('state unavailable')] if outcome == 'initial_state_error' else [
+            state, OSError('state unavailable'),
+        ]
+        monkeypatch.setattr(backend, 'get_world_state', AsyncMock(side_effect=reads))
     original_execute = backend.execute
 
     async def execute_result(command: ApprovedSkillCommand) -> SkillResult:
-        '''保留模拟执行，仅在指定场景返回失败结果。'''
+        '''执行前确认批准决策已落盘，再返回模拟结果或注入异常。'''
+        record = json.loads(trace_path.read_text().strip())
+        assert record['decision']['decision'] == 'APPROVE'
+        assert record['decision']['decision_id'] == command.decision_id
+        if outcome == 'execution_error':
+            raise OSError('execution unavailable')
         result = await original_execute(command)
         if outcome == 'execution_failure':
             return result.model_copy(update={
@@ -265,7 +279,7 @@ def test_action_execution_identity_requires_recorded_approval(
     monkeypatch.setattr(backend, 'execute', execute)
     if trace_fails:
         monkeypatch.setattr(TraceRecorder, 'record_safety_decision', Mock(side_effect=OSError('trace unavailable')))
-    if trace_fails or rejection_reason is not None:
+    if trace_fails or state_fails or rejection_reason is not None:
         allocate = Mock(side_effect=AssertionError('must not allocate'))
         monkeypatch.setattr('flight_agent.components.safety.execution_gate.uuid4', allocate)
     trace_path = tmp_path / 'safety.jsonl'
@@ -292,9 +306,9 @@ def test_action_execution_identity_requires_recorded_approval(
         )
         assert response is not None
         output = json.loads(response.output)
-        if trace_fails or rejection_reason is not None:
+        if trace_fails or state_fails or rejection_reason is not None:
             assert not response.success
-            assert output['error_code'] == ('SERVICE_ERROR' if trace_fails else None)
+            assert output['error_code'] == ('SERVICE_ERROR' if trace_fails or state_fails else None)
             if rejection_reason is not None:
                 assert rejection_reason in output['reason_codes']
                 record = json.loads(trace_path.read_text().strip())
@@ -302,6 +316,19 @@ def test_action_execution_identity_requires_recorded_approval(
             assert output['execution_id'] is None
             allocate.assert_not_called()
             execute.assert_not_called()
+            if state_fails or trace_fails:
+                assert output['decision_id'] is None
+                assert not trace_path.exists()
+        elif outcome == 'execution_error':
+            assert not response.success
+            assert output['error_code'] == 'SERVICE_ERROR'
+            assert output['execution_status'] is None
+            assert output['execution_id'] is None  # Gate 抛异常，服务未取得执行结果
+            execute.assert_awaited_once()
+            command = execute.call_args.args[0]
+            record = json.loads(trace_path.read_text().strip())
+            assert record['decision']['decision_id'] == command.decision_id
+            assert record['proposal']['proposal_id'] == output['proposal_id']
         else:
             assert response.success is (outcome == 'success')
             assert output['error_code'] is None

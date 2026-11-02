@@ -1,6 +1,6 @@
 # MX-4 结构变更单：飞行原子动作接线
 
-状态：步骤 1、2、3a 至 3d 已实施；3e 待实施。生产入口已发布五个飞行动作服务。
+状态：步骤 1、2、3a 至 3e 已实施；步骤 4 待实施。生产入口已发布五个飞行动作服务。
 
 依据：[当前规格](../SPEC_DEV.md)、[MX 计划](MX.md)、[ROS-LLM 服务契约](../contracts/rosllm_services.md)、[Safety Contract](../contracts/safety_contract.md)。
 
@@ -97,7 +97,7 @@
      - goto：**已完成**，复用 Gate 的坐标参数与围栏检查。
      - rtl：**已完成**，复用 Gate 的空参数与 Home 检查。
      - land：**已完成**，复用 Gate 的空参数与飞行状态检查。
-   - 3e. 从真实动作服务验证拒绝、Trace 和 Backend 零调用；批准与执行失败只用测试注入的 Authority 和 Backend 替身验证。
+   - 3e. **已完成**：从真实动作服务验证拒绝、Trace 和 Backend 零调用；批准与执行失败只用测试注入的 Authority 和 Backend 替身验证。
 4. **修正固定行为参数**
    - 将 `agent_comm.llm_node` 显式 MX 模式中的 `hold` 输入改为 `{"duration_s":1.0}`、`rtl` 输入改为 `{}`；同步入口测试。这一步单独一批。
 5. **协调执行器超时**
@@ -222,6 +222,16 @@
 - 五个动作服务均已接入；生产权限仍为 `UNKNOWN`。批准路径的权限、参数源和 Backend 是测试替身，不代表真实降落或 SITL 验证。
 - 服务测试 `24 passed`；相关 ROS 模块回归共 `44 passed`。colcon 构建、Ruff 与 `git diff --check` 通过。
 - 下一批为 3e 综合失败覆盖；固定行为参数、执行器超时和旧入口清理仍按后续步骤实施。
+
+## 3e 实施记录
+
+- 本批只补测试与验收记录，无生产代码、接口、节点或模型变化。
+- 五个动作均通过真实 ROS 客户端调用生产装配的服务和 Gate；权限、参数源和 Backend 是替身，不代表 PX4/SITL 验证。
+- 复用 3d 的拒绝、批准、执行失败、Trace 失败测试；补充服务首次读取状态失败、Gate 再次读取状态失败、Backend 执行抛异常。
+- 状态读取失败与 Trace 失败均验证零执行 ID 分配、零 Backend 派发；执行替身开始时检查批准决策已落盘。
+- Backend 抛异常时返回 `SERVICE_ERROR`；Gate 未返回结果，服务未取得执行 ID，因此响应仍为 `null`，不表示没有开始执行。响应语义见 [服务契约](../contracts/rosllm_services.md#失败语义)。
+- 服务测试覆盖 39 个参数化用例；相关 ROS 回归 `59 passed`，核心测试 `171 passed`；Ruff、`git diff --check` 通过。
+- 下一步修正显式 MX 固定行为的动作 JSON 参数；尚未完成单轮主链集成。
 
 ## 风险
 
