@@ -52,11 +52,10 @@ approved_state_id
 ```
 
 M3 调试脚本可直接构造该命令；这条显式调试路径不证明 Safety Gate 已覆盖所有执行入口。
-当前旧受控任务入口通过 `SafetySupervisor.prepare_command()` 在 `APPROVE` 后创建命令，
-`AtomicActionProposal` 不得越过 Gate 直接交给 Backend。目标 ROS 飞行原子动作服务尚未接入。
+受控入口由 Gate 创建命令，身份生成顺序见 [Safety 契约](safety_contract.md#safety-decision)。
+`AtomicActionProposal` 不得越过 Gate 直接交给 Backend。当前飞行动作服务已接入 `hold`。
 
-调用方在执行开始前分配 `execution_id`，并发的 `cancel(execution_id)` 才能找到
-正在执行的命令。
+Backend 的 `cancel(execution_id)` 使用已分配的执行 ID 定位在途命令；MX-4 飞行动作服务不暴露取消接口。
 
 ## 执行结果
 

@@ -73,7 +73,7 @@ class FlightAtomicActionServer(Node):
     def hold(
         self, request: AtomicAction.Request, response: AtomicAction.Response
     ) -> AtomicAction.Response:
-        '''Validate the finite hold request, then enter the safety gate.'''
+        '''校验有限时长的 hold 请求，由 Gate 分配获批动作的执行身份。'''
 
         output = _output()
         response.success = False
@@ -94,12 +94,10 @@ class FlightAtomicActionServer(Node):
                 output['error_code'] = 'INVALID_INPUT'
             else:
                 proposal_id = f'proposal-{uuid4().hex}'
-                execution_id = f'exec-{uuid4().hex}'
                 output['proposal_id'] = proposal_id
-                output['execution_id'] = execution_id
                 try:
                     response.success = asyncio.run(
-                        self._submit_hold(arguments, proposal_id, execution_id, output)
+                        self._submit_hold(arguments, proposal_id, output)
                     )
                 except Exception as error:  # noqa: BLE001 - ROS response must report gate failures
                     self.get_logger().error(f'hold service failed: {error}')
@@ -112,9 +110,9 @@ class FlightAtomicActionServer(Node):
         self,
         arguments: dict[str, object],
         proposal_id: str,
-        execution_id: str,
         output: dict[str, object],
     ) -> bool:
+        '''提交 hold 提案；仅从执行结果获取 Gate 分配的执行 ID。'''
         state = await self._backend.get_world_state()
         proposal = AtomicActionProposal(
             proposal_id=proposal_id,
@@ -123,11 +121,12 @@ class FlightAtomicActionServer(Node):
             based_on_state_id=state.state_id,
         )
         decision, result = await self._gate.submit(
-            proposal, self._constraints, execution_id=execution_id
+            proposal, self._constraints
         )
         output['decision_id'] = decision.decision_id
         output['reason_codes'] = [code.value for code in decision.reason_codes]
         if result is not None:
+            output['execution_id'] = result.execution_id
             output['execution_status'] = result.status.value
             output['failure_code'] = result.failure_code
         return (

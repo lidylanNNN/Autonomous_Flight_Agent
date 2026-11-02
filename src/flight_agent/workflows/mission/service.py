@@ -71,7 +71,6 @@ class MissionService:
             decision, result = await self._gate.submit(
                 proposal,
                 contract.constraints,
-                execution_id=f'{attempt_id}-execution',
             )
             decisions.append(decision)
             if decision.decision is not SafetyDecisionType.APPROVE:

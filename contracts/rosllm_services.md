@@ -42,6 +42,8 @@
 | `error_code` | string 或 null | 服务入口或调用异常码 |
 | `verification` | string | 固定为 `INCONCLUSIVE` |
 
+执行 ID 的生成顺序见 [Safety 契约](safety_contract.md#safety-decision)。拒绝和 Trace 写入失败时 `execution_id=null`；正常返回的执行结果提供其执行 ID。
+
 ### 失败语义
 
 | 条件 | `success` | `error_code` | Safety/执行字段 |
@@ -51,7 +53,7 @@
 | 其余参数违反 Skill 模型 | `false` | `null` | Gate 决策包含 `INVALID_SCHEMA` 原因码，可同时含其他检查原因；写入 Trace，不执行 |
 | Safety 拒绝或要求人工批准 | `false` | `null` | 返回原始决策及原因码，不执行 |
 | Backend 返回非 `SUCCEEDED` 的 `SkillResult` | `false` | `null` | 返回执行状态与失败码 |
-| 状态读取、Trace 写入或 Backend 调用抛出异常 | `false` | `SERVICE_ERROR` | 只返回已产生的字段；Trace 写入失败时不得派发 |
+| 状态读取、Trace 写入或 Backend 调用抛出异常 | `false` | `SERVICE_ERROR` | 只返回服务已取得的字段，未知字段为 null；Trace 写入失败时不得派发 |
 
 生产 Authority 固定为 `UNKNOWN`；批准与执行结果只在测试注入的 Authority 和 Backend 替身下验证。实际接线与调用流见 [MX-4 变更单](../plans/MX-4-structure-change.md#调用流)。
 

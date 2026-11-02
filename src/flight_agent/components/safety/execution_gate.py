@@ -3,16 +3,22 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from uuid import uuid4
 
 from flight_agent.components.safety.supervisor import SafetySupervisor
+from flight_agent.components.skills.registry import get_skill_spec
 from flight_agent.components.tracing import TraceRecorder
 from flight_agent.contracts import (
+    ApprovedSkillCommand,
     AtomicActionProposal,
     ControlAuthority,
     FlightExecutionBackendProtocol,
     MissionConstraints,
     SafetyDecision,
+    SafetyDecisionType,
+    SkillName,
     SkillResult,
+    parse_skill_arguments,
 )
 
 
@@ -35,21 +41,29 @@ class SafetyExecutionGate:
         self,
         proposal: AtomicActionProposal,
         constraints: MissionConstraints,
-        *,
-        execution_id: str,
     ) -> tuple[SafetyDecision, SkillResult | None]:
-        '''Return the decision without dispatch unless Safety approved the proposal.'''
+        '''先记录决策，仅在批准且 Trace 成功后创建执行身份并派发。'''
 
         proposal_snapshot = proposal.model_copy(deep=True)
-        state = await self._backend.get_world_state()
-        decision, command = await self._supervisor.prepare_command(
+        constraints_snapshot = constraints.model_copy(deep=True)
+        state = (await self._backend.get_world_state()).model_copy(deep=True)
+        decision = await self._supervisor.evaluate(
             proposal_snapshot,
-            constraints,
+            constraints_snapshot,
             state,
             self._authority_reader(),
-            execution_id=execution_id,
         )
         self._recorder.record_safety_decision(proposal_snapshot, decision)
-        if command is None:
+        if decision.decision is not SafetyDecisionType.APPROVE:
             return decision, None
+        skill_name = SkillName(proposal_snapshot.skill_name)
+        command = ApprovedSkillCommand(
+            execution_id=f'exec-{uuid4().hex}',
+            proposal_id=proposal_snapshot.proposal_id,
+            decision_id=decision.decision_id,
+            skill_name=skill_name,
+            arguments=parse_skill_arguments(skill_name, proposal_snapshot.arguments),
+            timeout_s=get_skill_spec(skill_name).timeout_s,
+            approved_state_id=decision.checked_state_id,
+        )
         return decision, await self._backend.execute(command)

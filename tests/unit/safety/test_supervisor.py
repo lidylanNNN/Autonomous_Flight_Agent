@@ -140,20 +140,37 @@ def test_healthy_proposal_gets_stable_approval() -> None:
     assert source.calls == [2.0, 2.0]
 
 
-def test_prepare_command_binds_approval_and_registry_timeout() -> None:
-    '''Only a fresh direct approval becomes a typed command.'''
+def test_execution_gate_allocates_identity_after_trace(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    '''决策已落盘才分配执行 ID；命令绑定该决策并使用注册表超时。'''
+    from unittest.mock import AsyncMock
+    from uuid import UUID
 
-    decision, command = asyncio.run(
-        SafetySupervisor(FakeSpeedSource(), policy_version='m4-v1', clock=lambda: _NOW)
-        .prepare_command(
-            make_proposal(), make_contract().constraints, make_state(), ControlAuthority.AGENT_ALLOWED,
-            execution_id='execution-1',
-        )
+    path = tmp_path / 'trace.jsonl'
+    backend = MockFlightExecutionBackend(make_state())
+    execute = AsyncMock(wraps=backend.execute)
+    monkeypatch.setattr(backend, 'execute', execute)
+    allocated = []
+
+    def allocate() -> UUID:
+        '''分配时核对批准决策已写入，且尚未派发。'''
+        records = tuple(TraceReplay(path).iter_safety_decision_records())
+        assert len(records) == 1
+        assert records[0].decision.decision is SafetyDecisionType.APPROVE
+        execute.assert_not_called()
+        allocated.append(True)
+        return UUID(int=1)
+
+    monkeypatch.setattr('flight_agent.components.safety.execution_gate.uuid4', allocate)
+    gate = SafetyExecutionGate(
+        SafetySupervisor(FakeSpeedSource(), policy_version='m4-v1', clock=lambda: _NOW),
+        backend, TraceRecorder(path), lambda: ControlAuthority.AGENT_ALLOWED,
     )
-
-    assert decision.decision is SafetyDecisionType.APPROVE
-    assert command is not None
-    assert command.execution_id == 'execution-1'
+    decision, result = asyncio.run(gate.submit(make_proposal(), make_contract().constraints))
+    command = execute.call_args.args[0]
+    assert allocated == [True]
+    assert result is not None
+    assert result.status is SkillExecutionStatus.SUCCEEDED
+    assert command.execution_id == result.execution_id == f'exec-{UUID(int=1).hex}'
     assert command.proposal_id == decision.proposal_id
     assert command.decision_id == decision.decision_id
     assert command.approved_state_id == decision.checked_state_id
@@ -163,110 +180,63 @@ def test_prepare_command_binds_approval_and_registry_timeout() -> None:
     assert command.timeout_s == 30.0
 
 
-def test_prepare_command_never_builds_from_rejection() -> None:
-    '''自动Safety拒绝时不得生成执行命令。'''
+@pytest.mark.parametrize('trace_fails', [False, True])
+def test_execution_gate_never_allocates_or_dispatches_without_recorded_approval(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, trace_fails: bool,
+) -> None:
+    '''拒绝或批准后的 Trace 写入失败，都不能生成执行 ID 或派发。'''
+    from unittest.mock import AsyncMock, Mock
 
-    decision, command = asyncio.run(
-        SafetySupervisor(FakeSpeedSource(), policy_version='m4-v1', clock=lambda: _NOW)
-        .prepare_command(
-            make_proposal(), make_contract().constraints, make_state(link_healthy=False),
-            ControlAuthority.AGENT_ALLOWED,
-            execution_id='execution-1',
-        )
+    backend = MockFlightExecutionBackend(make_state())
+    execute = AsyncMock(side_effect=AssertionError('must not dispatch'))
+    allocate = Mock(side_effect=AssertionError('must not allocate'))
+    monkeypatch.setattr(backend, 'execute', execute)
+    monkeypatch.setattr('flight_agent.components.safety.execution_gate.uuid4', allocate)
+    path = tmp_path / 'trace.jsonl'
+    recorder = TraceRecorder(path)
+    if trace_fails:
+        monkeypatch.setattr(recorder, 'record_safety_decision', Mock(side_effect=OSError('trace unavailable')))
+    gate = SafetyExecutionGate(
+        SafetySupervisor(FakeSpeedSource(), policy_version='m4-v1', clock=lambda: _NOW),
+        backend, recorder,
+        lambda: ControlAuthority.AGENT_ALLOWED if trace_fails else ControlAuthority.HUMAN_CONTROL_ACTIVE,
     )
+    if trace_fails:
+        with pytest.raises(OSError, match='trace unavailable'):
+            asyncio.run(gate.submit(make_proposal(), make_contract().constraints))
+    else:
+        decision, result = asyncio.run(gate.submit(make_proposal(), make_contract().constraints))
+        assert decision.decision is SafetyDecisionType.REJECT
+        assert result is None
+        assert next(TraceReplay(path).iter_safety_decision_records()).decision == decision
+    allocate.assert_not_called()
+    execute.assert_not_called()
 
-    assert decision.decision is SafetyDecisionType.REJECT
-    assert command is None
 
-
-def test_prepare_command_uses_proposal_snapshot_during_async_read() -> None:
-    '''Changing the caller's mutable argument dict cannot change the approved command.'''
+def test_execution_gate_uses_snapshot_during_async_read(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    '''参数读取期间调用方修改提案，不得改变已经检查的命令参数。'''
+    from unittest.mock import AsyncMock
 
     proposal = make_proposal()
 
     class MutatingSpeedSource(FakeSpeedSource):
         async def read_validated_speed_limit(self, *, max_age_s: float) -> float:
+            '''模拟异步读取期间外部修改原始提案。'''
             proposal.arguments['target_altitude_m'] = 20.0
             return await super().read_validated_speed_limit(max_age_s=max_age_s)
 
-    decision, command = asyncio.run(
-        SafetySupervisor(MutatingSpeedSource(), policy_version='m4-v1', clock=lambda: _NOW)
-        .prepare_command(
-            proposal, make_contract().constraints, make_state(), ControlAuthority.AGENT_ALLOWED,
-            execution_id='execution-1',
-        )
-    )
-
-    assert decision.decision is SafetyDecisionType.APPROVE
-    assert proposal.arguments['target_altitude_m'] == 20.0
-    assert command is not None
-    assert isinstance(command.arguments, TakeoffArgs)
-    assert command.arguments.target_altitude_m == 10.0
-
-
-def test_execution_gate_traces_approval_before_dispatch(tmp_path: Path) -> None:
-    path = tmp_path / 'trace.jsonl'
     backend = MockFlightExecutionBackend(make_state())
+    execute = AsyncMock(wraps=backend.execute)
+    monkeypatch.setattr(backend, 'execute', execute)
     gate = SafetyExecutionGate(
-        SafetySupervisor(FakeSpeedSource(), policy_version='m4-v1', clock=lambda: _NOW),
-        backend, TraceRecorder(path), lambda: ControlAuthority.AGENT_ALLOWED,
+        SafetySupervisor(MutatingSpeedSource(), policy_version='m4-v1', clock=lambda: _NOW),
+        backend, TraceRecorder(tmp_path / 'trace.jsonl'), lambda: ControlAuthority.AGENT_ALLOWED,
     )
-
-    decision, result = asyncio.run(
-        gate.submit(make_proposal(), make_contract().constraints,
-                     execution_id='execution-1')
-    )
-
+    decision, result = asyncio.run(gate.submit(proposal, make_contract().constraints))
     assert decision.decision is SafetyDecisionType.APPROVE
     assert result is not None
-    assert result.status is SkillExecutionStatus.SUCCEEDED
-    assert result.execution_id == 'execution-1'
-    records = tuple(TraceReplay(path).iter_safety_decision_records())
-    assert len(records) == 1
-    assert records[0].decision == decision
-
-
-def test_execution_gate_never_dispatches_rejection(tmp_path: Path) -> None:
-    '''外部控制权接管时Gate必须记录拒绝且不派发。'''
-
-    backend = MockFlightExecutionBackend(make_state())
-    path = tmp_path / 'trace.jsonl'
-    gate = SafetyExecutionGate(
-        SafetySupervisor(FakeSpeedSource(), policy_version='m4-v1', clock=lambda: _NOW),
-        backend, TraceRecorder(path),
-        lambda: ControlAuthority.HUMAN_CONTROL_ACTIVE,
-    )
-
-    decision, result = asyncio.run(
-        gate.submit(make_proposal(), make_contract().constraints,
-                     execution_id='execution-1')
-    )
-
-    assert decision.decision is SafetyDecisionType.REJECT
-    assert result is None
-    assert asyncio.run(backend.get_world_state()).state_id == 'state-1'
-    assert next(TraceReplay(path).iter_safety_decision_records()).decision == decision
-
-
-def test_execution_gate_fails_closed_when_trace_write_fails(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    backend = MockFlightExecutionBackend(make_state())
-    recorder = TraceRecorder(tmp_path / 'trace.jsonl')
-
-    def fail_trace(proposal: AtomicActionProposal, decision: SafetyDecision) -> None:
-        raise OSError('trace unavailable')
-
-    monkeypatch.setattr(recorder, 'record_safety_decision', fail_trace)
-    gate = SafetyExecutionGate(
-        SafetySupervisor(FakeSpeedSource(), policy_version='m4-v1', clock=lambda: _NOW),
-        backend, recorder, lambda: ControlAuthority.AGENT_ALLOWED,
-    )
-
-    with pytest.raises(OSError, match='trace unavailable'):
-        asyncio.run(gate.submit(make_proposal(), make_contract().constraints,
-                                 execution_id='execution-1'))
-    assert asyncio.run(backend.get_world_state()).state_id == 'state-1'
+    assert proposal.arguments['target_altitude_m'] == 20.0
+    assert execute.call_args.args[0].arguments.target_altitude_m == 10.0
 
 
 def test_invalid_schema_and_stale_state_never_read_px4_parameter() -> None:

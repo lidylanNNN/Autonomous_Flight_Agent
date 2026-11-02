@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 from datetime import UTC, datetime
 from pathlib import Path
+from uuid import UUID
 
 import pytest
 
@@ -205,9 +206,11 @@ def test_failed_backend_reaches_recovery_without_claiming_success(
 ) -> None:
     '''飞行失败也进入同一恢复入口，但占位不报告成功。'''
 
+    ids = iter([UUID(int=1), UUID(int=2)])
+    monkeypatch.setattr('flight_agent.components.safety.execution_gate.uuid4', lambda: next(ids))
     service, _ = make_service(
         tmp_path / 'trace.jsonl',
-        outcomes={'mission-1-step-1-execution': MockExecutionOutcome.NO_PROGRESS},
+        outcomes={f'exec-{UUID(int=1).hex}': MockExecutionOutcome.NO_PROGRESS},
     )
     recovery_events: list[SafetyDecision | SkillResult] = []
 
@@ -257,7 +260,7 @@ def test_recovered_safety_rejection_rechecks_revised_plan(
         SafetyDecisionType.REJECT, SafetyDecisionType.APPROVE,
     ]
     assert len(report.skill_results) == 1
-    assert report.skill_results[0].execution_id == 'mission-1-step-2-revision-1-execution'
+    assert report.skill_results[0].execution_id.startswith('exec-')
 
 
 def test_recovered_execution_failure_retries_revised_plan(
@@ -265,9 +268,11 @@ def test_recovered_execution_failure_retries_revised_plan(
 ) -> None:
     '''首次失败不终止 run，修正计划再过 Safety 并执行。'''
 
+    ids = iter([UUID(int=1), UUID(int=2)])
+    monkeypatch.setattr('flight_agent.components.safety.execution_gate.uuid4', lambda: next(ids))
     service, _ = make_service(
         tmp_path / 'trace.jsonl',
-        outcomes={'mission-1-step-1-execution': MockExecutionOutcome.NO_PROGRESS},
+        outcomes={f'exec-{UUID(int=1).hex}': MockExecutionOutcome.NO_PROGRESS},
     )
 
     def recover(event: SafetyDecision | SkillResult) -> MissionPlan:

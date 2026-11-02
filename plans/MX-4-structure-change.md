@@ -1,6 +1,6 @@
 # MX-4 结构变更单：飞行原子动作接线
 
-状态：步骤 1、2、3a、3b 已实施；3c 待实施。生产入口已发布 `hold`，其余飞行动作尚未接入。
+状态：步骤 1、2、3a、3b、3c 已实施；3d 待实施。生产入口已发布 `hold`，其余飞行动作尚未接入。
 
 依据：[当前规格](../SPEC_DEV.md)、[MX 计划](MX.md)、[ROS-LLM 服务契约](../contracts/rosllm_services.md)、[Safety Contract](../contracts/safety_contract.md)。
 
@@ -65,12 +65,12 @@
 [安全 JSON] --MissionConstraints--> [flight_atomic_action_server.main]
 [flight_atomic_action_server.main] --已校验的 MissionConstraints--> [FlightAtomicActionServer]
 [sequence_executor] --AtomicActionRequest(input, prev_output)--> [FlightAtomicActionServer]
-[FlightAtomicActionServer] --AtomicActionProposal + MissionConstraints + execution_id--> [SafetyExecutionGate]
+[FlightAtomicActionServer] --AtomicActionProposal + MissionConstraints--> [SafetyExecutionGate]
 [SafetyExecutionGate] --get_world_state()--> [PX4 Backend]
 [PX4 Backend] --WorldState--> [SafetyExecutionGate]
 [Authority reader] --ControlAuthority--> [SafetyExecutionGate]
 [SafetyExecutionGate] --AtomicActionProposal + MissionConstraints + WorldState + ControlAuthority--> [SafetySupervisor]
-[SafetySupervisor] --SafetyDecision + ApprovedSkillCommand(仅批准时)--> [SafetyExecutionGate]
+[SafetySupervisor] --SafetyDecision--> [SafetyExecutionGate]
 [SafetyExecutionGate] --AtomicActionProposal + SafetyDecision--> [TraceRecorder]
 [SafetyExecutionGate] --ApprovedSkillCommand(仅批准时)--> [PX4 Backend]
 [PX4 Backend] --SkillResult--> [SafetyExecutionGate]
@@ -91,7 +91,7 @@
 3. **接入飞行动作**
    - 3a. **已完成**：在 `contracts/rosllm_services.md` 冻结飞行动作的 JSON 参数、响应字段与失败语义。
    - 3b. **已完成**：新增 `flight_atomic_action_server` 入口和装配，先只接 `hold`；从 JSON 加载限制，经真实 ROS 服务进入 Gate，生产 Authority 固定 `UNKNOWN`。
-   - 3c. 调整执行身份：Gate 写入获批决策 Trace 后才分配 `execution_id`，创建绑定 `decision_id` 的命令；拒绝和 Trace 失败不分配。同步 Supervisor、Gate、飞行服务、旧调用方及契约。
+   - 3c. **已完成**：调整执行身份：Gate 写入获批决策 Trace 后才分配 `execution_id`，创建绑定 `decision_id` 的命令；拒绝和 Trace 失败不分配。同步 Supervisor、Gate、飞行服务、旧调用方及契约。
    - 3d. 在同一服务端逐个增加 `takeoff`、`goto`、`rtl`、`land`；每个动作单独一批。
    - 3e. 从真实动作服务验证拒绝、Trace 和 Backend 零调用；批准与执行失败只用测试注入的 Authority 和 Backend 替身验证。
 4. **修正固定行为参数**
@@ -175,6 +175,15 @@
 
 - 删除仅供命令执行器使用的 `_VehicleCommandSubmitter`；执行器直接声明依赖 `Px4VehicleCommandAdapter`。
 - 生产装配、调用流及输入输出不变；测试使用基于真实适配器接口的 Mock。
+
+## 3c 实施记录
+
+- Gate 不再接收调用方的执行 ID；Supervisor 仅返回决策，命令创建归 Gate。身份时序见 [Safety 契约](../contracts/safety_contract.md#safety-decision)。
+- 飞行动作服务从执行结果提取 ID；拒绝时为 `null`。旧 `MissionService` 同步移除预分配。
+- 无节点或模型增删。生产 Authority 仍为 `UNKNOWN`；其余四个飞行动作未接入。
+- 核心测试 `171 passed`；真实 ROS 服务与旧 CLI 回归 `9 passed`，包含批准 ID 返回、拒绝和 Trace 失败零分配零派发。
+- Gate 测试验证分配时决策已落盘、命令绑定决策及提案快照；批准路径使用权限、参数源和 Backend 替身，不代表 SITL 飞行。
+- Ruff、核心改动文件 mypy、`git diff --check` 通过。回滚需同时恢复 Gate/Supervisor、调用方、契约和相关测试。
 
 ## 风险
 

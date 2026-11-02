@@ -7,12 +7,12 @@
 M4 已为旧受控任务入口建立动作提案到 Flight Execution Backend 的确定性仲裁边界。旧 M3 调试入口仍能直连 Backend。当前调用流为：
 
 ```text
-[MissionService] --AtomicActionProposal + MissionConstraints + execution_id--> [SafetyExecutionGate]
+[MissionService] --AtomicActionProposal + MissionConstraints--> [SafetyExecutionGate]
 [SafetyExecutionGate] --WorldState 读取请求--> [FlightExecutionBackend]
 [FlightExecutionBackend] --WorldState--> [SafetyExecutionGate]
 [Authority reader] --ControlAuthority--> [SafetyExecutionGate]
 [SafetyExecutionGate] --AtomicActionProposal + MissionConstraints + WorldState + ControlAuthority--> [SafetySupervisor]
-[SafetySupervisor] --SafetyDecision + ApprovedSkillCommand(仅批准时)--> [SafetyExecutionGate]
+[SafetySupervisor] --SafetyDecision--> [SafetyExecutionGate]
 [SafetyExecutionGate] --AtomicActionProposal + SafetyDecision--> [TraceRecorder]
 [SafetyExecutionGate] --ApprovedSkillCommand(仅批准时)--> [FlightExecutionBackend]
 ```
@@ -48,7 +48,7 @@ M4-7 Safety Supervisor 已按固定顺序组合独立检查器，并通过 ROS �
 - 旧入口的 `proposal_id` 仍包含任务标识；MX-4 步骤 6 将删除该入口。
 - [`flight_safety.example.json`](../configs/flight_safety.example.json) 可通过模型校验。其数值来自测试，未获批用于生产飞行。
 - `load_safety_constraints(path: Path)` 读取显式 JSON 路径，返回 `MissionConstraints`。读取或校验失败时抛出 `ValueError`，没有默认回退。
-- 当前生产入口尚未调用加载函数；MX-4 步骤 3 才接入 `--safety-json`。
+- 当前 `flight_atomic_action_server` 已接入 `--safety-json`；入口和限制加载现状见 [SPEC_DEV](../SPEC_DEV.md#2-当前实现基线)。
 
 ## 坐标约定
 
@@ -78,7 +78,7 @@ V1 目标仲裁结果只有两类：
 - `APPROVE`：所有确定性检查通过，只能携带 `CHECKS_PASSED`；
 - `REJECT`：至少携带一个拒绝原因码。
 
-只有 `APPROVE` 可以由 `SafetySupervisor.prepare_command()` 生成 `ApprovedSkillCommand`。`REJECT` 不得进入 `FlightExecutionBackendProtocol.execute()`。
+Supervisor 只返回决策。Gate 成功写入决策 Trace 后，仅对 `APPROVE` 分配新的 `execution_id`，并从本次检查的提案快照创建绑定 `decision_id` 的 `ApprovedSkillCommand`，再调用 Backend。拒绝和 Trace 写入失败不分配执行 ID、不派发；调用方不得预分配执行 ID。
 
 X1 已移除按 Skill 名触发的 Proposal 级审批分支；当前代码仍有 `HUMAN_APPROVAL` 枚举与原因码，尚未完全迁移到上述 V1 目标契约。如出现该决策，Episode 按流程错误处理，不计自主成功。
 

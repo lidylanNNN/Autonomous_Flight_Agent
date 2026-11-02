@@ -22,9 +22,7 @@ from flight_agent.components.safety.schema import check_proposal_schema
 from flight_agent.components.safety.sequence import check_command_sequence
 from flight_agent.components.safety.state import check_proposal_state
 from flight_agent.components.safety.vehicle_state import check_vehicle_state
-from flight_agent.components.skills.registry import get_skill_spec
 from flight_agent.contracts import (
-    ApprovedSkillCommand,
     AtomicActionProposal,
     ControlAuthority,
     ControllerSpeedLimitProtocol,
@@ -59,40 +57,6 @@ class SafetySupervisor:
         self._speed_limit_source = speed_limit_source
         self._policy_version = policy_version
         self._clock = clock or (lambda: datetime.now(UTC))
-
-    async def prepare_command(
-        self,
-        proposal: AtomicActionProposal,
-        constraints: MissionConstraints,
-        state: WorldState,
-        authority: ControlAuthority,
-        *,
-        execution_id: str,
-    ) -> tuple[SafetyDecision, ApprovedSkillCommand | None]:
-        '''Recheck a copied proposal and create a command only after direct approval.'''
-
-        proposal_snapshot = proposal.model_copy(deep=True)
-        constraints_snapshot = constraints.model_copy(deep=True)
-        state_snapshot = state.model_copy(deep=True)
-        decision = await self.evaluate(
-            proposal_snapshot,
-            constraints_snapshot,
-            state_snapshot,
-            authority,
-        )
-        if decision.decision is not SafetyDecisionType.APPROVE:
-            return decision, None
-
-        skill_name = SkillName(proposal_snapshot.skill_name)
-        return decision, ApprovedSkillCommand(
-            execution_id=execution_id,
-            proposal_id=proposal_snapshot.proposal_id,
-            decision_id=decision.decision_id,
-            skill_name=skill_name,
-            arguments=parse_skill_arguments(skill_name, proposal_snapshot.arguments),
-            timeout_s=get_skill_spec(skill_name).timeout_s,
-            approved_state_id=decision.checked_state_id,
-        )
 
     async def evaluate(
         self,
