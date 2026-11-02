@@ -8,8 +8,8 @@ from rosllm_srvs.srv import LLM
 
 _FIXED_BEHAVIOR = (
     '```json\n'
-    '{"name":"hold","input":"wait"}\n'
-    '{"name":"rtl","input":"home"}\n'
+    '{"name":"hold","input":"{\\"duration_s\\":1.0}"}\n'
+    '{"name":"rtl","input":"{}"}\n'
     '```'
 )
 

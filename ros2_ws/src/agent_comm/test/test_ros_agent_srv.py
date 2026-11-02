@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from datetime import UTC, datetime
 from pathlib import Path
 from threading import Thread
@@ -15,9 +16,10 @@ from flight_agent_ros.adapters.px4_world_state_adapter import Px4WorldStateAdapt
 from observation_manager.observation_manager_node import ObservationManagerNode
 from rclpy.executors import MultiThreadedExecutor
 from rclpy.parameter import Parameter
-from rosllm_srvs.srv import AtomicAction, LLM, Observation
+from rosllm_srvs.srv import LLM, AtomicAction, Observation
 
 from flight_agent.components.vehicle.state import WorldStateAggregator
+from flight_agent.contracts import HoldArgs, RTLArgs
 
 
 class RecordingObservationManager(ObservationManagerNode):
@@ -121,12 +123,16 @@ def test_main_executes_two_actions_then_observes_success_and_failure(tmp_path: P
     monkeypatch.setattr(RosEnv, 'step', record_step)
 
     def hold(request: AtomicAction.Request, response: AtomicAction.Response) -> AtomicAction.Response:
+        '''验证实际收到的 hold JSON 参数，并返回脚本化动作结果。'''
+        assert HoldArgs.model_validate_json(request.input).duration_s == 1.0
         calls.append(('hold', request.input, request.prev_output))
         response.success = not fail_hold
         response.output = 'hold-output' if response.success else 'hold-failed'
         return response
 
     def rtl(request: AtomicAction.Request, response: AtomicAction.Response) -> AtomicAction.Response:
+        '''验证实际收到的 rtl 空参数对象，再返回动作替身结果。'''
+        RTLArgs.model_validate_json(request.input)
         calls.append(('rtl', request.input, request.prev_output))
         response.success = True
         response.output = 'rtl-output'
@@ -156,8 +162,10 @@ def test_main_executes_two_actions_then_observes_success_and_failure(tmp_path: P
         main(input_reader=read_input)
         assert observation.calls == 3
         assert len(llm.prompts) == 2
-        assert calls == [
-            ('hold', 'wait', ''), ('rtl', 'home', 'hold-output'), ('hold', 'wait', ''),
+        assert [(name, json.loads(payload), previous) for name, payload, previous in calls] == [
+            ('hold', {'duration_s': 1.0}, ''),
+            ('rtl', {}, 'hold-output'),
+            ('hold', {'duration_s': 1.0}, ''),
         ]
         assert steps == [(-0.5, False, {}), (-1.0, False, {})]
     finally:

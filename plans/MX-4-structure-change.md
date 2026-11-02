@@ -1,6 +1,6 @@
 # MX-4 结构变更单：飞行原子动作接线
 
-状态：步骤 1、2、3a 至 3e 已实施；步骤 4 待实施。生产入口已发布五个飞行动作服务。
+状态：步骤 1 至 4 已实施；步骤 5 待实施。生产入口已发布五个飞行动作服务。
 
 依据：[当前规格](../SPEC_DEV.md)、[MX 计划](MX.md)、[ROS-LLM 服务契约](../contracts/rosllm_services.md)、[Safety Contract](../contracts/safety_contract.md)。
 
@@ -15,7 +15,7 @@
 - 系统限制示例 JSON 和加载函数已接入 `flight_atomic_action_server` 入口；无效文件在发布 `hold` 前失败。
 - 当前入口为 `ros2 run flight_agent_ros flight_atomic_action_server --safety-json <JSON 文件路径> [--trace-path <路径>]`，发布 `hold`、`takeoff`、`goto`、`rtl`、`land`。
 - `sequence_executor` 默认单项等待 30 秒；Skill Registry 中 `rtl` 的 Backend 超时为 120 秒。
-- 显式 MX 固定行为把 `hold`、`rtl` 输入写成普通词，不符合飞行 Skill 参数格式。
+- 显式 MX 固定行为已使用服务契约中的 `hold` 有限时长 JSON 和 `rtl` 空对象 JSON；默认仍不启用固定行为。
 
 上游依据：
 
@@ -98,7 +98,7 @@
      - rtl：**已完成**，复用 Gate 的空参数与 Home 检查。
      - land：**已完成**，复用 Gate 的空参数与飞行状态检查。
    - 3e. **已完成**：从真实动作服务验证拒绝、Trace 和 Backend 零调用；批准与执行失败只用测试注入的 Authority 和 Backend 替身验证。
-4. **修正固定行为参数**
+4. **修正固定行为参数（已完成）**
    - 将 `agent_comm.llm_node` 显式 MX 模式中的 `hold` 输入改为 `{"duration_s":1.0}`、`rtl` 输入改为 `{}`；同步入口测试。这一步单独一批。
 5. **协调执行器超时**
    - 调高 `sequence_executor` 单项等待上限，覆盖现有最长 Skill 超时及 Gate 前置读取余量；保留超时失败即停。这一步单独一批，不加入取消协议。
@@ -232,6 +232,14 @@
 - Backend 抛异常时返回 `SERVICE_ERROR`；Gate 未返回结果，服务未取得执行 ID，因此响应仍为 `null`，不表示没有开始执行。响应语义见 [服务契约](../contracts/rosllm_services.md#失败语义)。
 - 服务测试覆盖 39 个参数化用例；相关 ROS 回归 `59 passed`，核心测试 `171 passed`；Ruff、`git diff --check` 通过。
 - 下一步修正显式 MX 固定行为的动作 JSON 参数；尚未完成单轮主链集成。
+
+## 步骤 4 实施记录
+
+- 显式 MX 固定行为的 `hold.input` 改为 `{"duration_s":1.0}` 文本，`rtl.input` 改为 `{}` 文本；外层行为格式不变。
+- `mx_fixed_behavior` 默认仍关闭；无新增节点、模型或服务接口，不改变权限和执行器超时。
+- 真实入口经 RosAgent、RosEnv、SequenceExecutor 调用动作替身；替身用 HoldArgs、RTLArgs 校验实际收到的参数，验证成功后再观察和首项失败不执行第二项。
+- 入口测试 `3 passed`；agent_comm 与 behavior_executor 回归共 `5 passed`；agent_comm 构建、Ruff、`git diff --check` 通过。
+- 动作服务在本批入口测试中仍是替身；真实飞行动作服务与 Gate 的单轮集成留在步骤 5 后。
 
 ## 风险
 
