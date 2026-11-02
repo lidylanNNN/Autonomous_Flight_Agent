@@ -30,6 +30,18 @@ from flight_agent.contracts import (
 )
 
 
+def action_arguments(service_name: str) -> dict[str, float]:
+    '''为每个已接入动作提供独立的合法测试参数。'''
+    return {
+        'hold': {'duration_s': 1.0},
+        'takeoff': {'target_altitude_m': 10.0},
+        'goto': {
+            'north_m': 1.0, 'east_m': 2.0,
+            'altitude_m': 10.0, 'acceptance_radius_m': 1.0,
+        },
+    }[service_name]
+
+
 class RecordingBackend:
     def __init__(self) -> None:
         self.executions = 0
@@ -67,7 +79,7 @@ class UnusedSpeedSource:
         raise AssertionError('UNKNOWN authority must not request speed approval')
 
 
-@pytest.mark.parametrize('service_name', ['hold', 'takeoff'])
+@pytest.mark.parametrize('service_name', ['hold', 'takeoff', 'goto'])
 def test_action_ros_service_rejects_unknown_authority_and_records_trace(
     tmp_path: Path, service_name: str,
 ) -> None:
@@ -96,7 +108,7 @@ def test_action_ros_service_rejects_unknown_authority_and_records_trace(
         assert client.wait_for_service(timeout_sec=2.0)
         result = client.call(
             AtomicAction.Request(
-                input=json.dumps({'duration_s': 1.0} if service_name == 'hold' else {'target_altitude_m': 10.0}),
+                input=json.dumps(action_arguments(service_name)),
                 prev_output='prior-result',
             ),
             timeout_sec=2.0,
@@ -121,7 +133,7 @@ def test_action_ros_service_rejects_unknown_authority_and_records_trace(
 
         invalid_fields = client.call(
             AtomicAction.Request(
-                input='{"duration_s":1.0,"unexpected":true}', prev_output=''
+                input=json.dumps(action_arguments(service_name) | {'unexpected': True}), prev_output=''
             ),
             timeout_sec=2.0,
         )
@@ -139,6 +151,17 @@ def test_action_ros_service_rejects_unknown_authority_and_records_trace(
                 ('[]', 'INVALID_INPUT'), ('{', 'INVALID_INPUT'),
             ]
         )
+        if service_name == 'goto':
+            arguments = action_arguments(service_name)
+            invalid_inputs = [('{}', None), ('[]', 'INVALID_INPUT'), ('{', 'INVALID_INPUT')]
+            for field in arguments:
+                invalid_inputs.append((json.dumps({k: v for k, v in arguments.items() if k != field}), None))
+            for changes in [
+                {'altitude_m': 0}, {'altitude_m': -1},
+                {'acceptance_radius_m': 0}, {'acceptance_radius_m': -1},
+                {'north_m': 'bad'}, {'skill_name': 'land'},
+            ]:
+                invalid_inputs.append((json.dumps(arguments | changes), None))
         trace_count = 2
         for payload, error_code in invalid_inputs:
             invalid = client.call(
@@ -154,6 +177,16 @@ def test_action_ros_service_rejects_unknown_authority_and_records_trace(
             else:
                 assert invalid_output['decision_id'] is None
             assert len(trace_path.read_text().splitlines()) == trace_count
+        if service_name == 'goto':
+            rejected = client.call(AtomicAction.Request(
+                input=json.dumps(action_arguments(service_name) | {'north_m': 200.0}),
+                prev_output='',
+            ), timeout_sec=2.0)
+            assert rejected is not None and not rejected.success
+            rejection = json.loads(rejected.output)
+            assert 'WAYPOINT_OUTSIDE_GEOFENCE' in rejection['reason_codes']
+            assert rejection['execution_id'] is None
+            assert len(trace_path.read_text().splitlines()) == trace_count + 1
         assert backend.executions == 0
     finally:
         executor.shutdown()
@@ -174,7 +207,7 @@ def test_invalid_safety_json_prevents_ros_initialization(
     assert not rclpy.ok()
 
 
-@pytest.mark.parametrize('service_name', ['hold', 'takeoff'])
+@pytest.mark.parametrize('service_name', ['hold', 'takeoff', 'goto'])
 @pytest.mark.parametrize('outcome', ['success', 'execution_failure', 'trace_failure'])
 def test_action_execution_identity_requires_recorded_approval(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, service_name: str, outcome: str,
@@ -236,7 +269,7 @@ def test_action_execution_identity_requires_recorded_approval(
         assert client.wait_for_service(timeout_sec=2.0)
         response = client.call(
             AtomicAction.Request(
-                input=json.dumps({'duration_s': 1.0} if service_name == 'hold' else {'target_altitude_m': 10.0}),
+                input=json.dumps(action_arguments(service_name)),
                 prev_output='{"skill_name":"land","target_altitude_m":999}',
             ), timeout_sec=2.0,
         )
@@ -256,8 +289,7 @@ def test_action_execution_identity_requires_recorded_approval(
             execute.assert_awaited_once()
             command = execute.call_args.args[0]
             assert command.skill_name is SkillName(service_name)
-            if service_name == 'takeoff':
-                assert command.arguments.target_altitude_m == 10.0
+            assert command.arguments.model_dump() == action_arguments(service_name)
             assert output['execution_id'] == command.execution_id
             assert output['decision_id'] == command.decision_id
             assert output['proposal_id'] == command.proposal_id

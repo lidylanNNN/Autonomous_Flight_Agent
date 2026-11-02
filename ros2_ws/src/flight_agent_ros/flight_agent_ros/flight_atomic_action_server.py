@@ -55,7 +55,7 @@ def _output() -> dict[str, object]:
 
 
 class FlightAtomicActionServer(Node):
-    '''持有 hold、takeoff 服务、固定限制及 Safety Gate。'''
+    '''持有 hold、takeoff、goto 服务、固定限制及 Safety Gate。'''
 
     def __init__(
         self,
@@ -68,9 +68,10 @@ class FlightAtomicActionServer(Node):
         self._constraints = constraints
         self._backend = backend
         self._gate = gate
-        # 同一个默认互斥回调组串行处理两个动作服务。
+        # 同一个默认互斥回调组串行处理所有动作服务。
         self.create_service(AtomicAction, 'hold', self.hold)
         self.create_service(AtomicAction, 'takeoff', self.takeoff)
+        self.create_service(AtomicAction, 'goto', self.goto)
 
     def hold(
         self, request: AtomicAction.Request, response: AtomicAction.Response
@@ -83,6 +84,12 @@ class FlightAtomicActionServer(Node):
     ) -> AtomicAction.Response:
         '''按 takeoff 服务名处理请求，参数交给 Gate 校验。'''
         return self._handle_action(SkillName.TAKEOFF, request, response)
+
+    def goto(
+        self, request: AtomicAction.Request, response: AtomicAction.Response
+    ) -> AtomicAction.Response:
+        '''按 goto 服务名提交局部坐标目标，参数和围栏交给 Gate 校验。'''
+        return self._handle_action(SkillName.GOTO, request, response)
 
     def _handle_action(
         self,

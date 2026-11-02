@@ -1,19 +1,19 @@
 # MX-4 结构变更单：飞行原子动作接线
 
-状态：步骤 1、2、3a、3b、3c 已实施；3d 的 takeoff 子批次已实施，goto 子批次待实施。生产入口已发布 `hold`、`takeoff`。
+状态：步骤 1、2、3a、3b、3c 已实施；3d 的 takeoff、goto 子批次已实施，rtl 子批次待实施。生产入口已发布 `hold`、`takeoff`、`goto`。
 
 依据：[当前规格](../SPEC_DEV.md)、[MX 计划](MX.md)、[ROS-LLM 服务契约](../contracts/rosllm_services.md)、[Safety Contract](../contracts/safety_contract.md)。
 
 ## 现状
 
-- `sequence_executor` 已按动作名调用 `AtomicAction` 服务；生产入口已发布 `hold`、`takeoff`，其余三个动作尚未接入。MX-3 的动作成功证据来自测试替身。
+- `sequence_executor` 已按动作名调用 `AtomicAction` 服务；生产入口已发布 `hold`、`takeoff`、`goto`，其余两个动作尚未接入。MX-3 的动作成功证据来自测试替身。
 - 旧 `MissionService` 已调用 `SafetyExecutionGate`。Gate 写入决策 Trace 后，仅对批准的命令调用 Backend。
 - 生产 Authority 目前为 `UNKNOWN`；旧受控任务入口不能获批飞行。
 - `ExecuteBehavior` 请求只有行为文本；`AtomicAction` 请求只有 `input` 和 `prev_output`。两者都没有任务 ID 或版本字段。
 - Safety 动作提案、Gate、Supervisor 和 Schema 已移除旧任务身份；旧任务模型与 CLI 仍待步骤 6 清理。
 - 旧 `mission_cli` 从 JSON 加载 `MissionContract`；新 `ros_agent_srv` 主链不使用它。
 - 系统限制示例 JSON 和加载函数已接入 `flight_atomic_action_server` 入口；无效文件在发布 `hold` 前失败。
-- 当前入口为 `ros2 run flight_agent_ros flight_atomic_action_server --safety-json <JSON 文件路径> [--trace-path <路径>]`，发布 `hold`、`takeoff`。
+- 当前入口为 `ros2 run flight_agent_ros flight_atomic_action_server --safety-json <JSON 文件路径> [--trace-path <路径>]`，发布 `hold`、`takeoff`、`goto`。
 - `sequence_executor` 默认单项等待 30 秒；Skill Registry 中 `rtl` 的 Backend 超时为 120 秒。
 - 显式 MX 固定行为把 `hold`、`rtl` 输入写成普通词，不符合飞行 Skill 参数格式。
 
@@ -94,7 +94,7 @@
    - 3c. **已完成**：调整执行身份：Gate 写入获批决策 Trace 后才分配 `execution_id`，创建绑定 `decision_id` 的命令；拒绝和 Trace 失败不分配。同步 Supervisor、Gate、飞行服务、旧调用方及契约。
    - 3d. 在同一服务端逐个增加动作，每个动作单独一批：
      - takeoff：**已完成**，复用 Gate 与响应封装。
-     - goto：待实施。
+     - goto：**已完成**，复用 Gate 的坐标参数与围栏检查。
      - rtl：待实施。
      - land：待实施.
    - 3e. 从真实动作服务验证拒绝、Trace 和 Backend 零调用；批准与执行失败只用测试注入的 Authority 和 Backend 替身验证。
@@ -197,6 +197,14 @@
 - 真实 ROS 服务测试覆盖参数错误、权限拒绝、替身批准、执行失败和 Trace 失败；同时回归 `hold`，共 `9 passed`。
 - `flight_agent_ros` colcon 构建通过；服务、旧 CLI、配置、ACK 适配器和命令执行器回归共 `29 passed`；Ruff 与 `git diff --check` 通过。
 - 权限、限速来源和 Backend 为测试替身，尚未验证真实起飞；`goto`、`rtl`、`land` 待后续子批次。
+
+## 3d 实施记录：goto
+
+- 现有节点新增 `goto` 服务，使用既有共用处理流程；无新增节点或模型。
+- 四个坐标/接受半径参数按服务契约交给 Gate 校验，响应与身份时序不变。
+- 真实 ROS 服务测试覆盖缺字段、无效高度/半径、额外字段、越界目标、权限拒绝、替身成功/失败和 Trace 失败；同时回归 hold、takeoff。
+- 服务测试 `13 passed`；连同旧 CLI、配置、ACK 适配器和命令执行器回归共 `33 passed`。colcon 构建、Ruff 与 `git diff --check` 通过。
+- 生产权限仍为 `UNKNOWN`；批准路径使用权限、参数源和 Backend 替身，不代表 PX4/SITL 飞行。rtl、land 待后续子批次。
 
 ## 风险
 
