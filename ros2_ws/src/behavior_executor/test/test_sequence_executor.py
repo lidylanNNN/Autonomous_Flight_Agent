@@ -3,11 +3,55 @@
 from __future__ import annotations
 
 from threading import Event, Thread
+from time import monotonic
 
 import rclpy
 from behavior_executor.sequence_executor import SequenceExecutor
 from rclpy.executors import MultiThreadedExecutor
 from rosllm_srvs.srv import AtomicAction, ExecuteBehavior
+
+
+def test_default_timeout_allows_action_longer_than_thirty_seconds() -> None:
+    '''通过真实 ROS 服务等待 31 秒，验证默认预算不再提前截断动作。'''
+    rclpy.init()
+    sequence = SequenceExecutor()
+    actions = rclpy.create_node('mx4_long_action')
+    caller = rclpy.create_node('mx4_long_action_caller')
+    release_action = Event()
+    elapsed: list[float] = []
+
+    def rtl(request: AtomicAction.Request, response: AtomicAction.Response) -> AtomicAction.Response:
+        '''用延迟响应替身模拟合法的长动作，不调用 PX4。'''
+        started = monotonic()
+        release_action.wait(timeout=31.0)
+        elapsed.append(monotonic() - started)
+        response.success = True
+        response.output = request.input
+        return response
+
+    actions.create_service(AtomicAction, 'rtl', rtl)
+    executor = MultiThreadedExecutor(num_threads=2)
+    for node in (sequence, actions, caller):
+        executor.add_node(node)
+    thread = Thread(target=executor.spin, daemon=True)
+    thread.start()
+    client = caller.create_client(ExecuteBehavior, 'execute_behavior')
+
+    try:
+        assert client.wait_for_service(timeout_sec=2)
+        result = client.call(
+            ExecuteBehavior.Request(behavior='{"name":"rtl","input":"{}"}'),
+            timeout_sec=40,
+        )
+        assert result is not None and result.success
+        assert len(elapsed) == 1 and elapsed[0] >= 31.0
+    finally:
+        release_action.set()
+        executor.shutdown()
+        thread.join(timeout=5)
+        for node in (caller, actions, sequence):
+            node.destroy_node()
+        rclpy.shutdown()
 
 
 def test_sequence_executor_forwards_previous_output_and_stops_on_failure() -> None:

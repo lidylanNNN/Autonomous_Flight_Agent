@@ -1,6 +1,6 @@
 # MX-4 结构变更单：飞行原子动作接线
 
-状态：步骤 1 至 4 已实施；步骤 5 待实施。生产入口已发布五个飞行动作服务。
+状态：步骤 1 至 5 已实施；单轮主链集成待实施。生产入口已发布五个飞行动作服务。
 
 依据：[当前规格](../SPEC_DEV.md)、[MX 计划](MX.md)、[ROS-LLM 服务契约](../contracts/rosllm_services.md)、[Safety Contract](../contracts/safety_contract.md)。
 
@@ -14,7 +14,7 @@
 - 旧 `mission_cli` 从 JSON 加载 `MissionContract`；新 `ros_agent_srv` 主链不使用它。
 - 系统限制示例 JSON 和加载函数已接入 `flight_atomic_action_server` 入口；无效文件在发布 `hold` 前失败。
 - 当前入口为 `ros2 run flight_agent_ros flight_atomic_action_server --safety-json <JSON 文件路径> [--trace-path <路径>]`，发布 `hold`、`takeoff`、`goto`、`rtl`、`land`。
-- `sequence_executor` 默认单项等待 30 秒；Skill Registry 中 `rtl` 的 Backend 超时为 120 秒。
+- `sequence_executor` 已调高默认等待预算；预算与验证证据见[步骤 5 实施记录](#步骤-5-实施记录)。
 - 显式 MX 固定行为已使用服务契约中的 `hold` 有限时长 JSON 和 `rtl` 空对象 JSON；默认仍不启用固定行为。
 
 上游依据：
@@ -100,7 +100,7 @@
    - 3e. **已完成**：从真实动作服务验证拒绝、Trace 和 Backend 零调用；批准与执行失败只用测试注入的 Authority 和 Backend 替身验证。
 4. **修正固定行为参数（已完成）**
    - 将 `agent_comm.llm_node` 显式 MX 模式中的 `hold` 输入改为 `{"duration_s":1.0}`、`rtl` 输入改为 `{}`；同步入口测试。这一步单独一批。
-5. **协调执行器超时**
+5. **已完成：协调执行器超时**
    - 调高 `sequence_executor` 单项等待上限，覆盖现有最长 Skill 超时及 Gate 前置读取余量；保留超时失败即停。这一步单独一批，不加入取消协议。
 6. **删除旧任务模型（迁移后实施）**
    - 6a. 新主链验证通过后，删除旧 `mission_cli`、`MissionService` 和专属测试；保留 M3 独立调试入口。
@@ -240,6 +240,17 @@
 - 真实入口经 RosAgent、RosEnv、SequenceExecutor 调用动作替身；替身用 HoldArgs、RTLArgs 校验实际收到的参数，验证成功后再观察和首项失败不执行第二项。
 - 入口测试 `3 passed`；agent_comm 与 behavior_executor 回归共 `5 passed`；agent_comm 构建、Ruff、`git diff --check` 通过。
 - 动作服务在本批入口测试中仍是替身；真实飞行动作服务与 Gate 的单轮集成留在步骤 5 后。
+
+## 步骤 5 实施记录
+
+- `SequenceExecutor` 默认发现服务和等待响应各为 150 秒；覆盖 Registry 最长的 RTL 120 秒，并为 Gate 读取及响应预留 30 秒。
+- `RosEnv` 整段行为响应预算同步为 `16 × (150 + 150) + 5 = 4805` 秒；沿用现有两段等待结构。余量不是任意阻塞都能按时结束的保证。
+- 无新增对象、节点或函数接口；超时后仍停止后续动作，不取消已提交的动作。
+- 实际调用流：`RosEnv --ExecuteBehavior.Request--> SequenceExecutor`；`SequenceExecutor --AtomicAction.Request--> 飞行动作服务`；响应沿原路径返回。
+- 新增真实 ROS 服务延迟 31 秒后成功的测试；预算检查覆盖 Registry 最长超时及整段序列等待。保留单项超时后不派发下一项的测试。
+- 验证命令：加载 ROS 和工作区环境后，运行 `/usr/bin/python3 -m pytest -q ros2_ws/src/behavior_executor/test/test_sequence_executor.py ros2_ws/src/agent_comm/test/test_ros_agent_srv.py`，结果 `7 passed in 33.08s`。
+- `colcon build --packages-select behavior_executor agent_comm` 两包构建通过；测试文件 Ruff、`git diff --check` 通过。生产文件既有 Ruff 告警为 `TRY004`、`BLE001`、`I001`，已对照 HEAD 确认，本批未处理。
+- 延迟响应来自动作服务替身，不是 PX4/Gazebo 飞行证据；真实飞行动作服务与 Gate 的单轮主链集成仍待下一批。
 
 ## 风险
 

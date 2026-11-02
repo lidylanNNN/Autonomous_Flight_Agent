@@ -10,16 +10,24 @@ from types import SimpleNamespace
 
 import rclpy
 from agent_comm.llm_node import LLMNode
-from agent_comm.ros_agent_srv import RosAgent, RosEnv, main
-from behavior_executor.sequence_executor import SequenceExecutor
+from agent_comm.ros_agent_srv import _BEHAVIOR_TIMEOUT_S, RosAgent, RosEnv, main
+from behavior_executor.sequence_executor import _DEFAULT_TIMEOUT_S, _MAX_ACTIONS, SequenceExecutor
 from flight_agent_ros.adapters.px4_world_state_adapter import Px4WorldStateAdapter
 from observation_manager.observation_manager_node import ObservationManagerNode
 from rclpy.executors import MultiThreadedExecutor
 from rclpy.parameter import Parameter
 from rosllm_srvs.srv import LLM, AtomicAction, Observation
 
+from flight_agent.components.skills.registry import list_skill_specs
 from flight_agent.components.vehicle.state import WorldStateAggregator
 from flight_agent.contracts import HoldArgs, RTLArgs
+
+
+def test_timeout_budgets_cover_skills_and_full_sequence() -> None:
+    '''防止 Skill 或执行器预算增长后，上层仍用较短的旧等待预算。'''
+    longest_skill = max(spec.timeout_s for spec in list_skill_specs())
+    assert _DEFAULT_TIMEOUT_S >= longest_skill + 30.0
+    assert _BEHAVIOR_TIMEOUT_S > _MAX_ACTIONS * 2 * _DEFAULT_TIMEOUT_S
 
 
 class RecordingObservationManager(ObservationManagerNode):

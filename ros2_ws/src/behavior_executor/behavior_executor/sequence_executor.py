@@ -14,7 +14,8 @@ from rclpy.node import Node
 from rosllm_srvs.srv import AtomicAction, ExecuteBehavior
 
 _MAX_ACTIONS = 16
-_DEFAULT_TIMEOUT_S = 30.0
+# 覆盖最长 RTL 执行预算 120 秒，另留 30 秒给 Gate 读取和服务响应。
+_DEFAULT_TIMEOUT_S = 150.0
 
 
 class SequenceExecutor(Node):

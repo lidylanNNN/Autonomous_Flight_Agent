@@ -18,8 +18,8 @@ from flight_agent.components.skills.registry import get_skill_spec
 from flight_agent.contracts import SkillName
 
 _SERVICE_TIMEOUT_S = 5.0
-# SequenceExecutor permits 16 actions, each with service discovery and call waits of 30 s.
-_BEHAVIOR_TIMEOUT_S = 16 * (30.0 + 30.0) + _SERVICE_TIMEOUT_S
+# 与 SequenceExecutor 默认预算同步：最多 16 项，每项发现服务和等待响应各 150 秒。
+_BEHAVIOR_TIMEOUT_S = 16 * (150.0 + 150.0) + _SERVICE_TIMEOUT_S
 _BEHAVIOR_BLOCK = re.compile(r'\s*```json\s*\n(?P<behavior>.*?)\n```\s*', re.DOTALL)
 
 
