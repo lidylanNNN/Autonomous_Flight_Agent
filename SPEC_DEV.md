@@ -49,21 +49,20 @@ V1 目标：取得初始观察后等待人工输入。`RosAgent` 根据观察和
 | MX-3 有人入口与行为序列 | `ros_agent_srv.main()` 已装配 `RosEnv`、`RosAgent`、观察服务和行为执行器；逐边调用见第 4 节 | 观察文本仍为标源占位，默认 LLM 明确失败；显式固定两步已通过实际飞行动作服务和 Gate 的单轮集成，外部 PX4 与权限来源使用替身。证据见 [MX-4 单轮记录](plans/MX-4-structure-change.md#单轮主链集成记录) |
 | MX-4 飞行动作服务 | `flight_atomic_action_server` 从 `--safety-json` 加载限制，发布 `hold`、`takeoff`、`goto`、`rtl`、`land` 并调用 Safety Gate | 五个服务测试覆盖 `UNKNOWN` 拒绝、Trace/状态读取失败零派发，以及替身批准、执行失败和异常响应；不代表 PX4/Gazebo 端到端证据 |
 | 确定性飞行动作 | `flight_execution_backend.py`、PX4 Command/Offboard adapters、Skill Registry | Takeoff、GoTo、Hold、RTL、Land 有代码映射；M3 调试脚本有 SITL 验证记录，不等于 Agent 任务闭环 |
-| 旧任务入口 | `mission_cli.py` 调用 `MissionService.run()` | 只识别固定语句 `起飞到10米`；其他语句返回 `UNSUPPORTED`，无 LLM 或通用规划器 |
-| 执行前 Safety | `SafetyExecutionGate` 调用 `SafetySupervisor`，批准后调用 `FlightExecutionBackend` | Gate 和检查器、决策 Trace 已实现；MX-4 1b 已移除 Proposal 与 Gate 的旧任务身份；旧受控入口的 Authority 当前传入 `UNKNOWN`，不能声称已在生产入口获批飞行 |
-| 验证与恢复 | `MissionService._verify_placeholder()`、`_recover_placeholder()` | 验证只返回 `INCONCLUSIVE`，恢复只返回 `None`；没有任务成功判定、重新规划或安全收尾实现 |
+| 执行前 Safety | `SafetyExecutionGate` 调用 `SafetySupervisor`，批准后调用 `FlightExecutionBackend` | Gate 和检查器、决策 Trace 已实现；MX-4 1b 已移除 Proposal 与 Gate 的旧任务身份；飞行动作服务的 Authority 当前传入 `UNKNOWN`，不能声称已在生产入口获批飞行 |
+| 验证与恢复 | 飞行动作服务响应中的 `verification` | 固定为 `INCONCLUSIVE`；旧任务验证与恢复占位已删除，没有任务成功判定、重新规划或安全收尾实现 |
 | Trace | `TraceRecorder`、`TraceReplay` | 可记录/回放 WorldState 与 SafetyDecision；完整 Episode 因果链尚未完成 |
 | 测评数据 | `agent_benchmark_sets/`、schema 与 validation scripts | Dev 用例存在；Validation/Frozen Test 目前只是预留 manifest，不得报告冻结测评指标 |
 | 旧审批原型 | `human_approval` 模型、组件、Mock 和测试 | 尚存仓库，但不是当前自主执行链，不等于任务级人工确认产品功能 |
 
-### 2.1 文件处置决定（代码尚未修改）
+### 2.1 文件处置决定（分批实施）
 
 | 现有文件/组 | 决定 | 实施条件 |
 |---|---|---|
-| `src/flight_agent/workflows/mission/service.py`、其 `__init__.py` 导出 | **删除旧入口** | 新飞行动作服务接入 Gate、单轮主链验证通过后，按 [MX-4 步骤 6](plans/MX-4-structure-change.md#实施任务)删除固定语句规划与旧恢复循环 |
+| `src/flight_agent/workflows/mission/service.py`、其 `__init__.py` 导出 | **已删除** | MX-4 6a-2 已移除固定语句规划与旧恢复循环，见[实施记录](plans/MX-4-structure-change.md#6a-2-实施记录删除旧入口与任务流程) |
 | `mission_flow_model.py` 中的 `MissionRequest`、`MissionPlan`、`PlanStep`、`MissionRunResult` 及公共导出 | **删除旧任务级类型，复核 `PlanStep`** | V1 有人入口直接接收人工文本，不使用 `mission_id`；旧入口迁移后删除 `MissionRequest`、`MissionPlan`、`MissionRunResult`。`PlanStep` 仅在证明为最小闭环所需时保留；复核 `VerificationResult` |
-| `mission_cli.py`、ROS 包的 `setup.py` | **迁出 M3 调试入口后删除旧 CLI，调整入口注册** | 有人入口已由 `ros_agent_srv.main()` 提供；MX-4 新增飞行动作服务入口，旧 CLI 在单轮链验证后删除 |
-| `tests/integration/test_mission_flow.py`、ROS 包的 `test_mission_cli.py` | **删除旧测试，编写新集成测试** | 新测试从生产入口覆盖观察、人工输入、LLM、执行、再观察和失败停止 |
+| `mission_cli.py`、ROS 包的 `setup.py` | **旧 CLI 及注册已删除** | 独立 M3 调试入口保留；有人入口使用 `ros_agent_srv.main()` |
+| `tests/integration/test_mission_flow.py`、ROS 包的 `test_mission_cli.py` | **已删除，M3 测试已迁出** | `test_flight_round.py` 覆盖新主链；`test_m3_scripted_flight.py` 保留独立调试回归 |
 | `components/skills/registry.py`、`skill_model.py` | **保留并扩展** | 动作定义补齐名称、类型、描述、输入/输出，供 prompt 与执行器共用 |
 | `components/vehicle/state/`、`Px4WorldStateAdapter` | **保留并接入观察层** | 新建统一观察入口；行为执行后再次读取 |
 | `components/safety/`、`safety_model.py`、PX4 Backend/adapters | **保留并复用** | 飞行原子动作经 Gate 调用 Supervisor；只有批准命令才交给 Backend。逐边数据见第 4 节 |
@@ -71,12 +70,12 @@ V1 目标：取得初始观察后等待人工输入。`RosAgent` 根据观察和
 | 旧 `human_approval` 组件、模型、协议、Mock、公共导出及专属测试 | **删除** | 逐 Proposal 审批不在 V1；历史由 Git 保存，未来产品审批另行设计 |
 | 旧设计中的通用 `PreToolUse`/`PostToolUse`/`OnToolError`/`Stop` Hooks 与第二套 Tool Invocation 工作流 | **从目标架构删除** | 当前无对应生产模块；记录与超时由 Behavior Executor 或飞行原子动作处理，不新增第二套任务调度。V1 暂不实现取消协议 |
 
-`configs/safety.yaml` 仍是未生效的预留配置。MX-4 另建安全 JSON，由 `--safety-json` 加载系统 `MissionConstraints`；两者不能混作已生效来源。表中删除是确定目标；代码迁移按实施条件分批进行。
+`configs/safety.yaml` 仍是未生效的预留配置。MX-4 另建安全 JSON，由 `--safety-json` 加载系统 `MissionConstraints`；两者不能混作已生效来源。表中未完成项仍按实施条件分批迁移。
 
 **实际入口必须分开报告：**
 
-- 旧受控任务入口 `mission_cli --instruction/--contract-json` 调用 `MissionService` 的固定语句逻辑，生成 Proposal 并经 Gate 仲裁；当前 Authority 为 `UNKNOWN`，不能把替身测试的批准说成 SITL 任务批准。
-- M3 独立调试入口 `m3_scripted_flight` 直接调用 PX4 ROS 2 Backend，显式绕过 Gate；只作 M3 调试与回归，不进入自主安全测评。`run_scripted_sitl_flight.sh` 已改用新入口；旧 `mission_cli --legacy-m3-direct` 暂转到同一实现，随 6a-2 删除。
+- 有人入口 `ros_agent_srv` 通过 ROS 服务调用观察、LLM 和行为执行器；旧 `mission_cli` 及其任务流程已删除。
+- M3 独立调试入口 `m3_scripted_flight` 直接调用 PX4 ROS 2 Backend，显式绕过 Gate；只作 M3 调试与回归，不进入自主安全测评。`run_scripted_sitl_flight.sh` 已改用新入口。
 - MX-4 飞行动作入口 `flight_atomic_action_server --safety-json <路径>` 目前发布 `hold`、`takeoff`、`goto`、`rtl`、`land`；生产 Authority 固定 `UNKNOWN`，经 Gate 拒绝后不派发 Backend。
 
 ## 3. 固定环境与仓库边界
@@ -88,7 +87,6 @@ V1 目标：取得初始观察后等待人工输入。`RosAgent` 根据观察和
 ```text
 src/flight_agent/contracts/          Pydantic 数据契约、Protocol、错误类型
 src/flight_agent/components/         Safety、Skill Registry、Mock Backend、State、Trace
-src/flight_agent/workflows/mission/  当前固定语句 MissionService；待迁移旧链
 ros2_ws/src/flight_agent_ros/        ROS 2 入口、PX4 状态/命令/参数/Offboard 适配
 ros2_ws/src/px4_msgs/                与冻结 PX4 版本匹配的消息定义
 agent_benchmark_sets/               Agent 测评数据与 schema，不是在线任务或 PX4 Mission
@@ -156,7 +154,6 @@ src/flight_agent/
     safety/                            [已实现；飞行原子动作内部 Gate/检查]
     skills/registry.py                 [已实现；动作注册基础，待补动作描述]
     tracing/                           [已实现；追踪基础]
-  workflows/mission/                   [现有旧 MissionService；处置见第 2.1 节]
 agent_benchmark_sets/                 [已存在；Agent 测评集]
 eval_harness/                         [已存在；测评执行辅助]
 tests/                                [已存在；迁移后新增主链集成测试]

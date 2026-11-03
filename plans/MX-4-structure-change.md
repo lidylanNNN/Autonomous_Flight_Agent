@@ -1,17 +1,17 @@
 # MX-4 结构变更单：飞行原子动作接线
 
-状态：步骤 1 至 5、单轮主链替身集成及 6a-1 已实施；6a-2、6b 待实施。生产入口已发布五个飞行动作服务。
+状态：步骤 1 至 5、单轮主链替身集成及 6a 已实施；6b 待实施。生产入口已发布五个飞行动作服务。
 
 依据：[当前规格](../SPEC_DEV.md)、[MX 计划](MX.md)、[ROS-LLM 服务契约](../contracts/rosllm_services.md)、[Safety Contract](../contracts/safety_contract.md)。
 
 ## 现状
 
 - `sequence_executor` 已按动作名调用 `AtomicAction` 服务；生产入口已发布五个飞行动作服务。单轮主链已调用实际飞行动作服务和 Gate；验证边界见[单轮记录](#单轮主链集成记录)。
-- 旧 `MissionService` 已调用 `SafetyExecutionGate`。Gate 写入决策 Trace 后，仅对批准的命令调用 Backend。
-- 生产 Authority 目前为 `UNKNOWN`；旧受控任务入口不能获批飞行。
+- 飞行动作服务调用 `SafetyExecutionGate`。Gate 写入决策 Trace 后，仅对批准的命令调用 Backend；旧 `MissionService` 已删除。
+- 生产 Authority 目前为 `UNKNOWN`；飞行动作服务不能获批飞行。
 - `ExecuteBehavior` 请求只有行为文本；`AtomicAction` 请求只有 `input` 和 `prev_output`。两者都没有任务 ID 或版本字段。
-- Safety 动作提案、Gate、Supervisor 和 Schema 已移除旧任务身份；旧任务模型与 CLI 仍待步骤 6 清理。
-- 旧 `mission_cli` 从 JSON 加载 `MissionContract`；新 `ros_agent_srv` 主链不使用它。
+- Safety 动作提案、Gate、Supervisor 和 Schema 已移除旧任务身份；旧 CLI 已删除，任务模型仍待 6b 清理。
+- `mission_cli` 及其合同加载路径已删除；新 `ros_agent_srv` 主链不使用 `MissionContract`。
 - 系统限制示例 JSON 和加载函数已接入 `flight_atomic_action_server` 入口；无效文件在发布 `hold` 前失败。
 - 当前入口为 `ros2 run flight_agent_ros flight_atomic_action_server --safety-json <JSON 文件路径> [--trace-path <路径>]`，发布 `hold`、`takeoff`、`goto`、`rtl`、`land`。
 - `sequence_executor` 已调高默认等待预算；预算与验证证据见[步骤 5 实施记录](#步骤-5-实施记录)。
@@ -105,7 +105,7 @@
 6. **删除旧任务模型（迁移后实施）**
    - 6a. 新主链验证通过后，删除旧入口并保留 M3 调试能力，分为以下子批次：
      - 6a-1（已完成）：迁出独立 `m3_scripted_flight` 入口，更新启动脚本；旧调试参数暂转到迁出后的实现。
-     - 6a-2：删除旧 `mission_cli`、`MissionService` 及专属测试；M3 回归测试随独立入口保留。
+     - 6a-2（已完成）：删除旧 `mission_cli`、`MissionService` 及专属测试；M3 回归测试随独立入口保留。
    - 6b. 删除 `MissionContract`、旧任务级模型及公共导出；复核 `PlanStep` 和 `VerificationResult` 的实际使用者，保留 `MissionConstraints`。
 
 步骤 1 至 3、6 涉及 Contract、Safety 或 ROS 2/PX4；每个相关代码批次按 [AGENT.md](../AGENT.md) 汇报范围、调用流、影响和回滚。步骤 4、5 不混入飞行动作批次。
@@ -276,6 +276,18 @@
 - 验证：`pytest -q` 运行 `test_m3_scripted_flight.py` 和 `test_mission_cli.py`，结果 `11 passed`；运行 `test_flight_round.py` 和 `test_flight_atomic_action_server.py`，结果 `42 passed`；`PYTHONPATH=src .venv/bin/python -m pytest -q tests` 为 `171 passed`。ROS 测试加载 Jazzy、工作区及项目 Python 路径。
 - `flight_agent_ros` 构建通过，安装后通过启动脚本执行 `--help` 成功；本批 Python 文件 Ruff、启动脚本 ShellCheck、`bash -n` 和 `git diff --check` 通过。本批未启动 PX4/Gazebo。
 - 回滚须同时恢复入口注册、启动脚本、迁出的实现和测试导入；历史 M3/M4 记录保留。
+
+## 6a-2 实施记录：删除旧入口与任务流程
+
+- 删除 `mission_cli.py` 及 console script 注册、`MissionService` 实现及导出、空置的 workflows 包、旧任务流程集成测试和旧 CLI 专属测试。
+- M3 的记录后端及动作顺序、失败停止测试迁入 `test_m3_scripted_flight.py`；删除临时旧参数转发测试，保留新入口拒绝旧参数的测试。
+- 不新增生产对象或函数接口；任务模型与公共导出仍留在 6b。现有有人主链与独立 M3 入口保持可运行。
+- 受控链为 `FlightAtomicActionServer --AtomicActionProposal + MissionConstraints--> SafetyExecutionGate`；旧 `MissionService` 调用边已删除。M3 仍直接发送测试用批准命令给 Backend，不作为 Safety 批准证据。
+- 同步 SPEC、Safety 契约现状和 README；历史阶段记录不重写。源码、测试和脚本不再导入或注册旧入口。
+- 本地增量构建会保留已删除文件，已清理 build/install 内三个旧 CLI 副本并重新构建，同时清理安装目录里早已取消注册的 `scripted_px4_flight`、`world_state_node` 残留启动器；其他已有工作区升级时也须清理旧安装产物，不能仅凭源码删除判断安装入口消失。
+- `PYTHONPATH=src .venv/bin/python -m pytest -q tests`：`164 passed`，减少的 7 项为已删除的旧任务流程测试。加载 ROS 环境后运行 `pytest -q`，覆盖 `test_m3_scripted_flight.py`、`test_flight_round.py`、`test_flight_atomic_action_server.py`：`49 passed`。
+- `flight_agent_ros` 构建通过，`ros2 pkg executables flight_agent_ros` 已无旧入口；本批 Python 文件 Ruff、源码引用检查、`git diff --check` 通过。本批未启动 PX4/Gazebo。
+- 回滚须同时恢复旧入口、服务、注册与专属测试；新主链的安全检查未调整。
 
 ## 风险
 

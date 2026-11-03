@@ -4,10 +4,10 @@
 
 ## 现状
 
-M4 已为旧受控任务入口建立动作提案到 Flight Execution Backend 的确定性仲裁边界。旧 M3 调试入口仍能直连 Backend。当前调用流为：
+飞行动作服务通过 Gate 建立动作提案到 Flight Execution Backend 的确定性仲裁边界。独立 M3 调试入口仍直接调用 Backend。当前调用流为：
 
 ```text
-[MissionService] --AtomicActionProposal + MissionConstraints--> [SafetyExecutionGate]
+[FlightAtomicActionServer] --AtomicActionProposal + MissionConstraints--> [SafetyExecutionGate]
 [SafetyExecutionGate] --WorldState 读取请求--> [FlightExecutionBackend]
 [FlightExecutionBackend] --WorldState--> [SafetyExecutionGate]
 [Authority reader] --ControlAuthority--> [SafetyExecutionGate]
@@ -22,8 +22,8 @@ State ID 检查；M4-3 已实现 Authority、Vehicle State 和 Command Sequence 
 M4-4/M4-5 已实现独立围栏、包线、电池、健康与 Home 检查。
 M4-7 Safety Supervisor 已按固定顺序组合独立检查器，并通过 ROS 适配器读取、
 验证当前 PX4 `MPC_XY_VEL_MAX`；读数有效期为 2 秒，读取失败或超限拒绝。
-直接批准路径已可在输入快照上生成批准命令。当前旧 `MissionService` 使用的 `SafetyExecutionGate` 已在派发前写入 Safety Trace，
-只有直接 `APPROVE` 可以派发；旧 M3 调试脚本仍能直连后端。
+直接批准路径已可在输入快照上生成批准命令。飞行动作服务使用的 `SafetyExecutionGate` 已在派发前写入 Safety Trace，
+只有直接 `APPROVE` 可以派发；独立 M3 调试脚本仍能直连后端。
 
 ## V1 目标
 

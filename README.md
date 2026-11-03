@@ -66,7 +66,8 @@ Current implemented foundations include:
 - ROS 2 Jazzy / PX4 / Gazebo SITL integration;
 - vehicle state aggregation and trace recording;
 - deterministic flight skills and execution backend;
-- safety gate components and a scripted mission entry, not yet the Agent production loop.
+- safety-gated flight action services and a human-driven ROS service loop verified with a fixed LLM and external dependency substitutes;
+- a separate M3 scripted PX4 debug entry, outside the Safety Gate.
 
 ## Evaluation Boundary
 
