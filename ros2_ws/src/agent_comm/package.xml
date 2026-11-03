@@ -9,8 +9,6 @@
   <depend>rosllm_srvs</depend>
   <depend>ament_index_python</depend>
   <exec_depend>python3-yaml</exec_depend>
-  <test_depend>python3-pytest</test_depend>
-  <test_depend>observation_manager</test_depend>
   <export>
     <build_type>ament_python</build_type>
   </export>

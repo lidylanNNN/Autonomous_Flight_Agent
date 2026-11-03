@@ -11,7 +11,7 @@
 | F1 | 中，MX 验收缺口 | 总计划要求固定对象在 Trace 标源；`LLMNode` 的 `MX_FIXED_BEHAVIOR` 在响应与主循环日志，观察占位来源在 `Observation.Response`。`TraceRecorder` 仅写 `world_state`、`safety_decision` | 固定行为和占位观察的来源不能从 JSONL Trace 中还原；该要求未通过 |
 | F2 | 中，审计能力边界 | Gate 先写决策再生成执行 ID；`SkillResult` 和执行 ID 出现在动作响应，但没有执行结果 Trace。序列成功响应只返回摘要 | 测试可核对运行中身份链，落盘数据尚不足以独立重建完整 Episode；不声称完整因果链已完成 |
 | F3 | 中，部署验证缺口 | 整轮测试在同一 Python 进程中装配多个真实 ROS 节点，Backend、状态输入、权限和限速由测试替换 | 尚无独立生产进程与真实 PX4 的整轮证据；不能称为 SITL 验收 |
-| F4 | 低，构建清单缺口 | `agent_comm` 的测试直接导入 `behavior_executor`、`flight_agent_ros`，但其 `package.xml` 未直接声明这两个测试依赖 | 当前已构建工作区可运行；干净环境的独立包测试依赖未验证，后续单独修正包清单 |
+| F4 | 低，已修正验证 | 审计时 `agent_comm` 的测试直接导入其他 ROS 包，清单未直接声明完整测试依赖 | 两个集成测试已迁到 behavior_executor 并声明直接测试依赖；干净构建验证见[变更单](MX-5-test-dependencies.md) |
 
 源码依据：[TraceRecorder](../src/flight_agent/components/tracing/recorder.py)、[主入口](../ros2_ws/src/agent_comm/agent_comm/ros_agent_srv.py)、[序列执行器](../ros2_ws/src/behavior_executor/behavior_executor/sequence_executor.py)、[包清单](../ros2_ws/src/agent_comm/package.xml)。
 
@@ -88,15 +88,15 @@ RosEnv --观察、reward、done、info--> ros_agent_srv.main
 
 - 首次完整回归在沙箱内停滞，主动中止。单独定位发现参数适配器测试停在 `asyncio.Runner.close()` 的线程池关闭等待；沙箱外重跑该文件为 `22 passed`。这支持环境相关判断，不将中止运行计为通过。
 - 构建：`colcon build --packages-select rosllm_srvs agent_comm behavior_executor observation_manager flight_agent_ros`，五包通过；日志位于 `/tmp/mx5-colcon-log`。
-- 新增断言位于 [test_flight_round.py](../ros2_ws/src/agent_comm/test/test_flight_round.py)，Ruff、`git diff --check` 通过；无生产接口变更，回滚仅需恢复测试和文档。
+- 新增断言位于 [test_flight_round.py](../ros2_ws/src/behavior_executor/test/test_flight_round.py)，Ruff、`git diff --check` 通过；无生产接口变更，回滚仅需恢复测试和文档。
 
 ## 后续任务
 
 1. MX-5 来源记录收口：先明确 F1 的 Trace 事件字段、来源标记和回放兼容方式，再实现与验证；不得用日志代替 JSONL 验收。
-2. 包测试依赖收口：修正 F4 并验证干净构建环境中的包测试依赖。
+2. 包测试依赖收口已完成：按[测试依赖变更单](MX-5-test-dependencies.md)迁移两个测试文件并同步清单，拓扑排序、六包干净构建及新安装环境下 50 项回归通过。
 3. 真实环境回归：保留 M3 Backend SITL 回归、新服务真实状态与拒绝链、可信授权下批准飞行三项；其中可信 Authority 和受控 SITL 仍属 M4。
 
-## 待决策项
+## 已确认事项
 
-- F1 的最小 Trace 事件设计尚未冻结；本批未改变 Trace 格式，也未降低原验收要求。
-- F2 是否与来源事件一起扩展为执行结果审计，需单独确定范围；现有测试通过不构成该扩展的实现证据。
+- 用户确认两类都记录：保存完整 LLM 回复、观察文字及来源，同时保存动作执行结果。
+- 具体字段、写入位置和失败处理见[MX-5 结构变更单](MX-5-structure-change.md)，待评审后分批实施。
