@@ -26,7 +26,7 @@ MX 在当前开发顺序中先于 M4 收口，再进入 M5；它不是新的任�
 | MX-2 有人入口与观察 | 已完成：`ros_agent_srv.main` 创建并调用 `RosEnv`、`RosAgent`，经 `observation_manager_node` 读取 PX4 状态；文本占位显式标源，默认 LLM 明确失败；入口测试覆盖初始观察、人工输入和再观察。见[结构变更单](MX-2-structure-change.md) | MX-1 | 1–1.5 天 |
 | MX-3 行为序列 | 代码批次已完成：有人入口在显式固定模式下提取两步行为，调用 `sequence_executor` 并再观察；当时动作服务为替身；当前接线见 MX-4。见[结构变更单](MX-3-structure-change.md) | MX-2 | 1–1.5 天 |
 | MX-4 飞行动作接线 | 六步代码批次已实施：新 JSON 限制接入 五个飞行动作服务，ROS 测试验证 `UNKNOWN` 拒绝、Trace 与 Backend 零执行；执行 ID 改由 Gate 在批准且 Trace 成功后分配，已验证替身批准身份链；五个服务的失败路径已验证；固定行为已使用合法 JSON 参数；执行器等待预算已协调；单轮主链已通过真实动作服务和 Gate 的替身集成，6a 已保留独立 M3 调试入口并删除旧任务入口，6b 已删除旧任务模型及公共导出，保留系统安全限制。见[结构变更单](MX-4-structure-change.md) | MX-1、MX-3 | 待重估 |
-| MX-5 主链回归与审计 | 首轮回归与占位审计已实施；测试依赖已修正并通过干净构建；固定来源 Trace 尚待收口，详见 [MX-5 审计](MX-5-audit.md)与[结构变更单](MX-5-structure-change.md) | MX-2 至 MX-4 | 1–2 天 |
+| MX-5 主链回归与审计 | 首轮审计与测试依赖修正已完成；Trace 记录与 Agent 来源接线已实施，Gate 结果接线与最终审计待完成，详见 [MX-5 审计](MX-5-audit.md)与[结构变更单](MX-5-structure-change.md) | MX-2 至 MX-4 | 1–2 天 |
 
 ## 验收与后续
 

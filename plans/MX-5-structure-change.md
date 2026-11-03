@@ -1,6 +1,6 @@
 # MX-5 结构变更单：主链审计与 Trace 收口
 
-状态：首轮审计、测试依赖迁移已实施并验证；用户已确认具体方案并授权开始，3a 已实施并验证、待评审，3b 至 3d 尚未实施。
+状态：首轮审计、测试依赖迁移已实施并验证；3a 已提交为 `925794b`（v0.10.61），3b 已实施并验证、待评审，3c 至 3d 尚未实施。
 
 依据：[当前规格](../SPEC_DEV.md)、[MX 总计划](MX.md)、[首轮审计](MX-5-audit.md)。本文件作为新会话继续 MX-5 的入口；已完成批次不重复实施。
 
@@ -14,8 +14,7 @@
 - 首轮审计已提交为 `d95c5c4`（v0.10.59），当时核心 164 项、ROS 125 项通过。发现及占位清单见[审计报告](MX-5-audit.md)。
 - 两个集成测试已从 `agent_comm/test/` 迁到 `behavior_executor/test/`，两包测试依赖已同步；六包干净构建和新安装环境下 50 项回归通过，详见[依赖修正记录](MX-5-test-dependencies.md)。
 
-- Trace 已记录 `WorldState` 和 Safety 决策；回放器只识别这两种记录。
-- LLM 回复、观察文字的来源目前在服务响应或日志中，没有写入 Trace。
+- Trace 记录与接线进展以文末 3a、3b 实施记录为准；动作结果接线仍待 3c。
 - Gate 能取得完整 `SkillResult`，动作服务只返回其中的部分字段。
 
 ## 目标
@@ -70,9 +69,9 @@ Trace 文件 --逐行记录--> TraceReplay
    - 已核对真实服务调用、对象传递、失败停止与运行中身份关联，列出占位及未接入项；证据见审计报告。
 2. **测试依赖收口（已完成）**
    - 两个测试迁入 `behavior_executor/test/`，测试依赖声明与干净构建已验证；内容保持逐字节一致。
-3. **来源与执行结果 Trace（3a 已实施，后续未实施）**
-   - 3a. 记录器和回放器（已实施、待评审）：新增四种记录的写入方法、强类型模型与遍历方法；兼容读取旧记录，检查命令与结果的身份一致性。
-   - 3b. 观察和 LLM 接线：Agent 入口提供独立 Trace 路径，接入 RosEnv、RosAgent；记录实际服务响应。
+3. **来源与执行结果 Trace（3a、3b 已实施，后续未实施）**
+   - 3a. 记录器和回放器（已提交）：新增四种记录的写入方法、强类型模型与遍历方法；兼容读取旧记录，检查命令与结果的身份一致性。
+   - 3b. 观察和 LLM 接线（已实施、待评审）：Agent 入口提供独立 Trace 路径，接入 RosEnv、RosAgent；记录实际服务响应。
    - 3c. 动作结果接线：Gate 在 Backend 返回或抛异常后记录事实，保留先写批准决策再派发的顺序。
    - 3d. 主链验证：从人工入口验证完整内容、来源、动作身份及失败分支，更新 MX-5 验收状态。
 
@@ -94,12 +93,12 @@ Trace 文件 --逐行记录--> TraceReplay
 ## 新会话起点
 
 - 先读 `AGENT.md`、当前 SPEC、本文和审计报告；检查工作区与最新提交。
-- 本文的记录格式与失败处理已获用户确认；3a 代码待评审，后续从 3b 接线开始。不要重复实施 3a、迁移测试或恢复旧任务模型。
+- 本文的记录格式与失败处理已获用户确认；3b 代码待评审，后续从 3c 接线开始。不要重复实施已完成批次、迁移测试或恢复旧任务模型。
 - 测试新路径为 `ros2_ws/src/behavior_executor/test/`；干净构建产物在 `/tmp/mx5-deps-clean/`，可用作参考，不能假定新环境一定存在。
 - 沙箱内参数适配器测试曾停在 asyncio 线程池关闭阶段；沙箱外同一文件及完整 ROS 回归通过，环境差异见审计报告。
 - MX 仍未整体验收；真实 PX4/SITL、可信授权和完整 Episode 关联仍有缺口，不因结构变更单提交而标为完成。
 
-## 3a 实施记录（2026-11-03，未提交）
+## 3a 实施记录（2026-11-03，`925794b` / v0.10.61）
 
 - 变更：`components/tracing/` 新增四类写入、模型及遍历方法；旧记录格式与读取接口保留。
 - 对象：四种记录模型继承内部 `ContentTraceRecord` 基类；记录器写入前创建，回放器读取时解析，无新增生产节点。
@@ -109,4 +108,18 @@ Trace 文件 --逐行记录--> TraceReplay
 - 生产接线：本批新增方法尚无生产调用方；Agent 与 Gate 保持原调用链，来源与结果接线仍分别待 3b、3c，F1 尚未关闭。
 - 验证：`PYTHONPATH=src .venv/bin/python -m pytest -q tests`，190 项通过（其中 Trace 35 项）；覆盖完整文本、失败响应、全部动作终态、异常、混合记录、身份不一致与非法字段。
 - 静态检查：`.venv/bin/ruff check src/flight_agent/components/tracing tests/unit/test_trace.py` 与 `.venv/bin/mypy src/flight_agent/components/tracing --follow-imports=silent` 通过；后者范围为 tracing 三个文件。
-- 本批仅为核心直接调用测试，未运行 ROS、PX4/Gazebo；无偏离已确认范围，未提交或推送。
+- 本批仅为核心直接调用测试，未运行 ROS、PX4/Gazebo；无偏离已确认范围。后经用户授权提交并推送。
+
+## 3b 实施记录（2026-11-03，未提交）
+
+- 变更：`agent_comm/ros_agent_srv.py` 在观察和实际 LLM 服务响应返回后、交给调用方前保存完整内容；失败观察不触发 LLM，也不伪造模型响应记录。
+- 对象职责：`main()` 创建并持有一个 `TraceRecorder`，交给 `RosEnv`、`RosAgent` 共用；无新增类或生产节点。
+- 输入输出：两构造函数新增记录器参数；`main()` 增加仅限关键字的可选 `trace_path: Path` 参数供测试指定路径。原返回类型与 ROS 服务字段保持不变。
+- 路径：生产入口使用 ROS 参数 `agent_trace_path`，默认 `artifacts/agent_trace_<随机 UUID>.jsonl`；可用 `ros2 run agent_comm ros_agent_srv --ros-args -p agent_trace_path:=/tmp/agent_run.jsonl` 指定，每个进程须独占文件。
+- 实际生产数据流：观察服务 --Observation.Response--> RosEnv --完整响应及来源--> TraceRecorder；LLM 服务 --LLM.Response--> RosAgent --实际 prompt、完整回复及 info--> TraceRecorder；TraceRecorder --JSONL--> Agent 独立文件。
+- 失败处理：记录写入的 `OSError` 增加 `OBSERVATION_TRACE_WRITE_FAILED` 或 `LLM_TRACE_WRITE_FAILED` 上下文后传播，入口退出并销毁节点；不继续派发。执行后的再观察写入失败不能撤销已执行动作。
+- 生产接线：新增来源写入已接入 `ros_agent_srv.main()`；Gate、动作结果与执行异常记录仍未接线，完整 Episode 关联与 3d 审计尚未完成。
+- 验证范围：真实 ROS 服务及入口测试；PX4 Topic 输入与原子动作由替身提供，未运行 PX4/Gazebo，无范围偏离。
+- 构建：加载 Jazzy 和 `/tmp/mx5-deps-clean/install/setup.bash` 后，执行 `colcon --log-base /tmp/mx5-3b-colcon-log build --base-paths ros2_ws/src --build-base /tmp/mx5-deps-clean/build --install-base /tmp/mx5-deps-clean/install --packages-select agent_comm`，1 包成功；这是增量构建，不是六包重新干净构建。
+- ROS 验证：仅加载上述安装目录，`PYTHONPATH` 补核心 `src` 和 `.venv/lib/python3.12/site-packages`，设置 `PYTEST_DISABLE_PLUGIN_AUTOLOAD=1`、`ROS_LOG_DIR=/tmp/ros_log_mx5_3b_installed`；`/usr/bin/python3 -m pytest -q -o faulthandler_timeout=50 ros2_ws/src/behavior_executor/test ros2_ws/src/observation_manager/test ros2_ws/src/flight_agent_ros/test/test_flight_atomic_action_server.py`，53 项通过（33.69 秒）。已确认入口模块来自安装目录，无 ROS 包源码路径覆盖。
+- 核心：`PYTHONPATH=src .venv/bin/python -m pytest -q tests`，190 项通过；两处修改的 Python 文件 Ruff 与 `git diff --check` 通过。

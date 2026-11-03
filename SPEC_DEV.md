@@ -51,7 +51,7 @@ V1 目标：取得初始观察后等待人工输入。`RosAgent` 根据观察和
 | 确定性飞行动作 | `flight_execution_backend.py`、PX4 Command/Offboard adapters、Skill Registry | Takeoff、GoTo、Hold、RTL、Land 有代码映射；M3 调试脚本有 SITL 验证记录，不等于 Agent 任务闭环 |
 | 执行前 Safety | `SafetyExecutionGate` 调用 `SafetySupervisor`，批准后调用 `FlightExecutionBackend` | Gate 和检查器、决策 Trace 已实现；MX-4 1b 已移除 Proposal 与 Gate 的旧任务身份；飞行动作服务的 Authority 当前传入 `UNKNOWN`，不能声称已在生产入口获批飞行 |
 | 验证与恢复 | 飞行动作服务响应中的 `verification` | 固定为 `INCONCLUSIVE`；旧任务验证与恢复占位已删除，没有任务成功判定、重新规划或安全收尾实现 |
-| Trace | `TraceRecorder`、`TraceReplay` | 可记录/回放 WorldState 与 SafetyDecision；完整 Episode 因果链尚未完成 |
+| Trace | `TraceRecorder`、`TraceReplay` | 可记录/回放 WorldState、安全决策、观察与 LLM 响应；动作结果记录能力已建、Gate 接线待完成，详见 [MX-5 记录](plans/MX-5-structure-change.md)；完整 Episode 因果链尚未完成 |
 | 测评数据 | `agent_benchmark_sets/`、schema 与 validation scripts | Dev 用例存在；Validation/Frozen Test 目前只是预留 manifest，不得报告冻结测评指标 |
 | 旧审批原型 | `human_approval` 模型、组件、Mock 和测试 | 尚存仓库，但不是当前自主执行链，不等于任务级人工确认产品功能 |
 

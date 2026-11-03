@@ -2,19 +2,21 @@
 
 from __future__ import annotations
 
+import re
 from collections.abc import Callable
 from pathlib import Path
-import re
 from typing import Any, cast
+from uuid import uuid4
 
 import rclpy
 import yaml
 from ament_index_python.packages import get_package_share_directory
 from rclpy.client import Client
 from rclpy.node import Node
-from rosllm_srvs.srv import ExecuteBehavior, LLM, Observation
+from rosllm_srvs.srv import LLM, ExecuteBehavior, Observation
 
 from flight_agent.components.skills.registry import get_skill_spec
+from flight_agent.components.tracing import TraceRecorder
 from flight_agent.contracts import SkillName
 
 _SERVICE_TIMEOUT_S = 5.0
@@ -40,18 +42,27 @@ def _call_service(
 class RosEnv:
     """Own observation and behavior service access and the action library."""
 
-    def __init__(self, node: Node) -> None:
+    def __init__(self, node: Node, recorder: TraceRecorder) -> None:
         self._node = node
+        self._recorder = recorder
         self._observation_client = node.create_client(Observation, 'get_observation')
         self._behavior_client = node.create_client(ExecuteBehavior, 'execute_behavior')
 
     def get_obs(self) -> Observation.Response:
         """Request the current observation from Observation Manager."""
 
-        return cast(
+        response = cast(
             Observation.Response,
             _call_service(self._node, self._observation_client, Observation.Request()),
         )
+        try:
+            self._recorder.record_observation(
+                success=response.success, observation=response.observation,
+                source=response.source, message=response.message,
+            )
+        except OSError as error:
+            raise OSError(f'OBSERVATION_TRACE_WRITE_FAILED: {error}') from error
+        return response
 
     def get_atomic_action_library(self) -> str:
         """Read the action index and reuse Skill Registry descriptions."""
@@ -91,8 +102,9 @@ class RosEnv:
 class RosAgent:
     """Combine human input and observation, then call the LLM service."""
 
-    def __init__(self, node: Node, action_library: str) -> None:
+    def __init__(self, node: Node, action_library: str, recorder: TraceRecorder) -> None:
         self._node = node
+        self._recorder = recorder
         self._action_library = action_library
         self._llm_client = node.create_client(LLM, 'call_llm')
 
@@ -106,10 +118,17 @@ class RosAgent:
             f'Observation source: {obs.source}\nObservation: {obs.observation}\n'
             f'HumanInput: {human}'
         )
-        return cast(
+        response = cast(
             LLM.Response,
             _call_service(self._node, self._llm_client, LLM.Request(prompt=prompt)),
         )
+        try:
+            self._recorder.record_llm_response(
+                prompt=prompt, success=response.success, response=response.response, info=response.info,
+            )
+        except OSError as error:
+            raise OSError(f'LLM_TRACE_WRITE_FAILED: {error}') from error
+        return response
 
     @staticmethod
     def extract_behavior(result: LLM.Response) -> str:
@@ -121,7 +140,9 @@ class RosAgent:
         return match.group('behavior').strip()
 
 
-def main(input_reader: Callable[[str], str] | None = None) -> None:
+def main(
+    input_reader: Callable[[str], str] | None = None, *, trace_path: Path | None = None,
+) -> None:
     """Observe, wait for a human, execute valid behavior, then observe again."""
 
     owns_context = not rclpy.ok()
@@ -129,8 +150,14 @@ def main(input_reader: Callable[[str], str] | None = None) -> None:
         rclpy.init()
     node = rclpy.create_node('ros_agent_srv')
     try:
-        env = RosEnv(node)
-        agent = RosAgent(node, env.get_atomic_action_library())
+        parameter = node.declare_parameter(
+            'agent_trace_path', f'artifacts/agent_trace_{uuid4().hex}.jsonl',
+        )
+        resolved_path = trace_path if trace_path is not None else Path(str(parameter.value))
+        recorder = TraceRecorder(resolved_path)
+        node.get_logger().info(f'agent_trace_path={resolved_path}')
+        env = RosEnv(node, recorder)
+        agent = RosAgent(node, env.get_atomic_action_library(), recorder)
         obs = env.get_obs()
         read_input = input_reader or input
         while rclpy.ok():
