@@ -1,12 +1,12 @@
 # MX-4 结构变更单：飞行原子动作接线
 
-状态：步骤 1 至 5 已实施；单轮主链集成待实施。生产入口已发布五个飞行动作服务。
+状态：步骤 1 至 5 及单轮主链替身集成已实施；步骤 6 待实施。生产入口已发布五个飞行动作服务。
 
 依据：[当前规格](../SPEC_DEV.md)、[MX 计划](MX.md)、[ROS-LLM 服务契约](../contracts/rosllm_services.md)、[Safety Contract](../contracts/safety_contract.md)。
 
 ## 现状
 
-- `sequence_executor` 已按动作名调用 `AtomicAction` 服务；生产入口已发布五个飞行动作服务。MX-3 的动作成功证据来自测试替身。
+- `sequence_executor` 已按动作名调用 `AtomicAction` 服务；生产入口已发布五个飞行动作服务。单轮主链已调用实际飞行动作服务和 Gate；验证边界见[单轮记录](#单轮主链集成记录)。
 - 旧 `MissionService` 已调用 `SafetyExecutionGate`。Gate 写入决策 Trace 后，仅对批准的命令调用 Backend。
 - 生产 Authority 目前为 `UNKNOWN`；旧受控任务入口不能获批飞行。
 - `ExecuteBehavior` 请求只有行为文本；`AtomicAction` 请求只有 `input` 和 `prev_output`。两者都没有任务 ID 或版本字段。
@@ -251,6 +251,18 @@
 - 验证命令：加载 ROS 和工作区环境后，运行 `/usr/bin/python3 -m pytest -q ros2_ws/src/behavior_executor/test/test_sequence_executor.py ros2_ws/src/agent_comm/test/test_ros_agent_srv.py`，结果 `7 passed in 33.08s`。
 - `colcon build --packages-select behavior_executor agent_comm` 两包构建通过；测试文件 Ruff、`git diff --check` 通过。生产文件既有 Ruff 告警为 `TRY004`、`BLE001`、`I001`，已对照 HEAD 确认，本批未处理。
 - 延迟响应来自动作服务替身，不是 PX4/Gazebo 飞行证据；真实飞行动作服务与 Gate 的单轮主链集成仍待下一批。
+
+## 单轮主链集成记录
+
+- 新增 `agent_comm/test/test_flight_round.py`，从 `ros_agent_srv.main()` 输入一轮人工文本，开启现有固定 LLM 模式。
+- 调用实际 `RosAgent`、`RosEnv`、`SequenceExecutor` 和生产装配函数创建的 `FlightAtomicActionServer`、Gate、Supervisor、Trace；无生产对象或函数接口改动。
+- 请求链：`RosEnv --ExecuteBehavior.Request--> SequenceExecutor`；`SequenceExecutor --AtomicAction.Request--> FlightAtomicActionServer`；`FlightAtomicActionServer --提案及限制--> Gate`；`Gate --ApprovedSkillCommand--> Backend 替身`。
+- 返回链：`Backend 替身 --SkillResult--> Gate`；`Gate --决策及执行结果--> FlightAtomicActionServer`；`FlightAtomicActionServer --AtomicAction.Response--> SequenceExecutor`；`SequenceExecutor --ExecuteBehavior.Response--> RosEnv`。
+- 三个用例分别验证两步成功、首项执行失败、权限未知拒绝；后两者均不派发 RTL。执行前检查批准 Trace 已落盘，批准命令绑定对应提案和决策。
+- `RosEnv --Observation.Request--> ObservationManagerNode`；`ObservationManagerNode --Observation.Response--> RosEnv`。三个用例均检查初始观察和执行后再观察完成后才等待下一次人工输入；执行路径另检查已读到注入的新位置快照。
+- 替身边界：位置消息直接注入实际聚合器，Backend 使用内存实现，权限和限速由测试提供；未启动 PX4/Gazebo，也未验证 ACK、Offboard 或真实飞行。生产 Authority 仍为 `UNKNOWN`。
+- 既有测试及阶段记录保留；新增用例 `3 passed`。加载 ROS 和工作区环境后，运行 `/usr/bin/python3 -m pytest -q ros2_ws/src/agent_comm/test ros2_ws/src/behavior_executor/test/test_sequence_executor.py ros2_ws/src/flight_agent_ros/test/test_flight_atomic_action_server.py`，结果 `49 passed in 33.63s`；新增文件 Ruff、`git diff --check` 通过。
+- 后续仍缺真实 Backend 的 SITL 回归、新服务真实状态与拒绝链验证，以及可信授权下的批准飞行证据；本批不将这些缺口计为完成。
 
 ## 风险
 

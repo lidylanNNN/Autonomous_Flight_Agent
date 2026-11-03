@@ -46,7 +46,7 @@ V1 目标：取得初始观察后等待人工输入。`RosAgent` 根据观察和
 | 能力 | 当前代码/入口 | 可声称的边界 |
 |---|---|---|
 | 环境与状态 | `ros2_ws/`、`scripts/ros2_px4/`、`Px4WorldStateAdapter`、`WorldStateAggregator` | M1/M2 的 PX4/Gazebo、ROS 2 消息和状态聚合基础已建立；运行环境以 `manifests/environment.yaml` 为准 |
-| MX-3 有人入口与行为序列 | `ros_agent_srv.main()` 已装配 `RosEnv`、`RosAgent`、观察服务和行为执行器；逐边调用见第 4 节 | 观察文本仍为标源占位，默认 LLM 明确失败；固定两步调用仍由测试动作服务验证，尚未接入生产飞行动作。证据见 [MX 计划](plans/MX.md) |
+| MX-3 有人入口与行为序列 | `ros_agent_srv.main()` 已装配 `RosEnv`、`RosAgent`、观察服务和行为执行器；逐边调用见第 4 节 | 观察文本仍为标源占位，默认 LLM 明确失败；显式固定两步已通过实际飞行动作服务和 Gate 的单轮集成，外部 PX4 与权限来源使用替身。证据见 [MX-4 单轮记录](plans/MX-4-structure-change.md#单轮主链集成记录) |
 | MX-4 飞行动作服务 | `flight_atomic_action_server` 从 `--safety-json` 加载限制，发布 `hold`、`takeoff`、`goto`、`rtl`、`land` 并调用 Safety Gate | 五个服务测试覆盖 `UNKNOWN` 拒绝、Trace/状态读取失败零派发，以及替身批准、执行失败和异常响应；不代表 PX4/Gazebo 端到端证据 |
 | 确定性飞行动作 | `flight_execution_backend.py`、PX4 Command/Offboard adapters、Skill Registry | Takeoff、GoTo、Hold、RTL、Land 有代码映射；M3 调试脚本有 SITL 验证记录，不等于 Agent 任务闭环 |
 | 旧任务入口 | `mission_cli.py` 调用 `MissionService.run()` | 只识别固定语句 `起飞到10米`；其他语句返回 `UNSUPPORTED`，无 LLM 或通用规划器 |
@@ -281,3 +281,7 @@ V1 不建立任务 ID 或任务会话。飞行动作服务以 `--safety-json` �
 4. M5/M7/M7-S 的实际工作量与时间表，待 M4 收口和第一条真实 Agent 纵向切片后重估；上游准确 commit 与序列执行对照测试待锁定。
 
 这些是待决策或待实现项，不得在进度表中提前标为完成。
+
+## 11. V2 优化
+
+后续产品迭代事项统一记录在 [V2 优化清单](plans/V2-optimizations.md)，不纳入当前 V1/MX-4 实施范围。
