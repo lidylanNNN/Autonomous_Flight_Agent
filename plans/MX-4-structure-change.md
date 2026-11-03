@@ -1,6 +1,6 @@
 # MX-4 结构变更单：飞行原子动作接线
 
-状态：步骤 1 至 5 及单轮主链替身集成已实施；步骤 6 待实施。生产入口已发布五个飞行动作服务。
+状态：步骤 1 至 5、单轮主链替身集成及 6a-1 已实施；6a-2、6b 待实施。生产入口已发布五个飞行动作服务。
 
 依据：[当前规格](../SPEC_DEV.md)、[MX 计划](MX.md)、[ROS-LLM 服务契约](../contracts/rosllm_services.md)、[Safety Contract](../contracts/safety_contract.md)。
 
@@ -103,7 +103,9 @@
 5. **已完成：协调执行器超时**
    - 调高 `sequence_executor` 单项等待上限，覆盖现有最长 Skill 超时及 Gate 前置读取余量；保留超时失败即停。这一步单独一批，不加入取消协议。
 6. **删除旧任务模型（迁移后实施）**
-   - 6a. 新主链验证通过后，删除旧 `mission_cli`、`MissionService` 和专属测试；保留 M3 独立调试入口。
+   - 6a. 新主链验证通过后，删除旧入口并保留 M3 调试能力，分为以下子批次：
+     - 6a-1（已完成）：迁出独立 `m3_scripted_flight` 入口，更新启动脚本；旧调试参数暂转到迁出后的实现。
+     - 6a-2：删除旧 `mission_cli`、`MissionService` 及专属测试；M3 回归测试随独立入口保留。
    - 6b. 删除 `MissionContract`、旧任务级模型及公共导出；复核 `PlanStep` 和 `VerificationResult` 的实际使用者，保留 `MissionConstraints`。
 
 步骤 1 至 3、6 涉及 Contract、Safety 或 ROS 2/PX4；每个相关代码批次按 [AGENT.md](../AGENT.md) 汇报范围、调用流、影响和回滚。步骤 4、5 不混入飞行动作批次。
@@ -263,6 +265,17 @@
 - 替身边界：位置消息直接注入实际聚合器，Backend 使用内存实现，权限和限速由测试提供；未启动 PX4/Gazebo，也未验证 ACK、Offboard 或真实飞行。生产 Authority 仍为 `UNKNOWN`。
 - 既有测试及阶段记录保留；新增用例 `3 passed`。加载 ROS 和工作区环境后，运行 `/usr/bin/python3 -m pytest -q ros2_ws/src/agent_comm/test ros2_ws/src/behavior_executor/test/test_sequence_executor.py ros2_ws/src/flight_agent_ros/test/test_flight_atomic_action_server.py`，结果 `49 passed in 33.63s`；新增文件 Ruff、`git diff --check` 通过。
 - 后续仍缺真实 Backend 的 SITL 回归、新服务真实状态与拒绝链验证，以及可信授权下的批准飞行证据；本批不将这些缺口计为完成。
+
+## 6a-1 实施记录：迁出 M3 独立调试入口
+
+- 新增入口 `ros2 run flight_agent_ros m3_scripted_flight`；启动脚本 `scripts/ros2_px4/run_scripted_sitl_flight.sh` 已改用此入口，不再传 `--legacy-m3-direct`。
+- 从旧 CLI 迁移参数类、等待状态、Home 同步及四动作脚本；语法树对比确认这些定义未改变。旧调试参数暂调用 `run_m3_debug()`，旧任务服务仍保留，下一批删除。
+- `main()` 解析 M3 参数后调用 `run_m3_debug(arguments)`；后者创建并持有原有三个适配器、Executor 和 Backend，输出 JSON，失败时退出码为 1。没有新增类或 ROS 节点。
+- 实际调试链：`M3 入口 --测试用 ApprovedSkillCommand--> PX4 Backend`；`PX4 Backend --SkillResult--> M3 入口`。保持独立调试用途，未经 Gate，不属于 Agent 受控主链。
+- 新入口拒绝旧任务指令和合同选项；入口测试验证参数传递、Backend 装配、成功与失败清理，以及旧调试参数转发。四动作顺序与失败停止测试改从新模块导入。
+- 验证：`pytest -q` 运行 `test_m3_scripted_flight.py` 和 `test_mission_cli.py`，结果 `11 passed`；运行 `test_flight_round.py` 和 `test_flight_atomic_action_server.py`，结果 `42 passed`；`PYTHONPATH=src .venv/bin/python -m pytest -q tests` 为 `171 passed`。ROS 测试加载 Jazzy、工作区及项目 Python 路径。
+- `flight_agent_ros` 构建通过，安装后通过启动脚本执行 `--help` 成功；本批 Python 文件 Ruff、启动脚本 ShellCheck、`bash -n` 和 `git diff --check` 通过。本批未启动 PX4/Gazebo。
+- 回滚须同时恢复入口注册、启动脚本、迁出的实现和测试导入；历史 M3/M4 记录保留。
 
 ## 风险
 

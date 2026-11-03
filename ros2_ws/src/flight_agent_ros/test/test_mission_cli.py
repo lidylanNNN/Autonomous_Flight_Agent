@@ -8,12 +8,11 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
-from flight_agent_ros.entrypoints.mission_cli import (
+from flight_agent_ros.entrypoints.m3_scripted_flight import (
     ScriptedFlightParameters,
-    _parse_arguments,
-    build_mission_service,
     run_scripted_px4_flight,
 )
+from flight_agent_ros.entrypoints.mission_cli import _parse_arguments, build_mission_service
 
 from flight_agent.components.tracing import TraceReplay
 from flight_agent.contracts import (

@@ -76,7 +76,7 @@ V1 目标：取得初始观察后等待人工输入。`RosAgent` 根据观察和
 **实际入口必须分开报告：**
 
 - 旧受控任务入口 `mission_cli --instruction/--contract-json` 调用 `MissionService` 的固定语句逻辑，生成 Proposal 并经 Gate 仲裁；当前 Authority 为 `UNKNOWN`，不能把替身测试的批准说成 SITL 任务批准。
-- M3 调试入口 `mission_cli --legacy-m3-direct` 直接调用 PX4 ROS 2 Backend，显式绕过 Gate；只作 M3 调试与回归，不进入自主安全测评。删除旧 CLI 前须迁出这条独立调试路径。
+- M3 独立调试入口 `m3_scripted_flight` 直接调用 PX4 ROS 2 Backend，显式绕过 Gate；只作 M3 调试与回归，不进入自主安全测评。`run_scripted_sitl_flight.sh` 已改用新入口；旧 `mission_cli --legacy-m3-direct` 暂转到同一实现，随 6a-2 删除。
 - MX-4 飞行动作入口 `flight_atomic_action_server --safety-json <路径>` 目前发布 `hold`、`takeoff`、`goto`、`rtl`、`land`；生产 Authority 固定 `UNKNOWN`，经 Gate 拒绝后不派发 Backend。
 
 ## 3. 固定环境与仓库边界
