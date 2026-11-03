@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from datetime import UTC, datetime
 from pathlib import Path
 from threading import Thread
@@ -14,12 +15,15 @@ from agent_comm.llm_node import LLMNode
 from agent_comm.ros_agent_srv import RosEnv, main
 from behavior_executor.sequence_executor import SequenceExecutor
 from flight_agent_ros.adapters.px4_world_state_adapter import Px4WorldStateAdapter
-from flight_agent_ros.flight_atomic_action_server import build_flight_atomic_action_server
+from flight_agent_ros.flight_atomic_action_server import (
+    FlightAtomicActionServer,
+    build_flight_atomic_action_server,
+)
 from flight_agent_ros.safety_config import load_safety_constraints
 from observation_manager.observation_manager_node import ObservationManagerNode
 from rclpy.executors import MultiThreadedExecutor
 from rclpy.parameter import Parameter
-from rosllm_srvs.srv import Observation
+from rosllm_srvs.srv import AtomicAction, Observation
 
 from flight_agent.components.tracing import TraceReplay
 from flight_agent.components.vehicle.flight_execution import MockFlightExecutionBackend
@@ -92,6 +96,21 @@ def test_human_round_through_flight_service_and_gate(
         ControlAuthority.UNKNOWN if outcome == 'unknown_authority'
         else ControlAuthority.AGENT_ALLOWED
     )
+    action_calls: list[tuple[SkillName, str, str, bool, str]] = []
+    original_handle_action = FlightAtomicActionServer._handle_action
+
+    def handle_action(
+        server: FlightAtomicActionServer, skill_name: SkillName,
+        request: AtomicAction.Request, response: AtomicAction.Response,
+    ) -> AtomicAction.Response:
+        '''记录实际动作请求和响应，仍由原服务执行全部解析、Gate 与结果封装。'''
+        result = original_handle_action(server, skill_name, request, response)
+        action_calls.append((
+            skill_name, request.input, request.prev_output, result.success, result.output,
+        ))
+        return result
+
+    monkeypatch.setattr(FlightAtomicActionServer, '_handle_action', handle_action)
     example = Path(__file__).resolve().parents[4] / 'configs/flight_safety.example.json'
     server = build_flight_atomic_action_server(
         load_safety_constraints(example), backend, trace_path=trace_path,
@@ -113,9 +132,9 @@ def test_human_round_through_flight_service_and_gate(
 
     def step(env: RosEnv, behavior: str) -> tuple[Observation.Response, float, bool, dict[str, object]]:
         '''保留真实序列服务调用，只记录传回主循环的结果。'''
-        result = original_step(env, behavior)
-        rewards.append(result[1])
-        return result
+        obs, reward, done, info = original_step(env, behavior)
+        rewards.append(reward)
+        return obs, reward, done, info
 
     monkeypatch.setattr(RosEnv, 'get_obs', get_obs)
     monkeypatch.setattr(RosEnv, 'step', step)
@@ -151,6 +170,36 @@ def test_human_round_through_flight_service_and_gate(
         assert [record.proposal.skill_name for record in records] == (
             ['hold', 'rtl'] if outcome == 'success' else ['hold']
         )
+        assert len(action_calls) == len(records)
+        previous_output = ''
+        for (skill, payload, previous, success, output), record in zip(
+            action_calls, records, strict=True,
+        ):
+            assert skill.value == record.proposal.skill_name
+            assert json.loads(payload) == ({'duration_s': 1.0} if skill is SkillName.HOLD else {})
+            assert previous == previous_output
+            previous_output = output
+            evidence = json.loads(output)
+            assert evidence['proposal_id'] == record.proposal.proposal_id
+            assert evidence['decision_id'] == record.decision.decision_id
+            assert evidence['verification'] == 'INCONCLUSIVE'
+            assert evidence['error_code'] is None
+            assert success is (outcome == 'success')
+            if outcome == 'unknown_authority':
+                assert evidence['execution_id'] is None
+                assert evidence['execution_status'] is None
+                assert 'AUTHORITY_NOT_GRANTED' in evidence['reason_codes']
+            else:
+                command = next(item for item in commands if item.proposal_id == evidence['proposal_id'])
+                assert evidence['execution_id'] == command.execution_id
+                assert evidence['decision_id'] == command.decision_id
+                assert command.approved_state_id == record.decision.checked_state_id
+                assert evidence['execution_status'] == (
+                    'SUCCEEDED' if outcome == 'success' else 'FAILED'
+                )
+                assert evidence['failure_code'] == (
+                    None if outcome == 'success' else 'TEST_EXECUTION_FAILURE'
+                )
         if outcome == 'unknown_authority':
             assert 'AUTHORITY_NOT_GRANTED' in records[0].decision.reason_codes
             speed_source.read_validated_speed_limit.assert_not_called()
