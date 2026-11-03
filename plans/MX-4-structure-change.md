@@ -1,6 +1,6 @@
 # MX-4 结构变更单：飞行原子动作接线
 
-状态：步骤 1 至 5、单轮主链替身集成及 6a 已实施；6b 待实施。生产入口已发布五个飞行动作服务。
+状态：步骤 1 至 6 及单轮主链替身集成已实施；真实 PX4/SITL 验证仍未完成。生产入口已发布五个飞行动作服务。
 
 依据：[当前规格](../SPEC_DEV.md)、[MX 计划](MX.md)、[ROS-LLM 服务契约](../contracts/rosllm_services.md)、[Safety Contract](../contracts/safety_contract.md)。
 
@@ -10,7 +10,7 @@
 - 飞行动作服务调用 `SafetyExecutionGate`。Gate 写入决策 Trace 后，仅对批准的命令调用 Backend；旧 `MissionService` 已删除。
 - 生产 Authority 目前为 `UNKNOWN`；飞行动作服务不能获批飞行。
 - `ExecuteBehavior` 请求只有行为文本；`AtomicAction` 请求只有 `input` 和 `prev_output`。两者都没有任务 ID 或版本字段。
-- Safety 动作提案、Gate、Supervisor 和 Schema 已移除旧任务身份；旧 CLI 已删除，任务模型仍待 6b 清理。
+- Safety 动作提案、Gate、Supervisor 和 Schema 已移除旧任务身份；旧 CLI、任务模型及其公共导出已删除。
 - `mission_cli` 及其合同加载路径已删除；新 `ros_agent_srv` 主链不使用 `MissionContract`。
 - 系统限制示例 JSON 和加载函数已接入 `flight_atomic_action_server` 入口；无效文件在发布 `hold` 前失败。
 - 当前入口为 `ros2 run flight_agent_ros flight_atomic_action_server --safety-json <JSON 文件路径> [--trace-path <路径>]`，发布 `hold`、`takeoff`、`goto`、`rtl`、`land`。
@@ -102,11 +102,11 @@
    - 将 `agent_comm.llm_node` 显式 MX 模式中的 `hold` 输入改为 `{"duration_s":1.0}`、`rtl` 输入改为 `{}`；同步入口测试。这一步单独一批。
 5. **已完成：协调执行器超时**
    - 调高 `sequence_executor` 单项等待上限，覆盖现有最长 Skill 超时及 Gate 前置读取余量；保留超时失败即停。这一步单独一批，不加入取消协议。
-6. **删除旧任务模型（迁移后实施）**
+6. **删除旧任务模型（已完成）**
    - 6a. 新主链验证通过后，删除旧入口并保留 M3 调试能力，分为以下子批次：
      - 6a-1（已完成）：迁出独立 `m3_scripted_flight` 入口，更新启动脚本；旧调试参数暂转到迁出后的实现。
      - 6a-2（已完成）：删除旧 `mission_cli`、`MissionService` 及专属测试；M3 回归测试随独立入口保留。
-   - 6b. 删除 `MissionContract`、旧任务级模型及公共导出；复核 `PlanStep` 和 `VerificationResult` 的实际使用者，保留 `MissionConstraints`。
+   - 6b（已完成）：删除 `MissionContract`、旧任务级模型及公共导出；引用核对确认 `PlanStep`、`VerificationResult` 及相关状态枚举无生产使用者，一并删除；保留 `MissionConstraints`，测试直接构造系统限制。
 
 步骤 1 至 3、6 涉及 Contract、Safety 或 ROS 2/PX4；每个相关代码批次按 [AGENT.md](../AGENT.md) 汇报范围、调用流、影响和回滚。步骤 4、5 不混入飞行动作批次。
 
@@ -288,6 +288,18 @@
 - `PYTHONPATH=src .venv/bin/python -m pytest -q tests`：`164 passed`，减少的 7 项为已删除的旧任务流程测试。加载 ROS 环境后运行 `pytest -q`，覆盖 `test_m3_scripted_flight.py`、`test_flight_round.py`、`test_flight_atomic_action_server.py`：`49 passed`。
 - `flight_agent_ros` 构建通过，`ros2 pkg executables flight_agent_ros` 已无旧入口；本批 Python 文件 Ruff、源码引用检查、`git diff --check` 通过。本批未启动 PX4/Gazebo。
 - 回滚须同时恢复旧入口、服务、注册与专属测试；新主链的安全检查未调整。
+
+## 6b 实施记录：删除旧任务模型
+
+- 删除 `MissionContract`、`MissionRequest`、`MissionPlan`、`MissionRunResult`、`MissionRunStatus` 及公共导出。
+- 引用核对确认 `PlanStep`、`VerificationResult`、`VerificationStatus` 仅在旧模型内部互相引用，没有生产使用者；一并删除 `mission_flow_model.py`。
+- `mission_model.py` 保留系统配置使用的 `MissionConstraints`、`NedGeofence`，字段及校验规则不变；名称和文件路径本批不改。
+- 三个 Safety 测试文件改为直接构造系统限制；原合同冻结测试改为验证系统限制冻结与拒绝未知字段，其余 Safety 断言保留。
+- 无新增对象或节点，生产函数输入输出不变；现有调用流仍为 `FlightAtomicActionServer --AtomicActionProposal + MissionConstraints--> SafetyExecutionGate`。服务返回的 `verification="INCONCLUSIVE"` 不依赖已删除模型，保持不变。
+- 旧模型的外部导入将失效；仓库源码、测试、脚本、配置及测评目录已检查无残留引用。历史阶段记录保留。
+- `PYTHONPATH=src .venv/bin/python -m pytest -q tests`：`164 passed`；加载 ROS 环境后运行 `pytest -q`，覆盖 `test_safety_config.py`、`test_m3_scripted_flight.py`、`test_flight_round.py`、`test_flight_atomic_action_server.py`：`55 passed`。
+- 本批 Python 文件 Ruff、`git diff --check` 通过；`mypy src/flight_agent/contracts src/flight_agent/components/safety` 覆盖 27 个源文件并通过。
+- 回滚需一起恢复模型、公共导出和测试构造。旧审批原型不属于本批；本批未启动 PX4/Gazebo，未补齐可信授权或真实飞行证据。
 
 ## 风险
 

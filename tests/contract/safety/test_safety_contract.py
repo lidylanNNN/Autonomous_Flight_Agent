@@ -1,4 +1,4 @@
-'''M4 Mission Contract 与 Safety Decision 契约测试。'''
+'''系统安全限制与 Safety Decision 契约测试。'''
 
 import pytest
 from pydantic import ValidationError
@@ -6,7 +6,6 @@ from pydantic import ValidationError
 from flight_agent.contracts import (
     AtomicActionProposal,
     MissionConstraints,
-    MissionContract,
     NedGeofence,
     SafetyDecision,
     SafetyDecisionType,
@@ -16,7 +15,7 @@ from flight_agent.contracts import (
 
 
 def make_constraints() -> MissionConstraints:
-    '''构造一组有效的任务硬约束。'''
+    '''构造一组有效的系统安全限制。'''
 
     return MissionConstraints(
         max_altitude_m=50.0,
@@ -32,19 +31,6 @@ def make_constraints() -> MissionConstraints:
             boundary_margin_m=2.0,
         ),
         allowed_skills=tuple(SkillName),
-    )
-
-
-def make_contract() -> MissionContract:
-    '''构造一份有效且可复用的任务契约。'''
-
-    return MissionContract(
-        mission_id='mission-1',
-        contract_version=1,
-        objective='飞到检查点并安全返航',
-        constraints=make_constraints(),
-        completion_criteria=('到达检查点', '返回并落地'),
-        abort_criteria=('PX4 failsafe active', 'link unhealthy'),
     )
 
 
@@ -64,16 +50,15 @@ def make_decision(
     )
 
 
-def test_mission_contract_is_strict_and_frozen() -> None:
-    '''验证任务契约拒绝额外字段且创建后不可修改。'''
+def test_system_constraints_are_strict_and_frozen() -> None:
+    '''验证系统限制拒绝额外字段且创建后不可修改。'''
 
-    contract = make_contract()
-
-    assert contract.constraints.allowed_skills == tuple(SkillName)
+    constraints = make_constraints()
+    assert constraints.allowed_skills == tuple(SkillName)
     with pytest.raises(ValidationError, match='frozen'):
-        contract.objective = '绕过原任务'  # type: ignore[misc]
+        constraints.max_altitude_m = 100.0  # type: ignore[misc]
     with pytest.raises(ValidationError, match='Extra inputs'):
-        MissionContract.model_validate(contract.model_dump() | {'planner_override': True})
+        MissionConstraints.model_validate(constraints.model_dump() | {'planner_override': True})
 
 
 @pytest.mark.parametrize(
@@ -81,7 +66,7 @@ def test_mission_contract_is_strict_and_frozen() -> None:
     [('north_max_m', -100.0), ('east_min_m', 80.0)],
 )
 def test_geofence_requires_positive_area(field_name: str, field_value: float) -> None:
-    '''验证反向或零面积围栏不能进入 Mission Contract。'''
+    '''验证反向或零面积围栏不能进入系统安全配置。'''
 
     payload = {
         'north_min_m': -100.0,

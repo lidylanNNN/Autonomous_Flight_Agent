@@ -44,8 +44,6 @@ M4-7 Safety Supervisor 已按固定顺序组合独立检查器，并通过 ROS �
 - 是否要求有效 Home；
 
 - 约束模型拒绝未知字段、重复 Skill、非法数值与无效围栏。
-- 旧入口仍持有 `MissionContract`，但只把其中的 `constraints` 交给 Gate。
-- 旧入口的 `proposal_id` 仍包含任务标识；MX-4 步骤 6 将删除该入口。
 - [`flight_safety.example.json`](../configs/flight_safety.example.json) 可通过模型校验。其数值来自测试，未获批用于生产飞行。
 - `load_safety_constraints(path: Path)` 读取显式 JSON 路径，返回 `MissionConstraints`。读取或校验失败时抛出 `ValueError`，没有默认回退。
 - 当前 `flight_atomic_action_server` 已接入 `--safety-json`；入口和限制加载现状见 [SPEC_DEV](../SPEC_DEV.md#2-当前实现基线)。

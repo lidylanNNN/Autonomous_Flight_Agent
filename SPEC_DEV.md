@@ -60,7 +60,7 @@ V1 目标：取得初始观察后等待人工输入。`RosAgent` 根据观察和
 | 现有文件/组 | 决定 | 实施条件 |
 |---|---|---|
 | `src/flight_agent/workflows/mission/service.py`、其 `__init__.py` 导出 | **已删除** | MX-4 6a-2 已移除固定语句规划与旧恢复循环，见[实施记录](plans/MX-4-structure-change.md#6a-2-实施记录删除旧入口与任务流程) |
-| `mission_flow_model.py` 中的 `MissionRequest`、`MissionPlan`、`PlanStep`、`MissionRunResult` 及公共导出 | **删除旧任务级类型，复核 `PlanStep`** | V1 有人入口直接接收人工文本，不使用 `mission_id`；旧入口迁移后删除 `MissionRequest`、`MissionPlan`、`MissionRunResult`。`PlanStep` 仅在证明为最小闭环所需时保留；复核 `VerificationResult` |
+| `MissionContract`、`mission_flow_model.py` 及相关公共导出 | **已删除** | 6b 已核对 `PlanStep`、`VerificationResult` 无生产使用者并一并删除；保留 `MissionConstraints` 和 `NedGeofence` |
 | `mission_cli.py`、ROS 包的 `setup.py` | **旧 CLI 及注册已删除** | 独立 M3 调试入口保留；有人入口使用 `ros_agent_srv.main()` |
 | `tests/integration/test_mission_flow.py`、ROS 包的 `test_mission_cli.py` | **已删除，M3 测试已迁出** | `test_flight_round.py` 覆盖新主链；`test_m3_scripted_flight.py` 保留独立调试回归 |
 | `components/skills/registry.py`、`skill_model.py` | **保留并扩展** | 动作定义补齐名称、类型、描述、输入/输出，供 prompt 与执行器共用 |
@@ -221,7 +221,7 @@ goto/rtl 共用的飞行原子动作内部链路（每次调用均执行）：
 
 `ExecuteBehaviorRequest` 是整个序列的输入，`AtomicActionRequest` 是逐项调用的输入；`service_name` 选择 ROS 服务，不是 `AtomicActionRequest` 的字段。目标 `flight_agent.contracts.AtomicAction` 是 Safety 批准后的内部执行凭证，不是 `rosllm_srvs/srv/AtomicAction` 的未审查请求。
 
-V1 不建立任务 ID 或任务会话。飞行动作服务以 `--safety-json` 指定新 JSON 文件，启动时加载系统 `MissionConstraints`；缺少或无效文件时不发布服务。Gate 使用这些限制、当前状态和 Authority 等证据。MX-4 1b 已从 Proposal、Gate 和 Supervisor 移除旧任务身份；旧任务模型与 CLI 的清理仍按 [MX-4 步骤 6](plans/MX-4-structure-change.md#实施任务)进行。
+V1 不建立任务 ID 或任务会话。飞行动作服务以 `--safety-json` 指定新 JSON 文件，启动时加载系统 `MissionConstraints`；缺少或无效文件时不发布服务。Gate 使用这些限制、当前状态和 Authority 等证据。MX-4 1b 已从 Proposal、Gate 和 Supervisor 移除旧任务身份；旧任务模型与 CLI 已按 [MX-4 步骤 6](plans/MX-4-structure-change.md#实施任务)删除。
 
 原子动作仅向下一项传递紧邻前一项的 `output`；巡检照片和识别结论要独立保存，才能在返航后从新观察中取回。若任一步失败，序列停止；运行中安全处置不依赖序列尾部的 `rtl`。
 
@@ -236,7 +236,7 @@ V1 不建立任务 ID 或任务会话。飞行动作服务以 `--safety-json` �
 
 ## 6. 契约与数据流
 
-现存核心模型位于 `src/flight_agent/contracts/models/`：`MissionRequest`、`MissionContract`、`MissionConstraints`、`WorldState`、`AtomicActionProposal`、`SafetyDecision`、`ApprovedSkillCommand`、`SkillResult`，以及旧主链的 `MissionPlan`、`PlanStep`、`MissionRunResult` 和占位 `VerificationResult`。`AtomicActionProposal` 是原 `SkillProposal` 的现名，仍表示 Safety 审查前的内部飞行动作提案。当前 Gate 只接收 `MissionConstraints`，不接收旧任务 ID；`FlightExecutionBackendProtocol` 是核心与 ROS 2 实现的调用边界。模型定义存在不代表相应完整业务已接入。
+现存核心模型位于 `src/flight_agent/contracts/models/`：`MissionConstraints`、`NedGeofence`、`WorldState`、`AtomicActionProposal`、`SafetyDecision`、`ApprovedSkillCommand`、`SkillResult` 等。旧任务及占位验证模型已删除。`AtomicActionProposal` 是原 `SkillProposal` 的现名，仍表示 Safety 审查前的内部飞行动作提案。当前 Gate 只接收 `MissionConstraints`，不接收旧任务 ID；`FlightExecutionBackendProtocol` 是核心与 ROS 2 实现的调用边界。模型定义存在不代表相应完整业务已接入。
 
 **目标命名决定**：Agent 对象统一叫 `RosAgent`；对外动作统一叫 `AtomicAction`。当前内部模型 `ApprovedSkillCommand` 目标改名为 `flight_agent.contracts.AtomicAction`，表示 Safety 批准后的单次动作执行凭证；ROS 服务 `rosllm_srvs/srv/AtomicAction` 接收尚未审查的动作请求。两者同名但属于不同模块和信任边界，不得互换或因改名取消审批。MX-4 调用流沿用当前模型名；后续改名须经契约评审并同步代码、导出、测试和测评数据。
 
@@ -250,7 +250,7 @@ V1 不建立任务 ID 或任务会话。飞行动作服务以 `--safety-json` �
 | M1 ROS 2/PX4/Gazebo 环境 | 已有阶段记录 | 重跑时记录冻结版本和真实 SITL 证据 |
 | M2 WorldState/Trace 基础 | 已有阶段记录 | 状态时效与回放回归保持可用 |
 | M3 确定性飞行动作 | 已有阶段记录 | 保留调试入口与 Backend 回归，不把它计作 Agent 任务成功 |
-| [MX 主流程骨架贯通](plans/MX.md) | **进行中**（MX-1 至 MX-3 已实施；飞行动作与主链审计待完成） | 接入 MX-4 飞行动作并完成 MX-5 主链审计；分项工期与占位边界见阶段计划 |
+| [MX 主流程骨架贯通](plans/MX.md) | **进行中**（MX-1 至 MX-4 代码批次已实施；MX-5 主链审计待完成） | 完成 MX-5 主链审计；分项工期与占位边界见阶段计划 |
 | M4 Contract/Safety Gate | **进行中** | MX 骨架后收口可信 Authority、独立 Gate 装配及 PX4/Gazebo 受控链验证；MX 不替代 Safety 验收 |
 | M5 ROS-LLM 有人主链 | 未开始 | 在 MX 已贯通的模块链上替换固定返回：真实 LLM 决策、动作描述与稳健行为解析、完整人类反馈；从生产入口和替身/SITL 均可追踪 |
 | M6 飞行原子动作完成判定 | 未开始 | 五个飞行动作以状态证据产生成功/失败标志、超时与假成功测试；不再把占位 `INCONCLUSIVE` 当作已完成结果 |
@@ -274,8 +274,7 @@ V1 不建立任务 ID 或任务会话。飞行动作服务以 `--safety-json` �
 
 1. 可信 Authority 的生产来源与失联时行为；这直接决定 M4 是否能受控批准并完成 SITL 验收。
 2. 序列上限与动作失败后的飞行安全处置条件仍待确认；MX-4 的飞行动作 JSON 输入输出语义按 [结构变更单](plans/MX-4-structure-change.md)分批冻结。
-3. `PlanStep` 是否仍适合作为新行为序列中的飞行动作记录，需在第 2.1 节所列旧模块迁移前确认。
-4. M5/M7/M7-S 的实际工作量与时间表，待 M4 收口和第一条真实 Agent 纵向切片后重估；上游准确 commit 与序列执行对照测试待锁定。
+3. M5/M7/M7-S 的实际工作量与时间表，待 M4 收口和第一条真实 Agent 纵向切片后重估；上游准确 commit 与序列执行对照测试待锁定。
 
 这些是待决策或待实现项，不得在进度表中提前标为完成。
 

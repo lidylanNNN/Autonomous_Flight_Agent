@@ -1,4 +1,4 @@
-'''M4 mission contract models.'''
+'''系统安全限制与 NED 围栏模型。'''
 
 from __future__ import annotations
 
@@ -8,7 +8,7 @@ from flight_agent.contracts.models.skill_model import SkillName
 
 
 class _StrictFrozenModel(BaseModel):
-    '''禁止额外字段并冻结Mission契约。'''
+    '''禁止额外字段并冻结安全配置。'''
 
     model_config = ConfigDict(
         extra='forbid', frozen=True, allow_inf_nan=False, str_strip_whitespace=True
@@ -36,7 +36,7 @@ class NedGeofence(_StrictFrozenModel):
 
 
 class MissionConstraints(_StrictFrozenModel):
-    '''由系统和用户共同冻结的任务级安全约束。'''
+    '''从系统配置加载、不可由动作请求放宽的安全限制。'''
 
     max_altitude_m: float = Field(gt=0.0)
     max_horizontal_speed_mps: float = Field(gt=0.0)
@@ -50,19 +50,8 @@ class MissionConstraints(_StrictFrozenModel):
     @field_validator('allowed_skills')
     @classmethod
     def skills_are_unique(cls, skills: tuple[SkillName, ...]) -> tuple[SkillName, ...]:
-        '''拒绝重复的可用Skill，保留Contract中的稳定顺序。'''
+        '''拒绝重复的可用 Skill，保留配置中的稳定顺序。'''
 
         if len(skills) != len(set(skills)):
             raise ValueError('skill lists must not contain duplicates')
         return skills
-
-
-class MissionContract(_StrictFrozenModel):
-    '''Planner不可修改的任务目标与安全约束。'''
-
-    mission_id: str = Field(min_length=1)
-    contract_version: int = Field(ge=1)
-    objective: str = Field(min_length=1)
-    constraints: MissionConstraints
-    completion_criteria: tuple[str, ...] = Field(min_length=1)
-    abort_criteria: tuple[str, ...] = Field(min_length=1)
