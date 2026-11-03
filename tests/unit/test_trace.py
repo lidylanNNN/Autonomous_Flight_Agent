@@ -8,10 +8,13 @@ import pytest
 
 from flight_agent.components.tracing import TraceRecorder, TraceReplay, TraceReplayError
 from flight_agent.contracts import (
+    ApprovedSkillCommand,
     AtomicActionProposal,
     SafetyDecision,
     SafetyDecisionType,
     SafetyReasonCode,
+    SkillExecutionStatus,
+    SkillResult,
     Vector3,
     WorldState,
 )
@@ -202,3 +205,108 @@ def test_trace_replay_rejects_recorded_time_going_backwards(tmp_path: Path) -> N
 
     with pytest.raises(TraceReplayError, match=r':2: recorded_at is earlier'):
         TraceReplay(path).replay_world_states()
+
+
+def command_and_result(status: SkillExecutionStatus) -> tuple[ApprovedSkillCommand, SkillResult]:
+    command = ApprovedSkillCommand(
+        execution_id='execution-1', proposal_id='proposal-1', decision_id='decision-1',
+        skill_name='hold', arguments={'duration_s': 1}, timeout_s=5,
+        approved_state_id='state-1',
+    )
+    result = SkillResult(
+        execution_id=command.execution_id, proposal_id=command.proposal_id,
+        skill_name=command.skill_name, status=status, px4_ack='accepted',
+        started_at=datetime(2026, 1, 1, tzinfo=UTC),
+        ended_at=datetime(2026, 1, 1, 0, 0, 1, tzinfo=UTC),
+        start_state_id='state-1', end_state_id='state-2',
+        failure_code=None if status == SkillExecutionStatus.SUCCEEDED else 'BACKEND_FAILURE',
+    )
+    return command, result
+
+
+@pytest.mark.parametrize('status', list(SkillExecutionStatus))
+@pytest.mark.parametrize('success', [True, False])
+def test_mixed_trace_preserves_complete_content_and_results(
+    tmp_path: Path, status: SkillExecutionStatus, success: bool,
+) -> None:
+    path = tmp_path / 'mixed.jsonl'
+    recorder = TraceRecorder(path)
+    command, result = command_and_result(status)
+    text = '  占位来源\n```json\n{"action": "hold"}\n```\n  '
+    recorder.record_world_state(make_world_state(1))
+    recorder.record_observation(
+        success=success, observation=text, source=' px4:mx_placeholder ', message='\n诊断 ',
+    )
+    recorder.record_llm_response(prompt=text, success=success, response=text, info=' MX_FIXED ')
+    recorder.record_skill_result(command, result)
+    recorder.record_skill_execution_error(command, TimeoutError(' 等待超时\n '))
+    recorder.record_world_state(make_world_state(2))
+
+    replay = TraceReplay(path)
+    assert len(replay.replay_world_states()) == 2
+    observation, = replay.iter_observation_records()
+    assert (observation.success, observation.observation, observation.source, observation.message) == (
+        success, text, ' px4:mx_placeholder ', '\n诊断 ',
+    )
+    llm, = replay.iter_llm_response_records()
+    assert (llm.prompt, llm.success, llm.response, llm.info) == (text, success, text, ' MX_FIXED ')
+    executed, = replay.iter_skill_result_records()
+    assert (executed.command, executed.result) == (command, result)
+    error, = replay.iter_skill_execution_error_records()
+    assert error.command == command
+    assert (error.error_type, error.error_message) == ('TimeoutError', ' 等待超时\n ')
+
+
+@pytest.mark.parametrize('field,value', [
+    ('execution_id', 'other-execution'), ('proposal_id', 'other-proposal'), ('skill_name', 'rtl'),
+])
+def test_result_identity_mismatch_rejected_on_write_and_replay(
+    tmp_path: Path, field: str, value: str,
+) -> None:
+    command, result = command_and_result(SkillExecutionStatus.SUCCEEDED)
+    mismatched = SkillResult.model_validate({**result.model_dump(), field: value})
+    path = tmp_path / 'identity.jsonl'
+    with pytest.raises(ValueError, match=field):
+        TraceRecorder(path).record_skill_result(command, mismatched)
+    assert not path.exists()
+    path.write_text(json.dumps({
+        'recorded_at': datetime.now(UTC).isoformat(), 'type': 'skill_result',
+        'command': command.model_dump(mode='json'), 'result': mismatched.model_dump(mode='json'),
+    }), encoding='utf-8')
+    with pytest.raises(TraceReplayError, match=f'(?s):1:.*{field}'):
+        tuple(TraceReplay(path).iter_skill_result_records())
+
+
+@pytest.mark.parametrize('kind,fields', [
+    ('observation', {'success': True, 'observation': '', 'source': '', 'message': ''}),
+    ('llm_response', {'prompt': '', 'success': False, 'response': '', 'info': ''}),
+    ('skill_result', {}), ('skill_execution_error', {}),
+])
+@pytest.mark.parametrize('corruption', ['missing', 'extra', 'wrong_type'])
+def test_new_trace_records_reject_invalid_fields(
+    tmp_path: Path, kind: str, fields: dict, corruption: str,
+) -> None:
+    command, result = command_and_result(SkillExecutionStatus.SUCCEEDED)
+    if kind.startswith('skill_'):
+        fields = {'command': command.model_dump(mode='json')}
+        fields.update({'result': result.model_dump(mode='json')} if kind == 'skill_result' else {
+            'error_type': 'RuntimeError', 'error_message': '',
+        })
+    payload = {'recorded_at': datetime.now(UTC).isoformat(), 'type': kind, **fields}
+    if corruption == 'missing':
+        del payload[next(iter(fields))]
+    elif corruption == 'extra':
+        payload['unexpected'] = 'extra'
+    else:
+        payload[next(iter(fields))] = []
+    path = tmp_path / 'invalid.jsonl'
+    path.write_text(json.dumps(payload), encoding='utf-8')
+    with pytest.raises(TraceReplayError, match=f':1: invalid {kind} record'):
+        TraceReplay(path).replay_world_states()
+
+
+def test_record_write_failure_propagates(tmp_path: Path) -> None:
+    # A directory cannot be opened as an appendable file.
+    recorder = TraceRecorder(tmp_path)
+    with pytest.raises(OSError):
+        recorder.record_llm_response(prompt='', success=False, response='', info='unavailable')

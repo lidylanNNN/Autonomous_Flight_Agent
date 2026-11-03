@@ -8,9 +8,15 @@ from datetime import datetime
 from pathlib import Path
 from typing import Literal
 
-from pydantic import AwareDatetime, BaseModel, ConfigDict, ValidationError
+from pydantic import AwareDatetime, BaseModel, ConfigDict, ValidationError, model_validator
 
-from flight_agent.contracts import AtomicActionProposal, SafetyDecision, WorldState
+from flight_agent.contracts import (
+    ApprovedSkillCommand,
+    AtomicActionProposal,
+    SafetyDecision,
+    SkillResult,
+    WorldState,
+)
 
 
 class WorldStateTraceRecord(BaseModel):
@@ -38,6 +44,65 @@ class TraceReplayError(ValueError):
     '''表示 Trace 内容无法可靠回放。'''
 
 
+class ContentTraceRecord(BaseModel):
+    '''保留原始文本，不去除空白或接受额外字段。'''
+
+    model_config = ConfigDict(extra='forbid', frozen=True, strict=True)
+    recorded_at: AwareDatetime
+
+
+class ObservationTraceRecord(ContentTraceRecord):
+    '''观察服务的完整响应。'''
+
+    type: Literal['observation'] = 'observation'
+    success: bool
+    observation: str
+    source: str
+    message: str
+
+
+class LLMResponseTraceRecord(ContentTraceRecord):
+    '''实际 prompt 和 LLM 服务的完整响应。'''
+
+    type: Literal['llm_response'] = 'llm_response'
+    prompt: str
+    success: bool
+    response: str
+    info: str
+
+
+class SkillResultTraceRecord(ContentTraceRecord):
+    '''批准命令与 Backend 返回的原始结果。'''
+
+    type: Literal['skill_result'] = 'skill_result'
+    command: ApprovedSkillCommand
+    result: SkillResult
+
+    @model_validator(mode='after')
+    def check_identity(self) -> SkillResultTraceRecord:
+        '''结果必须属于同一次执行、提案及动作。'''
+
+        for field in ('execution_id', 'proposal_id', 'skill_name'):
+            if getattr(self.command, field) != getattr(self.result, field):
+                raise ValueError(f'skill result {field} does not match command')
+        return self
+
+
+class SkillExecutionErrorTraceRecord(ContentTraceRecord):
+    '''Backend 调用异常，不表示已取得动作终态。'''
+
+    type: Literal['skill_execution_error'] = 'skill_execution_error'
+    command: ApprovedSkillCommand
+    error_type: str
+    error_message: str
+
+
+type TraceRecord = (
+    WorldStateTraceRecord | SafetyDecisionTraceRecord | ObservationTraceRecord
+    | LLMResponseTraceRecord | SkillResultTraceRecord | SkillExecutionErrorTraceRecord
+)
+
+
 class TraceReplay:
     '''读取并定位 Trace 中的 WorldState 快照。'''
 
@@ -62,7 +127,7 @@ class TraceReplay:
 
     def _iter_records(
         self,
-    ) -> Iterator[WorldStateTraceRecord | SafetyDecisionTraceRecord]:
+    ) -> Iterator[TraceRecord]:
         previous_recorded_at: datetime | None = None
         with self._path.open(encoding='utf-8') as stream:
             for line_number, line in enumerate(stream, start=1):
@@ -75,6 +140,30 @@ class TraceReplay:
                 ):
                     raise self._error(line_number, 'recorded_at is earlier than the prior record')
                 previous_recorded_at = record.recorded_at
+                yield record
+
+    def iter_observation_records(self) -> Iterator[ObservationTraceRecord]:
+        '''读取并校验完整观察响应。'''
+        for record in self._iter_records():
+            if isinstance(record, ObservationTraceRecord):
+                yield record
+
+    def iter_llm_response_records(self) -> Iterator[LLMResponseTraceRecord]:
+        '''读取并校验 prompt 与完整模型响应。'''
+        for record in self._iter_records():
+            if isinstance(record, LLMResponseTraceRecord):
+                yield record
+
+    def iter_skill_result_records(self) -> Iterator[SkillResultTraceRecord]:
+        '''读取并校验动作结果及其命令身份。'''
+        for record in self._iter_records():
+            if isinstance(record, SkillResultTraceRecord):
+                yield record
+
+    def iter_skill_execution_error_records(self) -> Iterator[SkillExecutionErrorTraceRecord]:
+        '''读取并校验动作调用异常。'''
+        for record in self._iter_records():
+            if isinstance(record, SkillExecutionErrorTraceRecord):
                 yield record
 
     def replay_world_states(self) -> tuple[WorldState, ...]:
@@ -122,7 +211,7 @@ class TraceReplay:
 
     def _parse_record(
         self, line: str, line_number: int
-    ) -> WorldStateTraceRecord | SafetyDecisionTraceRecord:
+    ) -> TraceRecord:
         '''解析单行 JSON，并将格式错误转换为可定位异常。'''
 
         try:
@@ -131,6 +220,16 @@ class TraceReplay:
             raise self._error(line_number, f'invalid JSON: {error.msg}') from error
         is_safety = isinstance(payload, dict) and payload.get('type') == 'safety_decision'
         try:
+            new_models: dict[str, type[TraceRecord]] = {
+                'observation': ObservationTraceRecord,
+                'llm_response': LLMResponseTraceRecord,
+                'skill_result': SkillResultTraceRecord,
+                'skill_execution_error': SkillExecutionErrorTraceRecord,
+            }
+            raw_kind = payload.get('type') if isinstance(payload, dict) else None
+            kind = raw_kind if isinstance(raw_kind, str) else None
+            if kind is not None and kind in new_models:
+                return new_models[kind].model_validate_json(line)
             if is_safety:
                 record = SafetyDecisionTraceRecord.model_validate(payload)
                 if record.proposal.proposal_id != record.decision.proposal_id:
@@ -138,7 +237,7 @@ class TraceReplay:
                 return record
             return WorldStateTraceRecord.model_validate(payload)
         except (ValidationError, ValueError) as error:
-            kind = 'safety decision' if is_safety else 'world state'
+            kind = kind if kind in new_models else ('safety decision' if is_safety else 'world state')
             raise self._error(line_number, f'invalid {kind} record: {error}') from error
 
     def _error(self, line_number: int, message: str) -> TraceReplayError:
