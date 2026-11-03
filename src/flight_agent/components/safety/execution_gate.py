@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Callable
 from uuid import uuid4
 
@@ -66,4 +67,25 @@ class SafetyExecutionGate:
             timeout_s=get_skill_spec(skill_name).timeout_s,
             approved_state_id=decision.checked_state_id,
         )
-        return decision, await self._backend.execute(command)
+        try:
+            result = await self._backend.execute(command)
+        except Exception as error:
+            try:
+                self._recorder.record_skill_execution_error(command, error)
+            except Exception as trace_error:  # noqa: BLE001 - preserve the original backend error
+                diagnostic = (
+                    'SKILL_EXECUTION_ERROR_TRACE_WRITE_FAILED: '
+                    f'execution_id={command.execution_id}; {trace_error}'
+                )
+                error.add_note(diagnostic)
+                logging.getLogger(__name__).error(diagnostic)
+            raise
+        try:
+            self._recorder.record_skill_result(command, result)
+        except Exception as error:
+            raise RuntimeError(
+                f'SKILL_RESULT_TRACE_WRITE_FAILED: execution_id={command.execution_id}; '
+                f'backend returned status={result.status.value}; '
+                f'action may have executed; do not retry: {error}'
+            ) from error
+        return decision, result

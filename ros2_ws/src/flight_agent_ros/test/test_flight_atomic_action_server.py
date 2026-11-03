@@ -18,6 +18,7 @@ from flight_agent_ros.safety_config import load_safety_constraints
 from rclpy.executors import MultiThreadedExecutor
 from rosllm_srvs.srv import AtomicAction
 
+from flight_agent.components.tracing import TraceReplay
 from flight_agent.contracts import (
     ApprovedSkillCommand,
     ControlAuthority,
@@ -220,6 +221,7 @@ def test_invalid_safety_json_prevents_ros_initialization(
     for outcome in [
         'success', 'execution_failure', 'trace_failure',
         'initial_state_error', 'gate_state_error', 'execution_error',
+        'execution_timeout', 'result_trace_failure', 'error_trace_failure',
     ]
 ] + [('rtl', 'home_unavailable'), ('land', 'already_landed'), ('land', 'invalid_position')])
 def test_action_execution_identity_requires_recorded_approval(
@@ -266,12 +268,16 @@ def test_action_execution_identity_requires_recorded_approval(
         record = json.loads(trace_path.read_text().strip())
         assert record['decision']['decision'] == 'APPROVE'
         assert record['decision']['decision_id'] == command.decision_id
-        if outcome == 'execution_error':
+        if outcome in {'execution_error', 'error_trace_failure'}:
             raise OSError('execution unavailable')
         result = await original_execute(command)
-        if outcome == 'execution_failure':
+        if outcome in {'execution_failure', 'execution_timeout'}:
             return result.model_copy(update={
-                'status': SkillExecutionStatus.FAILED, 'failure_code': 'TEST_EXECUTION_FAILURE',
+                'status': (
+                    SkillExecutionStatus.FAILED if outcome == 'execution_failure'
+                    else SkillExecutionStatus.TIMED_OUT
+                ),
+                'failure_code': 'TEST_EXECUTION_FAILURE',
             })
         return result
 
@@ -279,6 +285,9 @@ def test_action_execution_identity_requires_recorded_approval(
     monkeypatch.setattr(backend, 'execute', execute)
     if trace_fails:
         monkeypatch.setattr(TraceRecorder, 'record_safety_decision', Mock(side_effect=OSError('trace unavailable')))
+    if outcome in {'result_trace_failure', 'error_trace_failure'}:
+        method = 'record_skill_result' if outcome == 'result_trace_failure' else 'record_skill_execution_error'
+        monkeypatch.setattr(TraceRecorder, method, Mock(side_effect=OSError('trace unavailable')))
     if trace_fails or state_fails or rejection_reason is not None:
         allocate = Mock(side_effect=AssertionError('must not allocate'))
         monkeypatch.setattr('flight_agent.components.safety.execution_gate.uuid4', allocate)
@@ -306,6 +315,7 @@ def test_action_execution_identity_requires_recorded_approval(
         )
         assert response is not None
         output = json.loads(response.output)
+        replay = TraceReplay(trace_path)
         if trace_fails or state_fails or rejection_reason is not None:
             assert not response.success
             assert output['error_code'] == ('SERVICE_ERROR' if trace_fails or state_fails else None)
@@ -316,23 +326,38 @@ def test_action_execution_identity_requires_recorded_approval(
             assert output['execution_id'] is None
             allocate.assert_not_called()
             execute.assert_not_called()
+            if trace_path.exists():
+                assert not tuple(replay.iter_skill_result_records())
+                assert not tuple(replay.iter_skill_execution_error_records())
             if state_fails or trace_fails:
                 assert output['decision_id'] is None
                 assert not trace_path.exists()
-        elif outcome == 'execution_error':
+        elif outcome in {'execution_error', 'result_trace_failure', 'error_trace_failure'}:
             assert not response.success
             assert output['error_code'] == 'SERVICE_ERROR'
             assert output['execution_status'] is None
             assert output['execution_id'] is None  # Gate 抛异常，服务未取得执行结果
             execute.assert_awaited_once()
             command = execute.call_args.args[0]
-            record = json.loads(trace_path.read_text().strip())
-            assert record['decision']['decision_id'] == command.decision_id
-            assert record['proposal']['proposal_id'] == output['proposal_id']
+            record, = replay.iter_safety_decision_records()
+            assert record.decision.decision_id == command.decision_id
+            assert record.proposal.proposal_id == output['proposal_id']
+            assert not tuple(replay.iter_skill_result_records())
+            errors = tuple(replay.iter_skill_execution_error_records())
+            if outcome == 'execution_error':
+                assert len(errors) == 1
+                assert errors[0].command == command
+                assert (errors[0].error_type, errors[0].error_message) == ('OSError', 'execution unavailable')
+            else:
+                assert errors == ()
         else:
             assert response.success is (outcome == 'success')
             assert output['error_code'] is None
-            assert output['execution_status'] == ('SUCCEEDED' if outcome == 'success' else 'FAILED')
+            expected_status = {
+                'success': 'SUCCEEDED', 'execution_failure': 'FAILED',
+                'execution_timeout': 'TIMED_OUT',
+            }[outcome]
+            assert output['execution_status'] == expected_status
             assert output['failure_code'] == (None if outcome == 'success' else 'TEST_EXECUTION_FAILURE')
             execute.assert_awaited_once()
             command = execute.call_args.args[0]
@@ -341,8 +366,14 @@ def test_action_execution_identity_requires_recorded_approval(
             assert output['execution_id'] == command.execution_id
             assert output['decision_id'] == command.decision_id
             assert output['proposal_id'] == command.proposal_id
-            record = json.loads(trace_path.read_text().strip())
-            assert record['decision']['decision_id'] == command.decision_id
+            record, = replay.iter_safety_decision_records()
+            assert record.decision.decision_id == command.decision_id
+            recorded, = replay.iter_skill_result_records()
+            assert recorded.command == command
+            assert recorded.result.execution_id == output['execution_id']
+            assert recorded.result.status.value == expected_status
+            assert recorded.result.failure_code == output['failure_code']
+            assert not tuple(replay.iter_skill_execution_error_records())
     finally:
         executor.shutdown()
         thread.join(timeout=5.0)

@@ -170,6 +170,9 @@ def test_execution_gate_allocates_identity_after_trace(tmp_path: Path, monkeypat
     assert isinstance(command.arguments, TakeoffArgs)
     assert command.arguments.target_altitude_m == 10.0
     assert command.timeout_s == 30.0
+    recorded, = TraceReplay(path).iter_skill_result_records()
+    assert recorded.command == command
+    assert recorded.result == result
 
 
 @pytest.mark.parametrize('trace_fails', [False, True])
@@ -203,6 +206,75 @@ def test_execution_gate_never_allocates_or_dispatches_without_recorded_approval(
         assert next(TraceReplay(path).iter_safety_decision_records()).decision == decision
     allocate.assert_not_called()
     execute.assert_not_called()
+    if path.exists():
+        assert not tuple(TraceReplay(path).iter_skill_result_records())
+        assert not tuple(TraceReplay(path).iter_skill_execution_error_records())
+
+
+@pytest.mark.parametrize('outcome', ['failed', 'timed_out', 'result_trace_failure', 'error', 'error_trace_failure'])
+def test_execution_gate_records_outcomes_without_retrying(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture, outcome: str,
+) -> None:
+    '''结果落盘、单次执行及双重故障时保留原执行异常。'''
+    from unittest.mock import AsyncMock, Mock
+
+    path = tmp_path / 'trace.jsonl'
+    recorder = TraceRecorder(path)
+    backend = MockFlightExecutionBackend(make_state())
+    original_execute = backend.execute
+    original_error = OSError('backend execution unavailable')
+    returned = []
+
+    async def execute_result(command):
+        assert len(tuple(TraceReplay(path).iter_safety_decision_records())) == 1
+        if outcome in {'error', 'error_trace_failure'}:
+            raise original_error
+        result = await original_execute(command)
+        if outcome in {'failed', 'timed_out'}:
+            result = result.model_copy(update={
+                'status': SkillExecutionStatus.FAILED if outcome == 'failed' else SkillExecutionStatus.TIMED_OUT,
+                'failure_code': 'TEST_BACKEND_FAILURE',
+            })
+        returned.append(result)
+        return result
+
+    execute = AsyncMock(side_effect=execute_result)
+    monkeypatch.setattr(backend, 'execute', execute)
+    if outcome in {'result_trace_failure', 'error_trace_failure'}:
+        method = 'record_skill_result' if outcome == 'result_trace_failure' else 'record_skill_execution_error'
+        monkeypatch.setattr(recorder, method, Mock(side_effect=PermissionError('trace denied')))
+    gate = SafetyExecutionGate(
+        SafetySupervisor(FakeSpeedSource(), policy_version='m4-v1', clock=lambda: _NOW),
+        backend, recorder, lambda: ControlAuthority.AGENT_ALLOWED,
+    )
+    if outcome in {'error', 'error_trace_failure'}:
+        with pytest.raises(OSError) as captured:
+            asyncio.run(gate.submit(make_proposal(), make_constraints()))
+        assert captured.value is original_error
+        if outcome == 'error_trace_failure':
+            assert 'trace denied' in original_error.__notes__[0]
+            assert 'SKILL_EXECUTION_ERROR_TRACE_WRITE_FAILED' in caplog.text
+            assert not tuple(TraceReplay(path).iter_skill_execution_error_records())
+        else:
+            record, = TraceReplay(path).iter_skill_execution_error_records()
+            assert record.command == execute.call_args.args[0]
+            assert (record.error_type, record.error_message) == ('OSError', str(original_error))
+        assert not tuple(TraceReplay(path).iter_skill_result_records())
+    elif outcome == 'result_trace_failure':
+        with pytest.raises(RuntimeError, match='SKILL_RESULT_TRACE_WRITE_FAILED.*do not retry') as captured:
+            asyncio.run(gate.submit(make_proposal(), make_constraints()))
+        assert isinstance(captured.value.__cause__, PermissionError)
+        assert execute.call_args.args[0].execution_id in str(captured.value)
+        assert len(returned) == 1  # Backend 已执行并返回，不得报告为零派发。
+        assert not tuple(TraceReplay(path).iter_skill_result_records())
+        assert not tuple(TraceReplay(path).iter_skill_execution_error_records())
+    else:
+        _, result = asyncio.run(gate.submit(make_proposal(), make_constraints()))
+        record, = TraceReplay(path).iter_skill_result_records()
+        assert record.command == execute.call_args.args[0]
+        assert record.result == result == returned[0]
+    execute.assert_awaited_once()
 
 
 def test_execution_gate_uses_snapshot_during_async_read(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

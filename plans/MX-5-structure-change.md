@@ -1,6 +1,6 @@
 # MX-5 结构变更单：主链审计与 Trace 收口
 
-状态：首轮审计、测试依赖迁移已实施并验证；3a 已提交为 `925794b`（v0.10.61），3b 已实施并验证、待评审，3c 至 3d 尚未实施。
+状态：首轮审计、测试依赖迁移已实施并验证；3a、3b 已提交，3c 已实施、待评审，3d 尚未实施。
 
 依据：[当前规格](../SPEC_DEV.md)、[MX 总计划](MX.md)、[首轮审计](MX-5-audit.md)。本文件作为新会话继续 MX-5 的入口；已完成批次不重复实施。
 
@@ -14,7 +14,7 @@
 - 首轮审计已提交为 `d95c5c4`（v0.10.59），当时核心 164 项、ROS 125 项通过。发现及占位清单见[审计报告](MX-5-audit.md)。
 - 两个集成测试已从 `agent_comm/test/` 迁到 `behavior_executor/test/`，两包测试依赖已同步；六包干净构建和新安装环境下 50 项回归通过，详见[依赖修正记录](MX-5-test-dependencies.md)。
 
-- Trace 记录与接线进展以文末 3a、3b 实施记录为准；动作结果接线仍待 3c。
+- Trace 记录与接线进展以文末 3a 至 3c 实施记录为准；最终主链审计仍待 3d。
 - Gate 能取得完整 `SkillResult`，动作服务只返回其中的部分字段。
 
 ## 目标
@@ -69,10 +69,10 @@ Trace 文件 --逐行记录--> TraceReplay
    - 已核对真实服务调用、对象传递、失败停止与运行中身份关联，列出占位及未接入项；证据见审计报告。
 2. **测试依赖收口（已完成）**
    - 两个测试迁入 `behavior_executor/test/`，测试依赖声明与干净构建已验证；内容保持逐字节一致。
-3. **来源与执行结果 Trace（3a、3b 已实施，后续未实施）**
+3. **来源与执行结果 Trace（3a 至 3c 已实施，3d 未实施）**
    - 3a. 记录器和回放器（已提交）：新增四种记录的写入方法、强类型模型与遍历方法；兼容读取旧记录，检查命令与结果的身份一致性。
-   - 3b. 观察和 LLM 接线（已实施、待评审）：Agent 入口提供独立 Trace 路径，接入 RosEnv、RosAgent；记录实际服务响应。
-   - 3c. 动作结果接线：Gate 在 Backend 返回或抛异常后记录事实，保留先写批准决策再派发的顺序。
+   - 3b. 观察和 LLM 接线（已提交）：Agent 入口提供独立 Trace 路径，接入 RosEnv、RosAgent；记录实际服务响应。
+   - 3c. 动作结果接线（已实施、待评审）：Gate 在 Backend 返回或抛异常后记录事实，保留先写批准决策再派发的顺序。
    - 3d. 主链验证：从人工入口验证完整内容、来源、动作身份及失败分支，更新 MX-5 验收状态。
 
 步骤 3 保留大步骤划分，3a 至 3d 分别作为最小可评审批次；每批包含所需测试与文档，完成后交由用户评审。
@@ -93,7 +93,7 @@ Trace 文件 --逐行记录--> TraceReplay
 ## 新会话起点
 
 - 先读 `AGENT.md`、当前 SPEC、本文和审计报告；检查工作区与最新提交。
-- 本文的记录格式与失败处理已获用户确认；3b 代码待评审，后续从 3c 接线开始。不要重复实施已完成批次、迁移测试或恢复旧任务模型。
+- 本文的记录格式与失败处理已获用户确认；3c 代码待评审，后续从 3d 主链审计开始。不要重复实施已完成批次、迁移测试或恢复旧任务模型。
 - 测试新路径为 `ros2_ws/src/behavior_executor/test/`；干净构建产物在 `/tmp/mx5-deps-clean/`，可用作参考，不能假定新环境一定存在。
 - 沙箱内参数适配器测试曾停在 asyncio 线程池关闭阶段；沙箱外同一文件及完整 ROS 回归通过，环境差异见审计报告。
 - MX 仍未整体验收；真实 PX4/SITL、可信授权和完整 Episode 关联仍有缺口，不因结构变更单提交而标为完成。
@@ -110,7 +110,7 @@ Trace 文件 --逐行记录--> TraceReplay
 - 静态检查：`.venv/bin/ruff check src/flight_agent/components/tracing tests/unit/test_trace.py` 与 `.venv/bin/mypy src/flight_agent/components/tracing --follow-imports=silent` 通过；后者范围为 tracing 三个文件。
 - 本批仅为核心直接调用测试，未运行 ROS、PX4/Gazebo；无偏离已确认范围。后经用户授权提交并推送。
 
-## 3b 实施记录（2026-11-03，未提交）
+## 3b 实施记录（2026-11-03，`393d5e2` / v0.10.62）
 
 - 变更：`agent_comm/ros_agent_srv.py` 在观察和实际 LLM 服务响应返回后、交给调用方前保存完整内容；失败观察不触发 LLM，也不伪造模型响应记录。
 - 对象职责：`main()` 创建并持有一个 `TraceRecorder`，交给 `RosEnv`、`RosAgent` 共用；无新增类或生产节点。
@@ -123,3 +123,17 @@ Trace 文件 --逐行记录--> TraceReplay
 - 构建：加载 Jazzy 和 `/tmp/mx5-deps-clean/install/setup.bash` 后，执行 `colcon --log-base /tmp/mx5-3b-colcon-log build --base-paths ros2_ws/src --build-base /tmp/mx5-deps-clean/build --install-base /tmp/mx5-deps-clean/install --packages-select agent_comm`，1 包成功；这是增量构建，不是六包重新干净构建。
 - ROS 验证：仅加载上述安装目录，`PYTHONPATH` 补核心 `src` 和 `.venv/lib/python3.12/site-packages`，设置 `PYTEST_DISABLE_PLUGIN_AUTOLOAD=1`、`ROS_LOG_DIR=/tmp/ros_log_mx5_3b_installed`；`/usr/bin/python3 -m pytest -q -o faulthandler_timeout=50 ros2_ws/src/behavior_executor/test ros2_ws/src/observation_manager/test ros2_ws/src/flight_agent_ros/test/test_flight_atomic_action_server.py`，53 项通过（33.69 秒）。已确认入口模块来自安装目录，无 ROS 包源码路径覆盖。
 - 核心：`PYTHONPATH=src .venv/bin/python -m pytest -q tests`，190 项通过；两处修改的 Python 文件 Ruff 与 `git diff --check` 通过。
+
+## 3c 实施记录（2026-11-03，未提交）
+
+- 变更：`SafetyExecutionGate.submit()` 在 Backend 返回后调用结果记录方法，执行抛异常时调用异常记录方法；两个写入方法复用 3a 已确认的格式。
+- 对象职责：无新增或删除类、模型、节点；Gate 持有的 Recorder 仍由 `build_flight_atomic_action_server()` 创建并传入。
+- 输入输出：`submit(proposal, constraints)` 的参数和 `(SafetyDecision, SkillResult | None)` 返回类型不变；拒绝仍返回 `(decision, None)`，不分配执行 ID、不派发、不写执行结果。
+- 结果记录失败：抛出包含执行 ID、Backend 返回状态和不得重试说明的 `RuntimeError`，原记录异常保留为 cause；动作服务沿用 `SERVICE_ERROR`，详细诊断写日志。不能把空执行 ID 响应解释为 Backend 未执行。
+- 双重异常：Backend 原异常保持对象身份并继续抛出；记录异常通过 `add_note()` 附加到原异常，并由 Gate 错误日志额外报告，不编造动作终态。
+- 实际生产调用流：动作服务 --提案与限制--> Gate；Gate --提案与决策--> TraceRecorder；Gate --批准命令（仅批准且决策落盘后）--> Backend；Backend --SkillResult 或执行异常--> Gate；Gate --批准命令及结果或异常--> TraceRecorder；TraceRecorder --JSONL--> 现有动作 Trace 文件。
+- 接线边界：生产装配已使用本 Gate，默认 Authority 仍为 `UNKNOWN`；批准与故障验证显式注入 Backend、权限与限速替身，未运行 PX4/Gazebo。3d 最终主链审计尚未实施。
+- 核心验证：`PYTHONPATH=src .venv/bin/python -m pytest -q tests`，195 项通过；新增 Gate 单测覆盖失败、超时、结果记录失败、Backend 异常和双重异常，并验证单次执行与拒绝无结果记录。
+- 静态验证：修改的三个 Python 文件 Ruff 通过；`.venv/bin/mypy src/flight_agent/components/safety/execution_gate.py --follow-imports=silent` 通过（仅 Gate 文件）。
+- ROS 验证：加载 Jazzy 与 `/tmp/mx5-deps-clean/install/setup.bash`，`PYTHONPATH` 补核心 `src` 与 `.venv/lib/python3.12/site-packages`；设置 `PYTEST_DISABLE_PLUGIN_AUTOLOAD=1`、`ROS_LOG_DIR=/tmp/ros_log_mx5_3c`，执行 `/usr/bin/python3 -m pytest -q -o faulthandler_timeout=50 ros2_ws/src/behavior_executor/test ros2_ws/src/observation_manager/test ros2_ws/src/flight_agent_ros/test/test_flight_atomic_action_server.py`，68 项通过（33.94 秒）。使用现有 ROS 安装产物与本批核心源码，无 ROS 生产代码变更、未重新构建。
+- 服务验证覆盖五个动作的成功、失败、超时、执行异常、结果记录失败和双重异常；已确认决策先于派发、拒绝零执行、写入失败不重试。无偏离原汇报，未提交或推送。
