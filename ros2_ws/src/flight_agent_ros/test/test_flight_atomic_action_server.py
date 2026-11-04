@@ -215,6 +215,33 @@ def test_invalid_safety_json_prevents_ros_initialization(
     assert not rclpy.ok()
 
 
+def test_ros_main_default_authority_and_startup_notice(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capfd: pytest.CaptureFixture[str],
+) -> None:
+    '''检查 main 的默认权限及说明；只跳过运行循环，不验证飞行。'''
+    from unittest.mock import Mock
+
+    from flight_agent_ros import flight_atomic_action_server as entrypoint
+
+    example = Path(__file__).resolve().parents[4] / 'configs/flight_safety.example.json'
+    monkeypatch.setattr(sys, 'argv', [
+        'flight_atomic_action_server', '--safety-json', str(example),
+        '--trace-path', str(tmp_path / 'main.jsonl'),
+    ])
+    monkeypatch.setenv('FLIGHT_AGENT_TRACE_PATH', str(tmp_path / 'world.jsonl'))
+    build = Mock(wraps=build_flight_atomic_action_server)
+    monkeypatch.setattr(entrypoint, 'build_flight_atomic_action_server', build)
+    monkeypatch.setattr(MultiThreadedExecutor, 'spin', Mock(side_effect=KeyboardInterrupt))
+    main()
+    build.assert_called_once()
+    assert build.call_args.kwargs['authority_reader']() is ControlAuthority.AGENT_ALLOWED
+    log = capfd.readouterr().err
+    assert log.count('V1 controlled SITL') == 1
+    assert 'operator has authorized' in log
+    assert 'other Safety checks remain active' in log
+    assert not rclpy.ok()
+
+
 @pytest.mark.parametrize(('service_name', 'outcome'), [
     (name, outcome)
     for name in ['hold', 'takeoff', 'goto', 'rtl', 'land']

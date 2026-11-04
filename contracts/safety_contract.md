@@ -150,7 +150,7 @@ GoTo 生效，以 `WorldState.home_position_ned_m` 为圆心计算目标的水�
 
 已装配独立检查器、PX4 限速读取及五个 ROS 飞行动作服务的 Gate；旧任务入口已删除。当前生产装配与替身主链证据见 [MX-5 审计](../plans/MX-5-audit.md#实际调用流)。
 
-生产 Authority 仍固定为 `UNKNOWN`，因此真实批准飞行与 PX4/Gazebo 受控链尚未验收。M3 调试入口直连 Backend，不属于受控服务链；不能声明仓库所有路径均经过 Gate。后续实施与验证见 [M4 计划](../plans/M4.md)。
+ROS 侧 main 已按 [SPEC 的 V1 约定](../SPEC_DEV.md#5-安全不变量)设置默认权限；启动设置验证见 [7c 记录](../plans/M4.md#7c-实施记录)。真实批准飞行与 PX4/Gazebo 受控链尚未验收。M3 调试入口直连 Backend，不属于受控服务链；不能声明仓库所有路径均经过 Gate。后续实施与验证见 [M4 计划](../plans/M4.md)。
 
 原 M4-6 Proposal 级审批协议、状态机和 Mock 仍在仓库，但不属于 M1–M8 设计或 V1 目标契约。X1 已移除 `human_approval_skills` 与 Supervisor 分支；相关原因码、决策枚举及原型公共导出仍待后续批次迁移。测评后的产品阶段需重新定义 Plan 级审批。
 

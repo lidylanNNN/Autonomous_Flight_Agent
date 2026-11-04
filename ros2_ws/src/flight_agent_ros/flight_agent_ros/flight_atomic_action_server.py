@@ -1,4 +1,4 @@
-'''Safety-gated ROS AtomicAction service for flight skills.'''
+'''Safety-gated flight services for V1 controlled SITL; assumes operator authorization.'''
 
 from __future__ import annotations
 
@@ -195,9 +195,12 @@ def build_flight_atomic_action_server(
 
 
 def main() -> None:
-    '''加载并校验限制后发布飞行动作服务。'''
+    '''启动飞行动作服务；V1 受控 SITL 假定操作员已授权。'''
 
-    parser = argparse.ArgumentParser(description='Run safety-gated flight AtomicAction services')
+    parser = argparse.ArgumentParser(description=(
+        'Run flight services for V1 controlled SITL; '
+        'assumes the operator has authorized the Agent'
+    ))
     parser.add_argument('--safety-json', required=True, type=Path)
     parser.add_argument('--trace-path', type=Path, default=Path('artifacts/flight_trace.jsonl'))
     arguments = parser.parse_args()
@@ -222,10 +225,14 @@ def main() -> None:
             constraints,
             backend,
             trace_path=arguments.trace_path,
-            authority_reader=lambda: ControlAuthority.UNKNOWN,
+            authority_reader=lambda: ControlAuthority.AGENT_ALLOWED,
             speed_limit_source=Px4ParameterAdapter(),
         )
         nodes.append(server)
+        server.get_logger().info(
+            'V1 controlled SITL: assumes the operator has authorized the Agent '
+            '(AGENT_ALLOWED); all other Safety checks remain active.'
+        )
         for node in nodes:
             executor.add_node(node)
         executor.spin()
