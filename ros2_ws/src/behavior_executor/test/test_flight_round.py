@@ -23,9 +23,9 @@ from flight_agent_ros.safety_config import load_safety_constraints
 from observation_manager.observation_manager_node import ObservationManagerNode
 from rclpy.executors import MultiThreadedExecutor
 from rclpy.parameter import Parameter
-from rosllm_srvs.srv import AtomicAction, Observation
+from rosllm_srvs.srv import LLM, AtomicAction, Observation
 
-from flight_agent.components.tracing import TraceReplay
+from flight_agent.components.tracing import TraceRecorder, TraceReplay
 from flight_agent.components.vehicle.flight_execution import MockFlightExecutionBackend
 from flight_agent.components.vehicle.state import WorldStateAggregator
 from flight_agent.contracts import (
@@ -40,7 +40,10 @@ from flight_agent.contracts import (
 )
 
 
-@pytest.mark.parametrize('outcome', ['success', 'execution_failure', 'unknown_authority'])
+@pytest.mark.parametrize('outcome', [
+    'success', 'execution_failure', 'unknown_authority', 'execution_timeout',
+    'execution_error', 'result_trace_failure', 'error_trace_failure', 'decision_trace_failure',
+])
 def test_human_round_through_flight_service_and_gate(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, outcome: str,
 ) -> None:
@@ -73,6 +76,7 @@ def test_human_round_through_flight_service_and_gate(
     backend = MockFlightExecutionBackend(state)
     trace_path = tmp_path / 'safety.jsonl'
     commands: list[ApprovedSkillCommand] = []
+    results: list[SkillResult] = []
     original_execute = backend.execute
 
     async def execute(command: ApprovedSkillCommand) -> SkillResult:
@@ -82,15 +86,31 @@ def test_human_round_through_flight_service_and_gate(
         assert record.decision.decision_id == command.decision_id
         assert record.proposal.proposal_id == command.proposal_id
         commands.append(command)
+        if outcome in {'execution_error', 'error_trace_failure'}:
+            raise OSError('TEST_BACKEND_UNAVAILABLE')
         result = await original_execute(command)
         publish_test_position(100 + len(commands))
-        if outcome == 'execution_failure':
-            return result.model_copy(update={
-                'status': SkillExecutionStatus.FAILED, 'failure_code': 'TEST_EXECUTION_FAILURE',
+        if outcome in {'execution_failure', 'execution_timeout'}:
+            result = result.model_copy(update={
+                'status': (
+                    SkillExecutionStatus.FAILED if outcome == 'execution_failure'
+                    else SkillExecutionStatus.TIMED_OUT
+                ),
+                'failure_code': 'TEST_EXECUTION_FAILURE',
             })
+        results.append(result)
         return result
 
     monkeypatch.setattr(backend, 'execute', execute)
+    failed_method = {
+        'decision_trace_failure': 'record_safety_decision',
+        'result_trace_failure': 'record_skill_result',
+        'error_trace_failure': 'record_skill_execution_error',
+    }.get(outcome)
+    if failed_method is not None:
+        def fail_write(*_args, **_kwargs):
+            raise PermissionError('TEST_TRACE_DENIED')
+        monkeypatch.setattr(TraceRecorder, failed_method, fail_write)
     speed_source = SimpleNamespace(read_validated_speed_limit=AsyncMock(return_value=8.0))
     authority = (
         ControlAuthority.UNKNOWN if outcome == 'unknown_authority'
@@ -117,6 +137,15 @@ def test_human_round_through_flight_service_and_gate(
         authority_reader=lambda: authority, speed_limit_source=speed_source,
     )
     observation = ObservationManagerNode(source)
+    llm_calls: list[tuple[str, bool, str, str]] = []
+    original_llm_response = LLMNode.get_response
+
+    def llm_response(node: LLMNode, request: LLM.Request, response: LLM.Response) -> LLM.Response:
+        result = original_llm_response(node, request, response)
+        llm_calls.append((request.prompt, result.success, result.response, result.info))
+        return result
+
+    monkeypatch.setattr(LLMNode, 'get_response', llm_response)
     llm = LLMNode()
     llm.set_parameters([Parameter('mx_fixed_behavior', value=True)])
     sequence = SequenceExecutor()
@@ -157,15 +186,45 @@ def test_human_round_through_flight_service_and_gate(
         raise EOFError
 
     try:
-        main(input_reader=read_input)
+        agent_trace_path = tmp_path / 'agent.jsonl'
+        main(input_reader=read_input, trace_path=agent_trace_path)
         assert inputs == 2
         assert all(obs.success for obs in observations)
         assert rewards == ([-0.5] if outcome == 'success' else [-1.0])
-        expected_skills = {
-            'success': [SkillName.HOLD, SkillName.RTL],
-            'execution_failure': [SkillName.HOLD], 'unknown_authority': [],
-        }[outcome]
+        expected_skills = (
+            [SkillName.HOLD, SkillName.RTL] if outcome == 'success' else
+            [] if outcome in {'unknown_authority', 'decision_trace_failure'} else [SkillName.HOLD]
+        )
         assert [command.skill_name for command in commands] == expected_skills
+        agent_replay = TraceReplay(agent_trace_path)
+        observed = tuple(agent_replay.iter_observation_records())
+        assert [
+            (record.success, record.observation, record.source, record.message)
+            for record in observed
+        ] == [
+            (obs.success, obs.observation, obs.source, obs.message) for obs in observations
+        ]
+        assert all(
+            record.source == 'px4_world_state_adapter:mx_placeholder'
+            for record in observed
+        )
+        reply, = agent_replay.iter_llm_response_records()
+        assert [(
+            reply.prompt, reply.success,
+            reply.response, reply.info,
+        )] == llm_calls
+        assert reply.info == 'MX_FIXED_BEHAVIOR: hold,rtl'
+        assert f'Observation: {observed[0].observation}\n' in reply.prompt
+        assert 'HumanInput: 执行固定两步' in reply.prompt
+        assert 'input=MX_UNIMPLEMENTED output=MX_UNIMPLEMENTED' in reply.prompt
+        assert [json.loads(line)['type'] for line in agent_trace_path.read_text().splitlines()] == [
+            'observation', 'llm_response', 'observation',
+        ]
+        if outcome == 'decision_trace_failure':
+            assert not trace_path.exists()
+            assert len(action_calls) == 1
+            assert json.loads(action_calls[0][-1])['error_code'] == 'SERVICE_ERROR'
+            return  # 决策未落盘，执行 ID 和 Backend 调用均不得出现。
         records = list(TraceReplay(trace_path).iter_safety_decision_records())
         assert [record.proposal.skill_name for record in records] == (
             ['hold', 'rtl'] if outcome == 'success' else ['hold']
@@ -181,21 +240,30 @@ def test_human_round_through_flight_service_and_gate(
             previous_output = output
             evidence = json.loads(output)
             assert evidence['proposal_id'] == record.proposal.proposal_id
-            assert evidence['decision_id'] == record.decision.decision_id
             assert evidence['verification'] == 'INCONCLUSIVE'
-            assert evidence['error_code'] is None
+            execution_error = outcome in {
+                'execution_error', 'result_trace_failure', 'error_trace_failure',
+            }
+            assert evidence['decision_id'] == (
+                None if execution_error else record.decision.decision_id
+            )
+            assert evidence['error_code'] == ('SERVICE_ERROR' if execution_error else None)
             assert success is (outcome == 'success')
-            if outcome == 'unknown_authority':
+            if outcome == 'unknown_authority' or execution_error:
                 assert evidence['execution_id'] is None
                 assert evidence['execution_status'] is None
-                assert 'AUTHORITY_NOT_GRANTED' in evidence['reason_codes']
+                if outcome == 'unknown_authority':
+                    assert 'AUTHORITY_NOT_GRANTED' in evidence['reason_codes']
             else:
-                command = next(item for item in commands if item.proposal_id == evidence['proposal_id'])
+                command = next(
+                    item for item in commands if item.proposal_id == evidence['proposal_id']
+                )
                 assert evidence['execution_id'] == command.execution_id
                 assert evidence['decision_id'] == command.decision_id
                 assert command.approved_state_id == record.decision.checked_state_id
                 assert evidence['execution_status'] == (
-                    'SUCCEEDED' if outcome == 'success' else 'FAILED'
+                    'SUCCEEDED' if outcome == 'success' else
+                    'TIMED_OUT' if outcome == 'execution_timeout' else 'FAILED'
                 )
                 assert evidence['failure_code'] == (
                     None if outcome == 'success' else 'TEST_EXECUTION_FAILURE'
@@ -204,9 +272,42 @@ def test_human_round_through_flight_service_and_gate(
             assert 'AUTHORITY_NOT_GRANTED' in records[0].decision.reason_codes
             speed_source.read_validated_speed_limit.assert_not_called()
         else:
-            assert f'state_id=state-{100 + len(commands)}-' in observations[-1].observation
-            assert observations[-1].observation != observations[0].observation
+            for command, record in zip(commands, records, strict=True):
+                assert command.proposal_id == record.proposal.proposal_id
+                assert command.decision_id == record.decision.decision_id
+            if results:
+                assert f'state_id=state-{100 + len(commands)}-' in observations[-1].observation
+                assert observations[-1].observation != observations[0].observation
             assert len({command.execution_id for command in commands}) == len(commands)
+        replay = TraceReplay(trace_path)
+        recorded_results = tuple(replay.iter_skill_result_records())
+        errors = tuple(replay.iter_skill_execution_error_records())
+        if outcome in {'success', 'execution_failure', 'execution_timeout'}:
+            assert [record.command for record in recorded_results] == commands
+            assert [record.result for record in recorded_results] == results
+            for record, decision in zip(
+                recorded_results, records, strict=True,
+            ):
+                assert record.command.decision_id == decision.decision.decision_id
+                assert (
+                    record.command.approved_state_id
+                    == decision.decision.checked_state_id
+                )
+                assert decision.recorded_at <= record.recorded_at
+        else:
+            assert not recorded_results
+        if outcome == 'execution_error':
+            error, = errors
+            assert error.command == commands[0]
+            assert (
+                error.command.decision_id
+                == records[0].decision.decision_id
+            )
+            assert (error.error_type, error.error_message) == (
+                'OSError', 'TEST_BACKEND_UNAVAILABLE',
+            )
+        else:
+            assert not errors
     finally:
         executor.shutdown()
         thread.join(timeout=5)

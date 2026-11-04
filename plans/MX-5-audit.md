@@ -1,15 +1,15 @@
 # MX-5 主链回归与审计
 
-状态：首轮审计已实施，Trace 来源标记缺口未关闭，MX 尚未整体验收。
+状态：3d 已完成主链 Trace 审计，F1 已关闭；MX 骨架在替身验证范围内通过，待本批评审。独立进程部署、可信 Authority、PX4/Gazebo 和完整 Episode 关联不在本次通过范围。
 
-审计基线：`c066bfb04d4fdbbaa218c59061a45a1c898ff632` 加本批测试与文档修改；日期 2026-11-03。范围依据 [MX 总计划](MX.md#验收与后续)，本批不修改生产行为或服务契约。
+首轮基线：`c066bfb04d4fdbbaa218c59061a45a1c898ff632` 加首轮测试与文档修改。3d 基线：`54020eb`（v0.10.63）加本批测试与文档；日期均为 2026-11-03。范围依据 [MX 总计划](MX.md#验收与后续)，3d 不修改生产代码或服务契约。
 
 ## 发现
 
 | 编号 | 级别 | 事实与证据 | 影响 |
 |---|---|---|---|
-| F1 | 中，MX 验收缺口 | 总计划要求固定对象在 Trace 标源；`LLMNode` 的 `MX_FIXED_BEHAVIOR` 在响应与主循环日志，观察占位来源在 `Observation.Response`。`TraceRecorder` 仅写 `world_state`、`safety_decision` | 固定行为和占位观察的来源不能从 JSONL Trace 中还原；该要求未通过 |
-| F2 | 中，审计能力边界 | Gate 先写决策再生成执行 ID；`SkillResult` 和执行 ID 出现在动作响应，但没有执行结果 Trace。序列成功响应只返回摘要 | 测试可核对运行中身份链，落盘数据尚不足以独立重建完整 Episode；不声称完整因果链已完成 |
+| F1 | 中，已关闭 | 首轮只有状态与决策记录；3a 至 3c 已接入来源记录，3d 从真实人工入口读取 JSONL，逐字段核对两次完整观察、实际 prompt、完整 LLM 回复及原始来源 | 固定行为和占位观察均可由文件还原；来源写入验收通过 |
+| F2 | 中，执行结果缺口已补齐，Episode 边界保留 | 已落盘完整批准命令与 Backend 结果/异常，并核对提案、决策、执行及批准状态 ID；Gate 抛异常时服务仍返回空决策/执行 ID。序列成功响应仍仅有摘要 | 动作身份可在记录成功时核对；跨文件没有完整 Episode 关联，不能仅凭本次新增记录宣称完整因果链 |
 | F3 | 中，部署验证缺口 | 整轮测试在同一 Python 进程中装配多个真实 ROS 节点，Backend、状态输入、权限和限速由测试替换 | 尚无独立生产进程与真实 PX4 的整轮证据；不能称为 SITL 验收 |
 | F4 | 低，已修正验证 | 审计时 `agent_comm` 的测试直接导入其他 ROS 包，清单未直接声明完整测试依赖 | 两个集成测试已迁到 behavior_executor 并声明直接测试依赖；干净构建验证见[变更单](MX-5-test-dependencies.md) |
 
@@ -21,12 +21,14 @@
 |---|---|---|
 | 初始观察、人工输入、LLM、执行、再观察顺序 | 通过替身集成 | `test_flight_round.py` 从真实 `ros_agent_srv.main()` 进入 |
 | 固定 hold/rtl 两步与参数传递 | 通过 | 实际飞行动作服务收到合法 JSON，第二项收到第一项原始输出 |
-| 首项执行失败或权限未知后停止 | 通过 | 后续 RTL 无服务调用或 Backend 派发；主循环仍再观察 |
-| 提案、决策、执行身份对应 | 通过运行中核对 | 批准 Trace 先于 Backend；命令、动作响应与决策 ID 对应，拒绝无执行 ID |
+| 首项失败、超时、异常或权限未知后停止 | 通过替身集成 | 八场景均从真实入口进入；相应失败后无 RTL 调用，仍再观察并等待人 |
+| 提案、决策、执行身份对应 | 通过运行中及文件核对 | 批准 Trace 先于 Backend；完整命令、结果与决策匹配；拒绝无执行 ID；异常服务响应的空 ID 边界保留 |
 | 等待超过旧 30 秒边界与超时停止 | 通过独立执行器测试 | 真实 ROS 延迟响应 31 秒；超时不派发下一项 |
 | 默认无 LLM 不派发、观察缺失明确失败 | 通过 | 原入口与观察服务测试 |
 | 占位与未接入项清单 | 已整理 | 见下表 |
-| 固定对象来源写入 Trace | 未通过 | F1 |
+| 固定对象来源写入 Trace | 通过 | F1；Agent 文件的事件顺序为观察、完整 LLM 响应、再观察 |
+| 动作结果与执行异常落盘 | 通过替身集成 | 完整命令/结果与实际 Backend 返回一致；异常保留原始类名与文字 |
+| 决策/结果记录失败与双重异常 | 通过替身集成 | 决策记录失败零派发；结果或异常记录失败仅一次 Backend 调用、不执行 RTL、不伪造结果 |
 
 ## 实际调用流
 
@@ -37,6 +39,7 @@
 ros_agent_srv.main --人工文本与观察--> RosAgent
 RosAgent --LLM.Request(prompt)--> LLMNode
 LLMNode --LLM.Response(固定行为及来源)--> RosAgent
+RosAgent --实际 prompt、完整响应及来源--> Agent TraceRecorder
 RosAgent --LLM.Response--> ros_agent_srv.main
 ros_agent_srv.main --提取后的行为文本--> RosEnv
 RosEnv --ExecuteBehavior.Request--> SequenceExecutor
@@ -49,6 +52,7 @@ SafetySupervisor --SafetyDecision--> SafetyExecutionGate
 SafetyExecutionGate --提案及决策--> TraceRecorder
 SafetyExecutionGate --ApprovedSkillCommand（仅批准）--> Backend 替身
 Backend 替身 --SkillResult--> SafetyExecutionGate
+SafetyExecutionGate --批准命令及完整结果或执行异常--> 动作 TraceRecorder
 SafetyExecutionGate --决策及执行结果--> FlightAtomicActionServer
 FlightAtomicActionServer --AtomicAction.Response--> SequenceExecutor
 SequenceExecutor --ExecuteBehavior.Response--> RosEnv
@@ -56,6 +60,7 @@ RosEnv --Observation.Request--> ObservationManagerNode
 ObservationManagerNode --状态读取请求--> Px4WorldStateAdapter
 Px4WorldStateAdapter --WorldState（由注入消息聚合）--> ObservationManagerNode
 ObservationManagerNode --Observation.Response--> RosEnv
+RosEnv --完整观察响应及来源--> Agent TraceRecorder
 RosEnv --观察、reward、done、info--> ros_agent_srv.main
 ```
 
@@ -74,7 +79,7 @@ RosEnv --观察、reward、done、info--> ros_agent_srv.main
 | 非飞行动作 | `resolve_poi`、拍照、识别未注册，也不在当前五动作白名单 | 后续功能批次；本轮不调用 |
 | 旧审批原型 | 仍有模型、组件及测试，未接入新主链；SPEC 已决定后续删除 | 独立清理批次，不算已删除 |
 
-## 验证
+## 验证（首轮历史记录）
 
 - 环境：Python 3.12.3、ROS 2 Jazzy；PX4/Gazebo 未启动。冻结环境参见 [manifest](../manifests/environment.yaml)，其配置不代表本次已运行仿真。
 - 核心：`PYTHONPATH=src .venv/bin/python -m pytest -q tests`，`164 passed`。
@@ -90,13 +95,28 @@ RosEnv --观察、reward、done、info--> ros_agent_srv.main
 - 构建：`colcon build --packages-select rosllm_srvs agent_comm behavior_executor observation_manager flight_agent_ros`，五包通过；日志位于 `/tmp/mx5-colcon-log`。
 - 新增断言位于 [test_flight_round.py](../ros2_ws/src/behavior_executor/test/test_flight_round.py)，Ruff、`git diff --check` 通过；无生产接口变更，回滚仅需恢复测试和文档。
 
-## 后续任务
+## 3d 验证
 
-1. MX-5 来源记录收口：先明确 F1 的 Trace 事件字段、来源标记和回放兼容方式，再实现与验证；不得用日志代替 JSONL 验收。
+- 入口证据：[test_flight_round.py](../ros2_ws/src/behavior_executor/test/test_flight_round.py)，八场景为成功、执行失败、权限未知、执行超时、Backend 异常、结果记录失败、异常记录也失败、决策记录失败。
+- 字段核对：Agent 文件经 `TraceReplay` 还原，与真实 ROS 处理函数捕获的完整输入输出逐字段比较；动作文件核对完整命令与结果，检查批准决策先于派发与结果记录。两份文件分别写入测试临时目录。
+- 默认 LLM 失败、观察失败及来源写入失败证据沿用 [3b 入口测试](../ros2_ws/src/behavior_executor/test/test_ros_agent_srv.py)；动作服务五动作故障证据沿用 [3c 服务测试](../ros2_ws/src/flight_agent_ros/test/test_flight_atomic_action_server.py)，均在本次回归覆盖。
+- 环境：Python 3.12、ROS 2 Jazzy；ROS 模块来自 `/tmp/mx5-deps-clean/install/`，核心使用本批 `src`；测试数据为仓库测试 fixture，非正式测评集。未启动 PX4/Gazebo，未重新构建或建立独立生产进程。
+- 核心：`PYTHONPATH=src .venv/bin/python -m pytest -q tests`，195 项通过；单独入口八场景通过，Ruff 与 `git diff --check` 通过。
+- 完整 ROS：在沙箱外加载 `/opt/ros/jazzy/setup.bash` 与上述安装目录，`PYTHONPATH` 补 `src` 和 `.venv/lib/python3.12/site-packages`，设置 `PYTEST_DISABLE_PLUGIN_AUTOLOAD=1`、`ROS_LOG_DIR=/tmp/ros_log_mx5_3d_full`；执行下列命令，148 项通过（34.32 秒）。沙箱外运行依据为首轮已定位的线程池关闭停滞，未将失败或中止运行计为通过。
+
+```bash
+/usr/bin/python3 -m pytest -q -o faulthandler_timeout=50 \
+  ros2_ws/src/behavior_executor/test ros2_ws/src/observation_manager/test \
+  ros2_ws/src/flight_agent_ros/test
+```
+
+## 未覆盖的验证与后续
+
+1. 来源与动作记录收口已通过；完整 Episode 关联仍待后续设计，不能用日志或时间顺序替代缺失的跨文件关联字段。
 2. 包测试依赖收口已完成：按[测试依赖变更单](MX-5-test-dependencies.md)迁移两个测试文件并同步清单，拓扑排序、六包干净构建及新安装环境下 50 项回归通过。
 3. 真实环境回归：保留 M3 Backend SITL 回归、新服务真实状态与拒绝链、可信授权下批准飞行三项；其中可信 Authority 和受控 SITL 仍属 M4。
 
 ## 已确认事项
 
 - 用户确认两类都记录：保存完整 LLM 回复、观察文字及来源，同时保存动作执行结果。
-- 具体字段、写入位置和失败处理见[MX-5 结构变更单](MX-5-structure-change.md)，待评审后分批实施。
+- 具体字段、写入位置和失败处理已按[MX-5 结构变更单](MX-5-structure-change.md)实施；本批无新增待确认项，可信 Authority 等待决策仍见 [SPEC 第 10 节](../SPEC_DEV.md#10-待确认事项)。

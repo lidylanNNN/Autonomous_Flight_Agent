@@ -51,7 +51,7 @@ V1 目标：取得初始观察后等待人工输入。`RosAgent` 根据观察和
 | 确定性飞行动作 | `flight_execution_backend.py`、PX4 Command/Offboard adapters、Skill Registry | Takeoff、GoTo、Hold、RTL、Land 有代码映射；M3 调试脚本有 SITL 验证记录，不等于 Agent 任务闭环 |
 | 执行前 Safety | `SafetyExecutionGate` 调用 `SafetySupervisor`，批准后调用 `FlightExecutionBackend` | Gate 和检查器、决策 Trace 已实现；MX-4 1b 已移除 Proposal 与 Gate 的旧任务身份；飞行动作服务的 Authority 当前传入 `UNKNOWN`，不能声称已在生产入口获批飞行 |
 | 验证与恢复 | 飞行动作服务响应中的 `verification` | 固定为 `INCONCLUSIVE`；旧任务验证与恢复占位已删除，没有任务成功判定、重新规划或安全收尾实现 |
-| Trace | `TraceRecorder`、`TraceReplay` | 已接入 WorldState、安全决策、观察、LLM 响应及 Gate 动作结果/异常记录，详见 [MX-5 记录](plans/MX-5-structure-change.md)；最终主链审计与完整 Episode 因果链尚未完成 |
+| Trace | `TraceRecorder`、`TraceReplay` | 已接入 WorldState、安全决策、观察、LLM 响应及 Gate 动作结果/异常记录，并通过替身主链审计，详见 [MX-5 审计](plans/MX-5-audit.md)；完整 Episode 因果链尚未完成 |
 | 测评数据 | `agent_benchmark_sets/`、schema 与 validation scripts | Dev 用例存在；Validation/Frozen Test 目前只是预留 manifest，不得报告冻结测评指标 |
 | 旧审批原型 | `human_approval` 模型、组件、Mock 和测试 | 尚存仓库，但不是当前自主执行链，不等于任务级人工确认产品功能 |
 
@@ -251,7 +251,7 @@ V1 不建立任务 ID 或任务会话。飞行动作服务以 `--safety-json` �
 | M1 ROS 2/PX4/Gazebo 环境 | 已有阶段记录 | 重跑时记录冻结版本和真实 SITL 证据 |
 | M2 WorldState/Trace 基础 | 已有阶段记录 | 状态时效与回放回归保持可用 |
 | M3 确定性飞行动作 | 已有阶段记录 | 保留调试入口与 Backend 回归，不把它计作 Agent 任务成功 |
-| [MX 主流程骨架贯通](plans/MX.md) | **进行中**（MX-1 至 MX-4 代码批次已实施；MX-5 已完成首轮审计，验收缺口待关闭） | 关闭 [MX-5 审计发现](plans/MX-5-audit.md#发现)；分项工期与占位边界见阶段计划 |
+| [MX 主流程骨架贯通](plans/MX.md) | **替身范围验证通过，3d 待评审** | 后续进入 M4 可信 Authority 与受控 SITL；完整 Episode 等剩余边界见 [MX-5 审计](plans/MX-5-audit.md#发现) |
 | M4 Contract/Safety Gate | **进行中** | MX 骨架后收口可信 Authority、独立 Gate 装配及 PX4/Gazebo 受控链验证；MX 不替代 Safety 验收 |
 | M5 ROS-LLM 有人主链 | 未开始 | 在 MX 已贯通的模块链上替换固定返回：真实 LLM 决策、动作描述与稳健行为解析、完整人类反馈；从生产入口和替身/SITL 均可追踪 |
 | M6 飞行原子动作完成判定 | 未开始 | 五个飞行动作以状态证据产生成功/失败标志、超时与假成功测试；不再把占位 `INCONCLUSIVE` 当作已完成结果 |
