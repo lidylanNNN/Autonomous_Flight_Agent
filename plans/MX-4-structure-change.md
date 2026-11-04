@@ -4,6 +4,8 @@
 
 依据：[当前规格](../SPEC_DEV.md)、[MX 计划](MX.md)、[ROS-LLM 服务契约](../contracts/rosllm_services.md)、[Safety Contract](../contracts/safety_contract.md)。
 
+本文保存 MX-4 实施时的边界与证据；2026-11-04 确认的 V1 授权假设及后续接线以 [SPEC 第 5 节](../SPEC_DEV.md#5-安全不变量)和 [M4](M4.md)为准。
+
 ## 现状
 
 - `sequence_executor` 已按动作名调用 `AtomicAction` 服务；生产入口已发布五个飞行动作服务。单轮主链已调用实际飞行动作服务和 Gate；验证边界见[单轮记录](#单轮主链集成记录)。

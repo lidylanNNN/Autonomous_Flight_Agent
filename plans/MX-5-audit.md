@@ -1,6 +1,6 @@
 # MX-5 主链回归与审计
 
-状态：3d 已完成主链 Trace 审计，F1 已关闭；MX 骨架在替身验证范围内通过，待本批评审。独立进程部署、可信 Authority、PX4/Gazebo 和完整 Episode 关联不在本次通过范围。
+状态：2026-11-04 已复核 3d，F1 已关闭；MX 骨架在替身验证范围内完成。独立进程部署、可信 Authority、PX4/Gazebo 和完整 Episode 关联不在本次通过范围。
 
 首轮基线：`c066bfb04d4fdbbaa218c59061a45a1c898ff632` 加首轮测试与文档修改。3d 基线：`54020eb`（v0.10.63）加本批测试与文档；日期均为 2026-11-03。范围依据 [MX 总计划](MX.md#验收与后续)，3d 不修改生产代码或服务契约。
 
@@ -114,9 +114,18 @@ RosEnv --观察、reward、done、info--> ros_agent_srv.main
 
 1. 来源与动作记录收口已通过；完整 Episode 关联仍待后续设计，不能用日志或时间顺序替代缺失的跨文件关联字段。
 2. 包测试依赖收口已完成：按[测试依赖变更单](MX-5-test-dependencies.md)迁移两个测试文件并同步清单，拓扑排序、六包干净构建及新安装环境下 50 项回归通过。
-3. 真实环境回归：保留 M3 Backend SITL 回归、新服务真实状态与拒绝链、可信授权下批准飞行三项；其中可信 Authority 和受控 SITL 仍属 M4。
+3. 真实环境回归：保留 M3 Backend SITL 回归、新服务真实状态与拒绝链、V1 授权假设下批准飞行三项；默认授权接线与受控 SITL 属 M4，可信 Authority 另见 [V2](V2-optimizations.md#v2-2可信-authority)。
 
 ## 已确认事项
 
 - 用户确认两类都记录：保存完整 LLM 回复、观察文字及来源，同时保存动作执行结果。
-- 具体字段、写入位置和失败处理已按[MX-5 结构变更单](MX-5-structure-change.md)实施；本批无新增待确认项，可信 Authority 等待决策仍见 [SPEC 第 10 节](../SPEC_DEV.md#10-待确认事项)。
+- 具体字段、写入位置和失败处理已按[MX-5 结构变更单](MX-5-structure-change.md)实施；本批无新增待确认项，V1 授权假设以 [SPEC 第 5 节](../SPEC_DEV.md#5-安全不变量)为准。
+
+## 2026-11-04 收口复核
+
+- 代码基线：`28c088f`（v0.10.65）；3d 已在 `26b86f2` 提交，后续提交只调整测试变量命名。本次复核后仅修改文档，未提交。
+- 结论：未发现阻断 MX 替身骨架验收的问题，完成范围与上表一致；F2/F3 剩余边界保留。后续回到 [M4](M4.md)，不将本次结论扩大为真实飞行验收。
+- 核心复跑：`PYTHONPATH=src .venv/bin/python -m pytest -q tests`，195 passed。
+- ROS 复跑：加载 `/opt/ros/jazzy/setup.bash`、`/tmp/mx5-deps-clean/install/setup.bash`，`PYTHONPATH` 补核心 `src` 及项目 `.venv` 依赖，设置 `PYTEST_DISABLE_PLUGIN_AUTOLOAD=1`、`ROS_LOG_DIR=/tmp/ros_log_mx_review_external`；执行 `/usr/bin/python3 -m pytest -q -o faulthandler_timeout=50 ros2_ws/src/behavior_executor/test ros2_ws/src/observation_manager/test ros2_ws/src/flight_agent_ros/test`，沙箱外 148 passed in 34.29s。
+- 沙箱内首次 ROS 运行复现 `test_px4_parameter_adapter.py` 的 `asyncio.Runner.close()` 卡顿，不计为通过；结论依据上述沙箱外完整结果。
+- 本次使用既有安装产物，未重新构建，未启动 PX4/Gazebo，未验证独立进程部署；数据仍为测试 fixture。`git diff --check` 通过。

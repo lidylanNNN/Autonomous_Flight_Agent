@@ -30,6 +30,7 @@ M4-7 Safety Supervisor 已按固定顺序组合独立检查器，并通过 ROS �
 - 飞行服务接入后，Gate 使用从新 JSON 加载的系统 `MissionConstraints`、当前 `WorldState` 和 `ControlAuthority`。
 - Proposal、Safety 决策与 Trace 不使用任务 ID；保留提案、决策和执行 ID 追踪单次动作。
 - 飞行动作服务启动时从 `--safety-json` 指定的新 JSON 文件读取 `MissionConstraints` 根对象；文件缺少、不可读或校验失败时不发布服务。
+- V1 受控 SITL 的授权假设以 [SPEC 第 5 节](../SPEC_DEV.md#5-安全不变量)为准；默认授权仅满足 Authority 检查，不免除其他检查。
 - 保留参数、状态、Authority、围栏、包线和健康检查及拒绝语义。迁移步骤见 [MX-4 结构变更单](../plans/MX-4-structure-change.md)。
 
 ## 安全约束
@@ -147,13 +148,9 @@ GoTo 生效，以 `WorldState.home_position_ned_m` 为圆心计算目标的水�
 
 ## 当前边界
 
-已装配独立检查器、PX4 限速读取和旧任务入口的执行门。替身集成测试已覆盖旧入口经 Gate 派发与拒绝不派发；ROS 入口工厂测试也覆盖 Gate 装配。但当前尚未完成：
+已装配独立检查器、PX4 限速读取及五个 ROS 飞行动作服务的 Gate；旧任务入口已删除。当前生产装配与替身主链证据见 [MX-5 审计](../plans/MX-5-audit.md#实际调用流)。
 
-- 隔离旧 M3 调试脚本等可直接调用后端的路径；
-- 新 ROS-LLM 飞行原子动作服务与 Gate 装配；
-- Safety Gate 的 PX4/Gazebo 受控链验证。
-
-因此当前可以声明旧受控入口的总仲裁能确定性返回决定，不能声明目标生产链已经接入或所有执行路径都经过 Gate。
+生产 Authority 仍固定为 `UNKNOWN`，因此真实批准飞行与 PX4/Gazebo 受控链尚未验收。M3 调试入口直连 Backend，不属于受控服务链；不能声明仓库所有路径均经过 Gate。后续实施与验证见 [M4 计划](../plans/M4.md)。
 
 原 M4-6 Proposal 级审批协议、状态机和 Mock 仍在仓库，但不属于 M1–M8 设计或 V1 目标契约。X1 已移除 `human_approval_skills` 与 Supervisor 分支；相关原因码、决策枚举及原型公共导出仍待后续批次迁移。测评后的产品阶段需重新定义 Plan 级审批。
 

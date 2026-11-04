@@ -229,8 +229,8 @@ V1 不建立任务 ID 或任务会话。飞行动作服务以 `--safety-json` �
 ## 5. 安全不变量
 
 1. 普通物理动作没有对应的 `SafetyDecision=APPROVE` 与 `ApprovedSkillCommand` 不得派发；拒绝、读取失败、Trace 写入失败均不得误放行。
-2. State 过期、State ID 不匹配、Authority 不可信、PX4 failsafe/健康证据不满足、越围栏/高度/半径、系统限速与飞控限速不一致时拒绝；具体字段、顺序与原因码以 `src/flight_agent/contracts/` 和 `src/flight_agent/components/safety/` 的实现及 `contracts/` 的设计文档核对。
-3. 对 `UNKNOWN` Authority 必须维持拒绝。接入真实控制权来源前，不允许用测试注入的 `AGENT_ALLOWED` 宣称生产 Gate 可飞。
+2. State 过期、State ID 不匹配、Authority 非 `AGENT_ALLOWED`、PX4 failsafe/健康证据不满足、越围栏/高度/半径、系统限速与飞控限速不一致时拒绝；具体字段、顺序与原因码以 `src/flight_agent/contracts/` 和 `src/flight_agent/components/safety/` 的实现及 `contracts/` 的设计文档核对。
+3. V1 仅面向受控 SITL，假定操作员已授权 Agent；飞行动作入口目标固定提供 `AGENT_ALLOWED`，只满足 Authority 检查，其他 Safety 检查及 PX4 failsafe 保持生效。该假设须在入口说明和运行证据中标明，不代表可信授权机制已实现。`UNKNOWN` 及其他非允许值仍拒绝；可信授予、撤销、失联处理与权限变化复核移入 [V2](plans/V2-optimizations.md#v2-2可信-authority)。当前入口仍为 `UNKNOWN`，接线尚待实施。
 4. Safety 拒绝、执行失败和不确定验证必须分别保留事实，不得映射为任务成功。`INCONCLUSIVE` 不是成功。
 5. 在途危险处置必须有独立于模型推理的路径；当前缺口写入 M7-S。任何测试不得用 PX4 原生 failsafe 覆盖这一缺口。
 6. 简单的人工任务/反馈输入是 ROS-LLM 主链的一部分；产品级人工 Plan 审批与复杂操作界面另行设计。V1 自主测评不依赖逐 Skill 审批；接管/急停也不能绕过飞行 Safety。
@@ -251,8 +251,8 @@ V1 不建立任务 ID 或任务会话。飞行动作服务以 `--safety-json` �
 | M1 ROS 2/PX4/Gazebo 环境 | 已有阶段记录 | 重跑时记录冻结版本和真实 SITL 证据 |
 | M2 WorldState/Trace 基础 | 已有阶段记录 | 状态时效与回放回归保持可用 |
 | M3 确定性飞行动作 | 已有阶段记录 | 保留调试入口与 Backend 回归，不把它计作 Agent 任务成功 |
-| [MX 主流程骨架贯通](plans/MX.md) | **替身范围验证通过，3d 待评审** | 后续进入 M4 可信 Authority 与受控 SITL；完整 Episode 等剩余边界见 [MX-5 审计](plans/MX-5-audit.md#发现) |
-| M4 Contract/Safety Gate | **进行中** | MX 骨架后收口可信 Authority、独立 Gate 装配及 PX4/Gazebo 受控链验证；MX 不替代 Safety 验收 |
+| [MX 主流程骨架贯通](plans/MX.md) | **替身范围完成，2026-11-04 已复核** | 后续进入 M4 默认授权接线与受控 SITL；完整 Episode 等剩余边界见 [MX-5 审计](plans/MX-5-audit.md#发现) |
+| M4 Contract/Safety Gate | **进行中** | 复用 MX 已完成的独立 Gate 装配，按 [M4 计划](plans/M4.md) 收口默认授权接线及 PX4/Gazebo 受控链验证；MX 不替代 Safety 验收 |
 | M5 ROS-LLM 有人主链 | 未开始 | 在 MX 已贯通的模块链上替换固定返回：真实 LLM 决策、动作描述与稳健行为解析、完整人类反馈；从生产入口和替身/SITL 均可追踪 |
 | M6 飞行原子动作完成判定 | 未开始 | 五个飞行动作以状态证据产生成功/失败标志、超时与假成功测试；不再把占位 `INCONCLUSIVE` 当作已完成结果 |
 | M7 人类反馈修正与失败报告 | 未开始 | 行为失败后停止序列、返回结果和新观察；仅在下一轮人工输入后让 Agent 生成修正行为。无人续跑移出 ROS-LLM 对齐基线 |
@@ -273,7 +273,7 @@ V1 不建立任务 ID 或任务会话。飞行动作服务以 `--safety-json` �
 
 ## 10. 待确认事项
 
-1. 可信 Authority 的生产来源与失联时行为；这直接决定 M4 是否能受控批准并完成 SITL 验收。
+1. V1 默认授权接线与受控 SITL 验收尚待实施，按 [M4 计划](plans/M4.md)推进；可信 Authority 已移入 V2，不再阻塞 V1 最小闭环。
 2. 序列上限与动作失败后的飞行安全处置条件仍待确认；MX-4 的飞行动作 JSON 输入输出语义按 [结构变更单](plans/MX-4-structure-change.md)分批冻结。
 3. M5/M7/M7-S 的实际工作量与时间表，待 M4 收口和第一条真实 Agent 纵向切片后重估；上游准确 commit 与序列执行对照测试待锁定。
 
