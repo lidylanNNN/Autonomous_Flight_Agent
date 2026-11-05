@@ -153,3 +153,5 @@ PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 /usr/bin/python3 -m pytest -q -s -m sitl ros2_w
 ```
 
 测试会打印本轮 `artifacts/m4-7e/pytest-时间/` 路径，保存环境、代码及测试文件校验值、请求、响应、状态、安全决策、后端调用次数和命令记录。退出时清理本轮启动的进程，失败时也保留证据。运行前应停止其他 PX4 或同名服务，避免共享环境干扰；本用例只负责自己启动的进程。
+
+当前 pytest 用例的测试辅助变量和自写记录文件使用 `test_temp_` 前缀，例如 `test_temp_messages`、`test_temp_backend_calls.json`、`test_temp_response.json` 和 `test_temp_server.log`；本轮输入配置为 `test_temp_safety.json`。真实 server、后端和 ROS 对象保持原名，正式 Trace 仍为 `world.jsonl` 与 `safety.jsonl`。前面列出的历史证据按其运行时版本保留原文件名。
