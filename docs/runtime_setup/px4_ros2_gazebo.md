@@ -120,3 +120,36 @@ UDP 8888 初始化 uXRCE-DDS Client。Timeout 退出是有意设计，用于避�
 - PX4 ROS 2 User Guide：https://docs.px4.io/main/en/ros2/user_guide
 - PX4 uXRCE-DDS Guide：https://docs.px4.io/main/en/middleware/uxrce_dds
 - Gazebo Harmonic Ubuntu Install：https://gazebosim.org/docs/harmonic/install_ubuntu/
+
+## M4 实际服务拒绝记录
+
+2026-11-04，代码 `0fd8642`（v0.10.67），PX4 与本文冻结版本一致。本轮启动实际 `flight_atomic_action_server.main()`，保留真实后端、状态订阅、命令适配器、Gate 和 Trace；没有使用模拟对象。
+
+- 场景：地面未解锁，真实位置和 Home 有效，failsafe 未激活。系统高度上限 5 米，请求 Takeoff 高度 6 米。
+- 限制文件：从仓库示例收紧高度、半径及围栏，仅用于本轮拒绝验证，不作为批准飞行配置。
+- 结果：25.2 毫秒返回拒绝，唯一原因 `ALTITUDE_ABOVE_ENVELOPE`，无执行 ID；提案和决策 ID 与落盘 Trace 一致。
+- 后端观察：使用 Python 的函数调用观察功能，实际 `get_world_state()` 进入 2 次，`execute()` 进入 0 次；不替换对象或函数。观察代码在 server 启动前启用，覆盖工作线程。
+- 命令观察：在请求前完成 DDS 发现，确认实际适配器发布者存在；请求前后监听 `/fmu/in/vehicle_command`、`/fmu/in/offboard_control_mode`、`/fmu/in/trajectory_setpoint`，三个 Topic 均无消息。
+- 独立读取 PX4 `MPC_XY_VEL_MAX=12.0`，当前系统上限为 8.0。本轮高度检查已拒绝，未进入 Gate 限速读取；后续批准飞行前必须处理限速不匹配，不能为放行而调高系统上限。
+- 本轮结束后已停止启动的 server、PX4、Gazebo 和 XRCE Agent，未起飞。
+
+本地原始证据目录为 `artifacts/m4-7e/20261104T102055Z/`：`manifest.json` 保存环境和版本，`safety.json` 保存限制，`request.json` 和 `result.json` 保存请求结果，`backend_calls.json` 保存函数进入次数，`publishers.json` 和 `command_messages.json` 保存命令观察，`safety.jsonl`、`world.jsonl` 及进程日志保存原始记录。`run.py` 保存本轮运行程序，`sha256.json` 保存这些文件的校验值。artifacts 按仓库规则不进入 Git。
+
+复现需加载 Jazzy、工作区生成接口、四个 ROS 包的源码及项目 Python 依赖，在仓库根目录执行上述归档的 `run.py`；程序调用现有 `start_simulation.sh`，独立启动 server、发送一次请求并清理进程。首次启动触发了 PX4 增量编译；本轮使用无输入终端运行时 PX4 提示符大量刷新，原始日志已保留，后续启动应使用保持打开的终端输入。
+
+这条记录证明真实状态读取和本场景的拒绝零派发，不证明真实后端的批准执行或物理动作正确；后者按 M4 的 7f 继续验证。
+
+## 用 pytest 重复运行真实拒绝场景
+
+用例：`ros2_ws/src/flight_agent_ros/test/test_flight_sitl.py`。它直接启动真实 PX4/Gazebo 和 server，通过 ROS 请求起飞 6 米，并检查系统 5 米上限导致拒绝、真实后端未执行、三个命令 Topic 没有消息。没有替换后端或适配器。
+
+普通 pytest 默认排除 `sitl`。需要运行时，在仓库根目录执行：
+
+```bash
+source /opt/ros/jazzy/setup.bash
+source ros2_ws/install/setup.bash
+export PYTHONPATH="$PWD/ros2_ws/src/flight_agent_ros:$PWD/src:$PWD/.venv/lib/python3.12/site-packages:$PYTHONPATH"
+PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 /usr/bin/python3 -m pytest -q -s -m sitl ros2_ws/src/flight_agent_ros/test/test_flight_sitl.py
+```
+
+测试会打印本轮 `artifacts/m4-7e/pytest-时间/` 路径，保存环境、代码及测试文件校验值、请求、响应、状态、安全决策、后端调用次数和命令记录。退出时清理本轮启动的进程，失败时也保留证据。运行前应停止其他 PX4 或同名服务，避免共享环境干扰；本用例只负责自己启动的进程。

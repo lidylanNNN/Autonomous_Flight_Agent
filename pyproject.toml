@@ -40,3 +40,5 @@ packages = ["flight_agent"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["."]
+addopts = "-m 'not sitl'"
+markers = ["sitl: starts real PX4/Gazebo and ROS services; run explicitly with -m sitl"]
