@@ -49,7 +49,7 @@ V1 目标：取得初始观察后等待人工输入。`RosAgent` 根据观察和
 | MX-3 有人入口与行为序列 | `ros_agent_srv.main()` 已装配 `RosEnv`、`RosAgent`、观察服务和行为执行器；逐边调用见第 4 节 | 观察文本仍为标源占位，默认 LLM 明确失败；显式固定两步已通过实际飞行动作服务和 Gate 的单轮集成，外部 PX4 与权限来源使用替身。证据见 [MX-4 单轮记录](plans/MX-4-structure-change.md#单轮主链集成记录) |
 | MX-4 飞行动作服务 | `flight_atomic_action_server` 从 `--safety-json` 加载限制，发布 `hold`、`takeoff`、`goto`、`rtl`、`land` 并调用 Safety Gate | 五个服务测试覆盖 `UNKNOWN` 拒绝、Trace/状态读取失败零派发，以及替身批准、执行失败和异常响应；不代表 PX4/Gazebo 端到端证据 |
 | 确定性飞行动作 | `flight_execution_backend.py`、PX4 Command/Offboard adapters、Skill Registry | Takeoff、GoTo、Hold、RTL、Land 有代码映射；M3 调试脚本有 SITL 验证记录，不等于 Agent 任务闭环 |
-| 执行前 Safety | `SafetyExecutionGate` 调用 `SafetySupervisor`，批准后调用 `FlightExecutionBackend` | Gate 和检查器、决策 Trace 已实现；MX-4 1b 已移除 Proposal 与 Gate 的旧任务身份；ROS 侧 main 已按 M4-7c 设置默认权限并验证启动传参与日志；真实后端执行及飞行尚未验收 |
+| 执行前 Safety | `SafetyExecutionGate` 调用 `SafetySupervisor`，批准后调用 `FlightExecutionBackend` | Gate 和检查器、决策 Trace 已实现；MX-4 1b 已移除 Proposal 与 Gate 的旧任务身份；ROS 侧 main 已按 M4-7c 设置默认权限并验证启动传参与日志；Takeoff/Land 的真实服务起降已通过，其他动作尚待验收；见 [7f 记录](plans/M4.md#7f-实施记录) |
 | 验证与恢复 | 飞行动作服务响应中的 `verification` | 固定为 `INCONCLUSIVE`；旧任务验证与恢复占位已删除，没有任务成功判定、重新规划或安全收尾实现 |
 | Trace | `TraceRecorder`、`TraceReplay` | 已接入 WorldState、安全决策、观察、LLM 响应及 Gate 动作结果/异常记录，并通过替身主链审计，详见 [MX-5 审计](plans/MX-5-audit.md)；完整 Episode 因果链尚未完成 |
 | 测评数据 | `agent_benchmark_sets/`、schema 与 validation scripts | Dev 用例存在；Validation/Frozen Test 目前只是预留 manifest，不得报告冻结测评指标 |
@@ -230,7 +230,7 @@ V1 不建立任务 ID 或任务会话。飞行动作服务以 `--safety-json` �
 
 1. 普通物理动作没有对应的 `SafetyDecision=APPROVE` 与 `ApprovedSkillCommand` 不得派发；拒绝、读取失败、Trace 写入失败均不得误放行。
 2. State 过期、State ID 不匹配、Authority 非 `AGENT_ALLOWED`、PX4 failsafe/健康证据不满足、越围栏/高度/半径、系统限速与飞控限速不一致时拒绝；具体字段、顺序与原因码以 `src/flight_agent/contracts/` 和 `src/flight_agent/components/safety/` 的实现及 `contracts/` 的设计文档核对。
-3. V1 仅面向受控 SITL，假定操作员已授权 Agent；飞行动作入口固定提供 `AGENT_ALLOWED`，只满足 Authority 检查，其他 Safety 检查及 PX4 failsafe 保持生效。该假设须在入口说明和运行证据中标明，不代表可信授权机制已实现。`UNKNOWN` 及其他非允许值仍拒绝；可信授予、撤销、失联处理与权限变化复核移入 [V2](plans/V2-optimizations.md#v2-2可信-authority)。7c 已设置默认权限；真实服务链的 SITL 验证仍按 M4 计划推进。
+3. V1 仅面向受控 SITL，假定操作员已授权 Agent；飞行动作入口固定提供 `AGENT_ALLOWED`，只满足 Authority 检查，其他 Safety 检查及 PX4 failsafe 保持生效。该假设须在入口说明和运行证据中标明，不代表可信授权机制已实现。`UNKNOWN` 及其他非允许值仍拒绝；可信授予、撤销、失联处理与权限变化复核移入 [V2](plans/V2-optimizations.md#v2-2可信-authority)。7c 已设置默认权限；Takeoff/Land 的真实服务链已按 [7f](plans/M4.md#7f-实施记录)通过 SITL 验证，其余动作按 M4 计划推进。
 4. Safety 拒绝、执行失败和不确定验证必须分别保留事实，不得映射为任务成功。`INCONCLUSIVE` 不是成功。
 5. 在途危险处置必须有独立于模型推理的路径；当前缺口写入 M7-S。任何测试不得用 PX4 原生 failsafe 覆盖这一缺口。
 6. 简单的人工任务/反馈输入是 ROS-LLM 主链的一部分；产品级人工 Plan 审批与复杂操作界面另行设计。V1 自主测评不依赖逐 Skill 审批；接管/急停也不能绕过飞行 Safety。
@@ -273,7 +273,7 @@ V1 不建立任务 ID 或任务会话。飞行动作服务以 `--safety-json` �
 
 ## 10. 待确认事项
 
-1. V1 默认权限已设置，受控 SITL 验收尚待实施，按 [M4 计划](plans/M4.md)推进；可信 Authority 已移入 V2，不再阻塞 V1 最小闭环。
+1. V1 默认权限已设置，Takeoff/Land 已通过受控 SITL，其余验收按 [M4 计划](plans/M4.md)推进；可信 Authority 已移入 V2，不再阻塞 V1 最小闭环。
 2. 序列上限与动作失败后的飞行安全处置条件仍待确认；MX-4 的飞行动作 JSON 输入输出语义按 [结构变更单](plans/MX-4-structure-change.md)分批冻结。
 3. M5/M7/M7-S 的实际工作量与时间表，待 M4 收口和第一条真实 Agent 纵向切片后重估；上游准确 commit 与序列执行对照测试待锁定。
 

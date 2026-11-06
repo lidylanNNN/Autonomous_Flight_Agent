@@ -1,4 +1,4 @@
-'''通过实际 ROS 服务验证 PX4/Gazebo 拒绝；显式使用 -m sitl 运行。'''
+'''通过实际 ROS 服务验证 PX4/Gazebo 拒绝与起降；显式使用 -m sitl 运行。'''
 
 from __future__ import annotations
 
@@ -10,63 +10,120 @@ import signal
 import subprocess
 import sys
 import threading
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
 from time import monotonic
 from types import FrameType
+from typing import TYPE_CHECKING, Any
 
 import pytest
+
+if TYPE_CHECKING:
+    from rclpy.node import Node
 
 ROOT = Path(__file__).resolve().parents[4]
 pytestmark = pytest.mark.sitl
 
 
-def test_takeoff_above_limit_rejects_without_dispatch(test_temp_sitl_run: Path) -> None:
-    '''真实状态下拒绝超高度请求，并同时检查后端执行和飞控命令为零。'''
+@pytest.mark.parametrize(('test_input_case', 'expected_output_case'), [
+    pytest.param(
+        {'milestone': 'm4-7e',
+         'description': 'Takeoff 6m exceeds system limit 5m; rejection only',
+         'px4': {},
+         'initial_state': {'position_valid': True,
+                           'home_valid': True,
+                           'landed': True,
+                           'armed': False},
+         'steps': [{'service': '/takeoff',
+                    'input': {'target_altitude_m': 6.0},
+                    'timeout_s': 10.0,
+                    'record_name': '',
+                    'ready': {}}]},
+        {'topic_counts': {'/fmu/in/offboard_control_mode': 0, '/fmu/in/trajectory_setpoint': 0},
+         'steps': [{'success': False,
+                    'decision': 'REJECT',
+                    'output': {'reason_codes': ['ALTITUDE_ABOVE_ENVELOPE'],
+                               'error_code': None,
+                               'execution_status': None,
+                               'execution_id': None,
+                               'failure_code': None,
+                               'verification': 'INCONCLUSIVE'},
+                    'state': {'armed': False, 'landed': True},
+                    'commands': []}]},
+        id='7e-takeoff-above-limit',
+    ),
+    pytest.param(
+        {'milestone': 'm4-7f',
+         'description': 'Takeoff 3m then Land via actual services',
+         'px4': {'speed_limit_mps': 8.0, 'heartbeat_hz': 10},
+         'initial_state': {'position_valid': True,
+                           'home_valid': True,
+                           'landed': True,
+                           'armed': False},
+         'steps': [{'service': '/takeoff',
+                    'input': {'target_altitude_m': 3.0},
+                    'timeout_s': 100.0,
+                    'record_name': 'takeoff',
+                    'ready': {'state_age_ms': {'min': 0, 'max': 199}}},
+                   {'service': '/land',
+                    'input': {},
+                    'timeout_s': 100.0,
+                    'record_name': 'land',
+                    'ready': {'state_age_ms': {'min': 0, 'max': 199},
+                              'flight_mode': 'AUTO_LOITER'}}]},
+        {'topic_counts': {'/fmu/in/offboard_control_mode': 0, '/fmu/in/trajectory_setpoint': 0},
+         'steps': [{'success': True,
+                    'decision': 'APPROVE',
+                    'output': {'reason_codes': ['CHECKS_PASSED'],
+                               'error_code': None,
+                               'execution_status': 'SUCCEEDED',
+                               'failure_code': None,
+                               'verification': 'INCONCLUSIVE'},
+                    'state': {'armed': True,
+                              'landed': False,
+                              'position_ned_m.z': {'min': -3.5, 'max': -2.5}},
+                    'commands': [22, 400]},
+                   {'success': True,
+                    'decision': 'APPROVE',
+                    'output': {'reason_codes': ['CHECKS_PASSED'],
+                               'error_code': None,
+                               'execution_status': 'SUCCEEDED',
+                               'failure_code': None,
+                               'verification': 'INCONCLUSIVE'},
+                    'state': {'armed': False, 'landed': True},
+                    'commands': [21]}]},
+        id='7f-takeoff-land',
+    ),
+])
+def test_action_sitl(
+    test_input_case: dict[str, Any], expected_output_case: dict[str, Any], test_temp_sitl_run: Path,
+) -> None:
+    '''按 test_input_ 输入执行动作，以 expected_output_ 预期核对实际证据。'''
     import rclpy
-    from flight_agent_ros.adapters.px4_parameter_adapter import Px4ParameterAdapter
-    from px4_msgs.msg import OffboardControlMode, TrajectorySetpoint, VehicleCommand
-    from rclpy.qos import QoSProfile, ReliabilityPolicy
-    from rosllm_srvs.srv import AtomicAction
+    from px4_msgs.msg import (
+        OffboardControlMode,
+        TrajectorySetpoint,
+        VehicleCommand,
+        VehicleCommandAck,
+    )
 
-    test_temp_messages: list[dict[str, object]] = []
+    test_temp_messages: list[dict[str, Any]] = []
     test_temp_topics = {
         '/fmu/in/vehicle_command': (VehicleCommand, 'px4_vehicle_command_adapter'),
         '/fmu/in/offboard_control_mode': (OffboardControlMode, 'px4_offboard_setpoint_adapter'),
         '/fmu/in/trajectory_setpoint': (TrajectorySetpoint, 'px4_offboard_setpoint_adapter'),
     }
     rclpy.init()
-    node = rclpy.create_node('m4_7e_rejection_client')
+    node = rclpy.create_node('sitl_action_client')
     try:
-        qos = QoSProfile(depth=100, reliability=ReliabilityPolicy.BEST_EFFORT)
-        for topic, (message_type, _) in test_temp_topics.items():
-            node.create_subscription(
-                message_type,
-                topic,
-                lambda msg, topic=topic: test_temp_messages.append(
-                    {
-                        'topic': topic,
-                        'timestamp': int(msg.timestamp),
-                    }
-                ),
-                qos,
-            )
-        client = node.create_client(AtomicAction, '/takeoff')
-        test_temp_deadline = monotonic() + 100
-        while monotonic() < test_temp_deadline:
-            rclpy.spin_once(node, timeout_sec=0.1)
-            state = _latest_state(test_temp_sitl_run)
-            if (
-                client.service_is_ready()
-                and state.get('position_valid')
-                and state.get('landed')
-                and state.get('home_valid')
-            ):
-                break
-        else:
-            pytest.fail(f'PX4 地面状态或服务未就绪；日志：{test_temp_sitl_run}')
-        assert state['armed'] is False
+        _subscribe_messages(node, {
+            **{topic: item[0] for topic, item in test_temp_topics.items()},
+            '/fmu/out/vehicle_command_ack': VehicleCommandAck,
+        }, test_temp_messages)
+        state = _wait_state(node, test_temp_sitl_run,
+                            lambda state: _matches(state, test_input_case['initial_state']))
         _save(test_temp_sitl_run / 'test_temp_state_before.json', state)
         test_temp_publishers = {
             topic: [info.node_name for info in node.get_publishers_info_by_topic(topic)]
@@ -75,74 +132,243 @@ def test_takeoff_above_limit_rejects_without_dispatch(test_temp_sitl_run: Path) 
         _save(test_temp_sitl_run / 'test_temp_publishers.json', test_temp_publishers)
         for topic, (_, publisher) in test_temp_topics.items():
             assert publisher in test_temp_publishers[topic]
-        speed = asyncio.run(Px4ParameterAdapter().read_validated_speed_limit(max_age_s=2.0))
-        _save(test_temp_sitl_run / 'test_temp_px4_speed.json', {'MPC_XY_VEL_MAX': speed})
-        test_temp_until = monotonic() + 2
-        while monotonic() < test_temp_until:
-            rclpy.spin_once(node, timeout_sec=0.1)
-        request = AtomicAction.Request(input='{"target_altitude_m":6.0}', prev_output='')
-        _save(
-            test_temp_sitl_run / 'test_temp_request.json',
-            {'service': '/takeoff', 'input': request.input},
-        )
-        test_temp_started = monotonic()
-        future = client.call_async(request)
-        rclpy.spin_until_future_complete(node, future, timeout_sec=10)
-        assert future.done(), 'ROS 动作请求超时'
-        response = future.result()
-        assert response is not None
-        output = json.loads(response.output)
-        _save(
-            test_temp_sitl_run / 'test_temp_response.json',
-            {
-                'success': response.success,
-                'output': output,
-                'elapsed_s': monotonic() - test_temp_started,
-            },
-        )
-        test_temp_until = monotonic() + 2
-        while monotonic() < test_temp_until:
-            rclpy.spin_once(node, timeout_sec=0.1)
-        test_temp_counts = json.loads(
-            (test_temp_sitl_run / 'test_temp_backend_calls.json').read_text()
-        )
-        test_temp_records = [
-            json.loads(line)
-            for line in (test_temp_sitl_run / 'safety.jsonl').read_text().splitlines()
-        ]
-        assert response.success is False
-        assert output['reason_codes'] == ['ALTITUDE_ABOVE_ENVELOPE']
-        assert output['error_code'] is None and output['execution_id'] is None
-        assert test_temp_counts['state_reads'] >= 2 and test_temp_counts['execute_calls'] == 0
-        assert test_temp_messages == []
-        (test_temp_record,) = test_temp_records
-        assert test_temp_record['decision']['decision'] == 'REJECT'
-        assert test_temp_record['decision']['decision_id'] == output['decision_id']
-        assert test_temp_record['proposal']['proposal_id'] == output['proposal_id']
-        _save(
-            test_temp_sitl_run / 'test_temp_result.json',
-            {
-                'passed': True,
-                'backend_calls': test_temp_counts,
-                'command_count': len(test_temp_messages),
-            },
-        )
+        with _px4_settings(test_temp_sitl_run, test_input_case['px4']):
+            _spin_for(node, 2.0)
+            test_temp_record_index = 0
+            test_temp_execution_ids: list[str] = []
+            for test_input_step, expected_output_step in zip(
+                test_input_case['steps'], expected_output_case['steps'], strict=True,
+            ):
+                _wait_state(node, test_temp_sitl_run, lambda state, step=test_input_step: _matches(
+                    state, step['ready']
+                ), timeout_s=30.0)
+                test_temp_start = len(test_temp_messages)
+                success, output, state = _call_action(
+                    node, test_temp_sitl_run, test_input_service=test_input_step['service'],
+                    test_input_arguments=test_input_step['input'], test_input_record_name=test_input_step['record_name'],
+                    test_input_timeout_s=test_input_step['timeout_s'],
+                )
+                assert success is expected_output_step['success'], output
+                assert _matches(output, expected_output_step['output']), output
+                assert _matches(state, expected_output_step['state']), state
+                _spin_for(node, 2.0)
+                test_temp_records = [json.loads(line) for line in
+                                     (test_temp_sitl_run / 'safety.jsonl').read_text().splitlines()]
+                test_temp_decision_record = test_temp_records[test_temp_record_index]
+                assert test_temp_decision_record['type'] == 'safety_decision'
+                decision = test_temp_decision_record['decision']
+                proposal = test_temp_decision_record['proposal']
+                assert decision['decision'] == expected_output_step['decision']
+                assert decision['decision_id'] == output['decision_id']
+                assert decision['proposal_id'] == proposal['proposal_id'] == output['proposal_id']
+                assert proposal['skill_name'] == test_input_step['service'].lstrip('/')
+                assert proposal['arguments'] == test_input_step['input']
+                test_temp_record_index += 1
+                if expected_output_step['decision'] == 'APPROVE':
+                    test_temp_result_record = test_temp_records[test_temp_record_index]
+                    assert test_temp_result_record['type'] == 'skill_result'
+                    command, result = test_temp_result_record['command'], test_temp_result_record['result']
+                    assert command['decision_id'] == output['decision_id']
+                    assert command['proposal_id'] == result['proposal_id'] == output['proposal_id']
+                    assert command['execution_id'] == result['execution_id'] == output['execution_id']
+                    assert result['status'] == output['execution_status']
+                    assert result['px4_ack'] == 'ACCEPTED'
+                    test_temp_events = json.loads(
+                        (test_temp_sitl_run / 'test_temp_execution_entries.json').read_text()
+                    )
+                    test_temp_event = next(item for item in test_temp_events if item['command'] == command)
+                    assert decision['decision_id'] in test_temp_event['recorded_decisions']
+                    test_temp_execution_ids.append(command['execution_id'])
+                    test_temp_record_index += 1
+                test_temp_commands = [item for item in test_temp_messages[test_temp_start:]
+                                      if item['topic'] == '/fmu/in/vehicle_command']
+                assert [item['message']['command'] for item in test_temp_commands] == expected_output_step['commands']
+                for item in test_temp_commands:
+                    assert test_temp_decision_record['recorded_at'] < item['received_at']
+                    assert any(ack['message']['command'] == item['message']['command']
+                               and ack['message']['result'] == 0
+                               and ack['received_at'] >= item['received_at']
+                               for ack in test_temp_messages[test_temp_start:]
+                               if ack['topic'] == '/fmu/out/vehicle_command_ack')
+            assert _matches({
+                topic: sum(item['topic'] == topic for item in test_temp_messages)
+                for topic in expected_output_case['topic_counts']
+            }, expected_output_case['topic_counts'])
+            assert len(test_temp_records) == test_temp_record_index
+            test_temp_counts = json.loads((test_temp_sitl_run / 'test_temp_backend_calls.json').read_text())
+            assert test_temp_counts['state_reads'] >= 2 * len(test_input_case['steps'])
+            if not test_temp_execution_ids:
+                assert test_temp_counts['execute_calls'] == 0
+                assert not any(item['topic'] in test_temp_topics for item in test_temp_messages)
+            else:
+                assert {item['command']['execution_id'] for item in test_temp_events} == set(test_temp_execution_ids)
+            _save(test_temp_sitl_run / 'test_temp_result.json', {
+                'passed': True, 'backend_calls': test_temp_counts, 'state': state,
+                'command_count': sum(item['topic'] == '/fmu/in/vehicle_command'
+                                     for item in test_temp_messages),
+            })
     finally:
         _save(test_temp_sitl_run / 'test_temp_command_messages.json', test_temp_messages)
         node.destroy_node()
         rclpy.shutdown()
 
 
+def _matches(actual: dict[str, Any], expected_output_fields: dict[str, Any]) -> bool:
+    '''按字段路径比较精确值或闭区间；缺少字段时不满足条件。'''
+    for expected_output_path, expected_output_value in expected_output_fields.items():
+        found_value: Any = actual
+        for test_temp_key in expected_output_path.split('.'):
+            if not isinstance(found_value, dict) or test_temp_key not in found_value:
+                return False
+            found_value = found_value[test_temp_key]
+        if isinstance(expected_output_value, dict) and set(expected_output_value) == {'min', 'max'}:
+            if not isinstance(found_value, (int, float)) or isinstance(found_value, bool):
+                return False
+            if not expected_output_value['min'] <= found_value <= expected_output_value['max']:
+                return False
+        elif found_value != expected_output_value:
+            return False
+    return True
+
+
+@contextmanager
+def _px4_settings(test_temp_run: Path, test_input_settings: dict[str, Any]) -> Iterator[None]:
+    '''按场景临时设置 SITL 限速和心跳，保留独立读数，退出时恢复。'''
+    from flight_agent_ros.adapters.px4_parameter_adapter import Px4ParameterAdapter
+
+    px4_root = Path(os.environ.get('PX4_ROOT', str(Path.home() / 'PX4-Autopilot')))
+    px4_bin = px4_root / 'build/px4_sitl_default/bin'
+    px4_rootfs = px4_root / 'build/px4_sitl_default/rootfs'
+    speed_before = asyncio.run(Px4ParameterAdapter().read_validated_speed_limit(max_age_s=2.0))
+    try:
+        if 'heartbeat_hz' in test_input_settings:
+            subprocess.check_output(
+                [str(px4_bin / 'px4-mavlink'), 'stream', '-u', '14580', '-s',
+                 'HEARTBEAT', '-r', str(test_input_settings['heartbeat_hz'])], cwd=px4_rootfs,
+            )
+        if 'speed_limit_mps' in test_input_settings:
+            subprocess.check_output(
+                [str(px4_bin / 'px4-param'), 'set', 'MPC_XY_VEL_MAX',
+                 str(test_input_settings['speed_limit_mps'])], cwd=px4_rootfs,
+            )
+        speed_limit = asyncio.run(Px4ParameterAdapter().read_validated_speed_limit(max_age_s=2.0))
+        _save(test_temp_run / 'test_temp_px4_speed.json', {
+            'before': speed_before, 'MPC_XY_VEL_MAX': speed_limit,
+            'settings': test_input_settings,
+        })
+        if 'speed_limit_mps' in test_input_settings:
+            assert speed_limit == test_input_settings['speed_limit_mps']
+        yield
+    finally:
+        try:
+            if 'heartbeat_hz' in test_input_settings:
+                subprocess.check_output(
+                    [str(px4_bin / 'px4-mavlink'), 'stream', '-u', '14580',
+                     '-s', 'HEARTBEAT', '-r', '1'], cwd=px4_rootfs,
+                )
+        finally:
+            if 'speed_limit_mps' in test_input_settings:
+                subprocess.check_output(
+                    [str(px4_bin / 'px4-param'), 'set', 'MPC_XY_VEL_MAX', str(speed_before)],
+                    cwd=px4_rootfs,
+                )
+                restored_speed_limit = asyncio.run(Px4ParameterAdapter().read_validated_speed_limit(max_age_s=2.0))
+                _save(test_temp_run / 'test_temp_parameter_restore.json', {'MPC_XY_VEL_MAX': restored_speed_limit})
+                assert restored_speed_limit == speed_before
+
+
+def _subscribe_messages(
+    node: Node, test_temp_topics: dict[str, type],
+    test_temp_messages: list[dict[str, object]],
+) -> None:
+    '''按传入 Topic 和消息类型订阅，记录完整消息与接收时间。'''
+    from rclpy.qos import QoSProfile, ReliabilityPolicy
+    from rosidl_runtime_py.convert import message_to_ordereddict
+
+    qos = QoSProfile(depth=100, reliability=ReliabilityPolicy.BEST_EFFORT)
+    for topic, message_type in test_temp_topics.items():
+        node.create_subscription(
+            message_type, topic,
+            lambda msg, topic=topic: test_temp_messages.append({
+                'topic': topic, 'received_at': datetime.now(UTC).isoformat(),
+                'message': message_to_ordereddict(msg),
+            }), qos,
+        )
+
+
+def _wait_state(
+    node: Node, test_temp_run: Path,
+    test_temp_ready: Callable[[dict[str, Any]], bool], *, timeout_s: float = 100.0,
+) -> dict[str, Any]:
+    '''处理 ROS 回调，返回满足条件的最新状态，超时则使测试失败。'''
+    import rclpy
+
+    test_temp_deadline = monotonic() + timeout_s
+    while monotonic() < test_temp_deadline:
+        rclpy.spin_once(node, timeout_sec=0.1)
+        state = _latest_state(test_temp_run)
+        if test_temp_ready(state):
+            return state
+    pytest.fail(f'等待状态条件超时；日志：{test_temp_run}')
+
+
+def _spin_for(node: Node, duration_s: float) -> None:
+    '''在指定观察窗口内处理 ROS 消息。'''
+    import rclpy
+
+    test_temp_until = monotonic() + duration_s
+    while monotonic() < test_temp_until:
+        rclpy.spin_once(node, timeout_sec=0.1)
+
+
+def _call_action(
+    node: Node, test_temp_run: Path, *, test_input_service: str, test_input_arguments: dict[str, Any],
+    test_input_record_name: str, test_input_timeout_s: float,
+) -> tuple[bool, dict[str, Any], dict[str, Any]]:
+    '''按服务名和输入调用实际动作，保存请求、响应与状态，不预设成功或拒绝。'''
+    import rclpy
+    from rosllm_srvs.srv import AtomicAction
+
+    client = node.create_client(AtomicAction, test_input_service)
+    test_temp_prefix = f'test_temp_{test_input_record_name}_' if test_input_record_name else 'test_temp_'
+    try:
+        assert client.wait_for_service(timeout_sec=10.0), f'{test_input_service} 服务未就绪'
+        request = AtomicAction.Request(input=json.dumps(test_input_arguments), prev_output='')
+        _save(test_temp_run / f'{test_temp_prefix}request.json', {
+            'service': test_input_service, 'input': request.input, 'prev_output': request.prev_output,
+            'state': _latest_state(test_temp_run),
+        })
+        test_temp_started = monotonic()
+        future = client.call_async(request)
+        rclpy.spin_until_future_complete(node, future, timeout_sec=test_input_timeout_s)
+        assert future.done(), f'{test_input_service} ROS 请求超时'
+        response = future.result()
+        assert response is not None
+        output = json.loads(response.output)
+        state = _latest_state(test_temp_run)
+        _save(test_temp_run / f'{test_temp_prefix}response.json', {
+            'success': response.success, 'output': output, 'state': state,
+            'elapsed_s': monotonic() - test_temp_started,
+        })
+        return response.success, output, state
+    finally:
+        node.destroy_client(client)
+
+
 @pytest.fixture
-def test_temp_sitl_run() -> Iterator[Path]:
+def test_temp_sitl_run(
+    test_input_case: dict[str, Any], expected_output_case: dict[str, Any],
+) -> Iterator[Path]:
     '''启动实际仿真和 server，保留证据，并在用例失败时也清理本轮进程。'''
-    test_temp_run = ROOT / 'artifacts/m4-7e' / datetime.now(UTC).strftime('pytest-%Y%m%dT%H%M%S%fZ')
+    test_temp_run = (ROOT / 'artifacts' / test_input_case['milestone']
+                     / datetime.now(UTC).strftime('pytest-%Y%m%dT%H%M%S%fZ'))
     test_temp_run.mkdir(parents=True)
     safety_config = json.loads((ROOT / 'configs/flight_safety.example.json').read_text())
     safety_config.update(max_altitude_m=5.0, max_mission_radius_m=10.0)
     safety_config['geofence'].update(
         north_min_m=-10.0, north_max_m=10.0, east_min_m=-10.0, east_max_m=10.0
     )
+    safety_config.update(test_input_case.get('safety', {}))
     _save(test_temp_run / 'safety.json', safety_config)
     test_temp_env = os.environ.copy()
     test_temp_env.update(
@@ -171,7 +397,8 @@ def test_temp_sitl_run() -> Iterator[Path]:
             'python': sys.version,
             'ros_distro': test_temp_env.get('ROS_DISTRO'),
             'authorization': 'V1 controlled SITL assumes operator authorization',
-            'scenario': 'Takeoff 6m exceeds system limit 5m; rejection only',
+            'scenario': test_input_case['description'],
+            'case': {'test_input_case': test_input_case, 'expected_output_case': expected_output_case},
         },
     )
     print(f'\nSITL evidence: {test_temp_run}', flush=True)
@@ -256,6 +483,7 @@ def _server(test_temp_run: Path) -> None:
     from flight_agent_ros.adapters.flight_execution_backend import Px4Ros2FlightExecutionBackend
 
     test_temp_counts = {'state_reads': 0, 'execute_calls': 0}
+    test_temp_events: list[dict[str, object]] = []
     test_temp_sources = {
         'server_source': entry.__file__,
         'backend_source': sys.modules[Px4Ros2FlightExecutionBackend.__module__].__file__,
@@ -267,12 +495,28 @@ def _server(test_temp_run: Path) -> None:
 
     def test_temp_record_backend_call(frame: FrameType, event: str, arg: object) -> None:
         '''只记录目标函数调用，不改变执行结果。'''
-        if event == 'call' and frame.f_code in test_temp_codes:
-            test_temp_key = test_temp_codes[frame.f_code]
-            test_temp_counts[test_temp_key] += 1
+        if (event == 'return' and test_temp_codes.get(frame.f_code) == 'state_reads'
+                and test_temp_counts['state_reads'] % 2 == 0):
             _save(
                 test_temp_run / 'test_temp_backend_calls.json', test_temp_counts | test_temp_sources
             )
+        if event == 'call' and frame.f_code in test_temp_codes:
+            test_temp_key = test_temp_codes[frame.f_code]
+            test_temp_counts[test_temp_key] += 1
+            if test_temp_key == 'execute_calls':
+                _save(
+                    test_temp_run / 'test_temp_backend_calls.json', test_temp_counts | test_temp_sources
+                )
+                command = frame.f_locals['command'].model_dump(mode='json')
+                if not any(item['command'] == command for item in test_temp_events):
+                    test_temp_events.append({
+                        'command': command,
+                        'recorded_decisions': [json.loads(line)['decision']['decision_id']
+                                               for line in (test_temp_run / 'safety.jsonl')
+                                               .read_text().splitlines()
+                                               if json.loads(line)['type'] == 'safety_decision'],
+                    })
+                    _save(test_temp_run / 'test_temp_execution_entries.json', test_temp_events)
 
     _save(test_temp_run / 'test_temp_backend_calls.json', test_temp_counts | test_temp_sources)
     sys.argv = [

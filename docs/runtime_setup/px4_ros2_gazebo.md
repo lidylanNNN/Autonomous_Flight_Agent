@@ -141,7 +141,7 @@ UDP 8888 初始化 uXRCE-DDS Client。Timeout 退出是有意设计，用于避�
 
 ## 用 pytest 重复运行真实拒绝场景
 
-用例：`ros2_ws/src/flight_agent_ros/test/test_flight_sitl.py`。它直接启动真实 PX4/Gazebo 和 server，通过 ROS 请求起飞 6 米，并检查系统 5 米上限导致拒绝、真实后端未执行、三个命令 Topic 没有消息。没有替换后端或适配器。
+用例：`ros2_ws/src/flight_agent_ros/test/test_flight_sitl.py`。单一 `test_action_sitl` 使用 `pytest.mark.parametrize` 配置场景；7e 请求起飞 6 米并验证系统 5 米上限导致拒绝、后端零执行及三个命令 Topic 零派发，7f 请求起飞 3 米后降落。两组均启动真实 PX4/Gazebo 和实际 server，不替换后端或适配器。
 
 普通 pytest 默认排除 `sitl`。需要运行时，在仓库根目录执行：
 
@@ -152,6 +152,30 @@ export PYTHONPATH="$PWD/ros2_ws/src/flight_agent_ros:$PWD/src:$PWD/.venv/lib/pyt
 PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 /usr/bin/python3 -m pytest -q -s -m sitl ros2_ws/src/flight_agent_ros/test/test_flight_sitl.py
 ```
 
-测试会打印本轮 `artifacts/m4-7e/pytest-时间/` 路径，保存环境、代码及测试文件校验值、请求、响应、状态、安全决策、后端调用次数和命令记录。退出时清理本轮启动的进程，失败时也保留证据。运行前应停止其他 PX4 或同名服务，避免共享环境干扰；本用例只负责自己启动的进程。
+可追加 `-k 7e` 或 `-k 7f` 选择参数项。新增同类场景只需增加一对参数：`test_input_case` 保存输入配置，`expected_output_case` 保存预期结果；逐步对应 `test_input_step`、`expected_output_step`。配置中，`initial_state` 指定初始状态，`px4` 指定临时限速/心跳，输入侧 `steps` 指定服务、输入、等待条件和超时，预期侧 `steps` 指定预期响应/状态和命令，预期侧 `topic_counts` 指定 Topic 计数，`safety` 可覆盖本轮限制。字段条件支持精确值、点分路径及 `{min, max}` 闭区间；起降属于同一参数项的两步序列。
 
-当前 pytest 用例的测试辅助变量和自写记录文件使用 `test_temp_` 前缀，例如 `test_temp_messages`、`test_temp_backend_calls.json`、`test_temp_response.json` 和 `test_temp_server.log`；本轮输入配置为 `test_temp_safety.json`。真实 server、后端和 ROS 对象保持原名，正式 Trace 仍为 `world.jsonl` 与 `safety.jsonl`。前面列出的历史证据按其运行时版本保留原文件名。
+测试会打印本轮 `artifacts/m4-7e/pytest-时间/` 或 `artifacts/m4-7f/pytest-时间/` 路径，保存环境、代码及测试文件校验值、请求、响应、状态、安全决策、后端调用次数和命令记录。退出时清理本轮启动的进程，失败时也保留证据。运行前应停止其他 PX4 或同名服务，避免共享环境干扰；本用例只负责自己启动的进程。
+
+当前命名规则见 [AGENT.md](../../AGENT.md#测试覆盖与证据核对)。业务返回值保留 `success`，实际 server 加载的配置使用 `safety.json`，正式 Trace 为 `world.jsonl` 与 `safety.jsonl`；业务代码中不存在的对象及其记录文件，如 `test_temp_counts`、`test_temp_messages`、`test_temp_backend_calls.json`，使用 `test_temp_` 前缀。历史证据保持运行时文件名，不追溯改名。
+
+
+## M4 实际服务起降记录
+
+2026-11-05，基于 `22c1cd3`（v0.10.69）及本轮未提交测试改动，运行单一参数化 `test_action_sitl[7f-takeoff-land]`。环境仍为冻结 PX4 `54f0455`、ROS 2 Jazzy、Gazebo x500；各轮 manifest 保存实际版本、完整用例配置、工作树差异和测试文件校验值。
+
+本轮系统上限为高度 5 米、水平速度 8 m/s、半径 10 米，矩形围栏为 ±10 米且保留 2 米边距。首次完整起降将 PX4 `MPC_XY_VEL_MAX` 从 12 降为 8 m/s，结束回读确认恢复 12；最终参数化轮次开始时读到 8，运行及恢复回读均为 8。每轮均通过真实 MAVLink 独立读数，不把先前记录的 12 当作后续轮次现值。MAVLink Onboard 本地端口为 14580、远端为 14540，心跳临时由 1 Hz 提高至 10 Hz，退出时恢复 1 Hz，避免限速读取等待心跳消耗状态有效期；系统状态有效期仍为 1000 ms。
+
+生产调用范围为 `flight_atomic_action_server.main()` 装配的实际 ROS 服务、Gate、Supervisor、真实 Backend、PX4 命令适配器及 PX4/Gazebo。测试仅订阅命令/ACK、读取正式 Trace，并以 profile 观察真实后端；没有替身或直接后端调用。两次读取之间不写观察计数文件，第二次读取返回后才保存计数；进入执行函数时额外记录当时已落盘的决策 ID，不改变函数结果。
+
+证据索引：
+
+- 首次完整起降：`artifacts/m4-7f/pytest-20261105T122739279755Z/`。
+- 单一参数化函数最终验证：7e 为 `artifacts/m4-7e/pytest-20261105T124035868417Z/`，7f 为 `artifacts/m4-7f/pytest-20261105T124058175893Z/`。
+- 失败证据保留：`122545512673Z` 的起飞因 `STALE_STATE` 拒绝；`122700161402Z` 使用错误的心跳本地端口，尚未请求动作。参数化改造初跑的 7e `123851911790Z`、7f `123912176807Z` 均因 `STATE_ID_MISMATCH` 未满足预期且零执行；这反映两次状态读取可跨更新的时序风险，不计为通过。
+
+每轮 `test_temp_*request.json`、`test_temp_*response.json` 保存请求、输出、状态及耗时；`safety.jsonl` 关联提案、批准、执行 ID 和结果；`test_temp_execution_entries.json` 证明进入后端时决策已记录；`test_temp_command_messages.json` 保存完整命令与 ACK。最终轮 Takeoff 响应耗时 8.99 秒、NED z=-2.520 米且已解锁离地；Land 响应耗时 8.32 秒、NED z=0.060 米且已着陆上锁。`world.jsonl` 保留状态变化，退出状态、参数恢复和校验值分别由对应测试记录保存。后端 `execute_calls` 是 profile call 事件数，包含协程恢复；实际执行数量由去重的 execution ID 核对，本轮为 2 次。服务继续返回 `verification=INCONCLUSIVE`；这些证据只证明指定受控 SITL 的动作链，不代表真实 LLM、M6 独立验证、M7-S 或实机能力。
+
+
+### 2026-11-06 命名修正后复跑
+
+当前 `success`、`safety.json` 命名版本已完成真实复跑：7e 证据为 `artifacts/m4-7e/pytest-20261106T014309644519Z/`，7f 为 `artifacts/m4-7f/pytest-20261106T014332930290Z/`，pytest 为 `2 passed in 68.26s`。7e 命令数为 0，7f 为 3，最终均已着陆上锁；实际入口加载 `safety.json`。测试源码校验值与提交前版本一致，各轮文件校验值已复核，参数已恢复至本轮原值且无仿真进程残留。
