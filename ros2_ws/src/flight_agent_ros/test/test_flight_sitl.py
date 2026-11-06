@@ -138,12 +138,12 @@ def test_temp_sitl_run() -> Iterator[Path]:
     '''启动实际仿真和 server，保留证据，并在用例失败时也清理本轮进程。'''
     test_temp_run = ROOT / 'artifacts/m4-7e' / datetime.now(UTC).strftime('pytest-%Y%m%dT%H%M%S%fZ')
     test_temp_run.mkdir(parents=True)
-    test_temp_settings = json.loads((ROOT / 'configs/flight_safety.example.json').read_text())
-    test_temp_settings.update(max_altitude_m=5.0, max_mission_radius_m=10.0)
-    test_temp_settings['geofence'].update(
+    safety_config = json.loads((ROOT / 'configs/flight_safety.example.json').read_text())
+    safety_config.update(max_altitude_m=5.0, max_mission_radius_m=10.0)
+    safety_config['geofence'].update(
         north_min_m=-10.0, north_max_m=10.0, east_min_m=-10.0, east_max_m=10.0
     )
-    _save(test_temp_run / 'test_temp_safety.json', test_temp_settings)
+    _save(test_temp_run / 'safety.json', safety_config)
     test_temp_env = os.environ.copy()
     test_temp_env.update(
         FLIGHT_AGENT_TRACE_PATH=str(test_temp_run / 'world.jsonl'), GZ_PARTITION=test_temp_run.name
@@ -214,9 +214,9 @@ def test_temp_sitl_run() -> Iterator[Path]:
         )
 
 
-def _save(test_temp_path: Path, test_temp_value: object) -> None:
+def _save(test_temp_path: Path, value: object) -> None:
     '''保存可核对的运行证据。'''
-    test_temp_path.write_text(json.dumps(test_temp_value, indent=2) + '\n')
+    test_temp_path.write_text(json.dumps(value, indent=2) + '\n')
 
 
 def _latest_state(test_temp_run: Path) -> dict[str, object]:
@@ -278,7 +278,7 @@ def _server(test_temp_run: Path) -> None:
     sys.argv = [
         'flight_atomic_action_server',
         '--safety-json',
-        str(test_temp_run / 'test_temp_safety.json'),
+        str(test_temp_run / 'safety.json'),
         '--trace-path',
         str(test_temp_run / 'safety.jsonl'),
     ]
