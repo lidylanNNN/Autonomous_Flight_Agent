@@ -141,7 +141,7 @@ UDP 8888 初始化 uXRCE-DDS Client。Timeout 退出是有意设计，用于避�
 
 ## 用 pytest 重复运行真实拒绝场景
 
-用例：`ros2_ws/src/flight_agent_ros/test/test_flight_sitl.py`。单一 `test_action_sitl` 使用 `pytest.mark.parametrize` 配置场景；7e 请求起飞 6 米并验证系统 5 米上限导致拒绝、后端零执行及三个命令 Topic 零派发，7f 请求起飞 3 米后降落。两组均启动真实 PX4/Gazebo 和实际 server，不替换后端或适配器。
+用例：`ros2_ws/src/flight_agent_ros/test/test_flight_sitl.py`。单一 `test_action_sitl` 使用 `pytest.mark.parametrize` 配置场景；7e 请求起飞 6 米并验证系统 5 米上限导致拒绝、后端零执行及三个命令 Topic 零派发，7f 请求起飞 3 米后降落，7g-1 起飞后等待稳定、悬停 5 秒再降落。三组均启动真实 PX4/Gazebo 和实际 server，不替换后端或适配器。
 
 普通 pytest 默认排除 `sitl`。需要运行时，在仓库根目录执行：
 
@@ -152,9 +152,9 @@ export PYTHONPATH="$PWD/ros2_ws/src/flight_agent_ros:$PWD/src:$PWD/.venv/lib/pyt
 PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 /usr/bin/python3 -m pytest -q -s -m sitl ros2_ws/src/flight_agent_ros/test/test_flight_sitl.py
 ```
 
-可追加 `-k 7e` 或 `-k 7f` 选择参数项。新增同类场景只需增加一对参数：`test_input_case` 保存输入配置，`expected_output_case` 保存预期结果；逐步对应 `test_input_step`、`expected_output_step`。配置中，`initial_state` 指定初始状态，`px4` 指定临时限速/心跳，输入侧 `steps` 指定服务、输入、等待条件和超时，预期侧 `steps` 指定预期响应/状态和命令，预期侧 `topic_counts` 指定 Topic 计数，`safety` 可覆盖本轮限制。字段条件支持精确值、点分路径及 `{min, max}` 闭区间；起降属于同一参数项的两步序列。
+可追加 `-k 7e`、`-k 7f` 或 `-k 7g-1` 选择参数项。新增同类场景只需增加一对参数：`test_input_case` 保存输入配置，`expected_output_case` 保存预期结果；逐步对应 `test_input_step`、`expected_output_step`。配置中，`initial_state` 指定初始状态，`px4` 指定临时限速/心跳，输入侧 `steps` 指定服务、输入、等待条件和超时，预期侧 `steps` 指定预期响应/状态和命令，预期侧 `topic_counts` 指定 Topic 计数，`safety` 可覆盖本轮限制。字段条件支持精确值、点分路径及 `{min, max}` 闭区间；起降属于同一参数项的两步序列。
 
-测试会打印本轮 `artifacts/m4-7e/pytest-时间/` 或 `artifacts/m4-7f/pytest-时间/` 路径，保存环境、代码及测试文件校验值、请求、响应、状态、安全决策、后端调用次数和命令记录。退出时清理本轮启动的进程，失败时也保留证据。运行前应停止其他 PX4 或同名服务，避免共享环境干扰；本用例只负责自己启动的进程。
+测试会打印本轮 `artifacts/m4-7e/pytest-时间/`、`artifacts/m4-7f/pytest-时间/` 或 `artifacts/m4-7g-1/pytest-时间/` 路径，保存环境、代码及测试文件校验值、请求、响应、状态、安全决策、后端调用次数和命令记录。退出时清理本轮启动的进程，失败时也保留证据。运行前应停止其他 PX4 或同名服务，避免共享环境干扰；本用例只负责自己启动的进程。
 
 当前命名规则见 [AGENT.md](../../AGENT.md#测试覆盖与证据核对)。业务返回值保留 `success`，实际 server 加载的配置使用 `safety.json`，正式 Trace 为 `world.jsonl` 与 `safety.jsonl`；业务代码中不存在的对象及其记录文件，如 `test_temp_counts`、`test_temp_messages`、`test_temp_backend_calls.json`，使用 `test_temp_` 前缀。历史证据保持运行时文件名，不追溯改名。
 
@@ -179,3 +179,24 @@ PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 /usr/bin/python3 -m pytest -q -s -m sitl ros2_w
 ### 2026-11-06 命名修正后复跑
 
 当前 `success`、`safety.json` 命名版本已完成真实复跑：7e 证据为 `artifacts/m4-7e/pytest-20261106T014309644519Z/`，7f 为 `artifacts/m4-7f/pytest-20261106T014332930290Z/`，pytest 为 `2 passed in 68.26s`。7e 命令数为 0，7f 为 3，最终均已着陆上锁；实际入口加载 `safety.json`。测试源码校验值与提交前版本一致，各轮文件校验值已复核，参数已恢复至本轮原值且无仿真进程残留。
+
+
+## M4 实际服务悬停记录
+
+2026-11-06，代码 `50839df`（v0.10.71）加本批测试改动，在冻结 PX4 `54f0455`、ROS 2 Jazzy、Gazebo x500 上运行 `test_action_sitl[7g-1-takeoff-hold-land]`。最终证据为 `artifacts/m4-7g-1/pytest-20261106T083108497753Z/`，结果 `1 passed, 2 deselected in 52.54s`。manifest 保存实际生产模块版本、用例、工作树差异与测试源码校验值；模块加载路径由后端观察记录保存。
+
+场景从位置和 Home 有效、地面未解锁开始，经 `/takeoff` 请求 3 米。Hold 前等待 `AUTO_LOITER`、已解锁离地、高度 2.8～3.2 米、三个方向速度各在 ±0.1 m/s 内且综合状态年龄小于 200 ms，然后经 `/hold` 请求 `duration_s=5.0`，最后经 `/land` 落地上锁。系统限制及 PX4 限速/心跳处理复用[起降记录](#m4-实际服务起降记录)，本轮 `MPC_XY_VEL_MAX` 设置前、运行中及恢复后均独立回读为 8 m/s；退出时恢复 1 Hz 心跳。
+
+三个动作均为 `APPROVE`、`CHECKS_PASSED`、`SUCCEEDED`，提案、决策、执行 ID 与 Trace 一致；后端进入执行前对应决策已落盘。共观察到命令 `22`、`400`、`176`、`21` 及接受 ACK；Hold 的 `176` 参数为 `param1=1, param2=6`。实际状态读取 6 次，去重执行 ID 为 3 个；profile 的 execute call 事件包含协程恢复，不作为动作次数。
+
+Hold 目标 NED 为 `(0.073888, -0.035925, -2.881249)` 米，实际执行耗时 6.682 秒（包括 Offboard 准备），ROS 响应耗时保存于 `test_temp_hold_response.json`。本轮证据检查使用执行结束前的完整 5 秒窗口，水平及垂直误差各限 0.5 米，原始位置接收与源采样时间均严格递增、间隔各不超过 0.5 秒；独立收到 501 个位置采样，最大接收间隔 12.592 ms，最大水平误差 0.035674 米、垂直误差 0.028211 米。正式 WorldState Trace 中该窗口的记录均为 `OFFBOARD`、离地已解锁、无 failsafe 且位置新鲜；命令观察同时确认位置控制心跳与固定位置设定值。
+
+`test_temp_hold_evidence.json` 保存窗口、目标和误差汇总，`test_temp_command_messages.json` 保存客户端收到的原始位置、命令、心跳、设定值与 ACK；请求/响应及正式 Trace 沿用前述证据命名。所有文件校验值已复核，测试源码与运行 manifest 一致。最终已着陆上锁；本轮创建的 server、PX4/Gazebo 和 XRCE Agent 已退出。
+
+本批失败轮次保留在同一 `artifacts/m4-7g-1/` 下，不计通过：
+
+- `pytest-20261106T082516270052Z`：起飞因 `STALE_STATE` 拒绝，未派发飞行命令。
+- `pytest-20261106T082605929107Z`：Hold 执行成功，但证据检查错误使用综合状态年龄；一条年龄 1102 ms 的记录中位置仍新鲜，低频着陆状态过期。后续改为检查位置自身新鲜标志；生产 Gate 未变。
+- `pytest-20261106T082719758670Z`、`pytest-20261106T082910391763Z`：Hold 执行成功，但 server 的 WorldState Trace 出现 0.885 秒、0.731 秒采样间隔，未满足 0.5 秒证据要求。最终补充独立客户端对真实 `VehicleLocalPosition` 的订阅，保持原间隔上限检查位置，不以 server 的 Trace 定时器充当原始位置采样。以上三轮在检查失败后停止仿真，未执行后续 Land；不计完整场景通过。
+
+这些记录暴露了状态聚合与 Trace 调度的时序限制；原始位置证据不代表在途安全监测已经实现。通过范围仅为受控 SITL 下的实际动作服务链与采样位置验证；`verification` 仍为 `INCONCLUSIVE`，未运行 LLM/Agent 主循环，也未覆盖 GoTo、RTL、实机或采样间隔内的连续轨迹。复现使用上文 pytest 命令加 `-k 7g-1`。

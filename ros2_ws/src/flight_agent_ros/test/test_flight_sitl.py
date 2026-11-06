@@ -1,4 +1,4 @@
-'''通过实际 ROS 服务验证 PX4/Gazebo 拒绝与起降；显式使用 -m sitl 运行。'''
+'''通过实际 ROS 服务验证 PX4/Gazebo 拒绝、起降与定时悬停；显式使用 -m sitl 运行。'''
 
 from __future__ import annotations
 
@@ -13,6 +13,7 @@ import threading
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from datetime import UTC, datetime
+from itertools import pairwise
 from pathlib import Path
 from time import monotonic
 from types import FrameType
@@ -96,6 +97,51 @@ pytestmark = pytest.mark.sitl
                     'commands': [21]}]},
         id='7f-takeoff-land',
     ),
+    pytest.param(
+        {'milestone': 'm4-7g-1',
+         'description': 'Takeoff 3m, Hold 5s in stable air, then Land via actual services',
+         'px4': {'speed_limit_mps': 8.0, 'heartbeat_hz': 10},
+         'initial_state': {'position_valid': True, 'home_valid': True,
+                           'landed': True, 'armed': False},
+         'steps': [{'service': '/takeoff', 'input': {'target_altitude_m': 3.0},
+                    'timeout_s': 100.0, 'record_name': 'takeoff',
+                    'ready': {'state_age_ms': {'min': 0, 'max': 199}}},
+                   {'service': '/hold', 'input': {'duration_s': 5.0},
+                    'timeout_s': 40.0, 'record_name': 'hold',
+                    'ready': {'state_age_ms': {'min': 0, 'max': 199},
+                              'flight_mode': 'AUTO_LOITER', 'armed': True, 'landed': False,
+                              'position_ned_m.z': {'min': -3.2, 'max': -2.8},
+                              'velocity_ned_mps.x': {'min': -0.1, 'max': 0.1},
+                              'velocity_ned_mps.y': {'min': -0.1, 'max': 0.1},
+                              'velocity_ned_mps.z': {'min': -0.1, 'max': 0.1}}},
+                   {'service': '/land', 'input': {}, 'timeout_s': 100.0,
+                    'record_name': 'land',
+                    'ready': {'state_age_ms': {'min': 0, 'max': 199},
+                              'flight_mode': 'OFFBOARD'}}]},
+        {'topic_counts': {'/fmu/in/offboard_control_mode': {'min': 50, 'max': 300},
+                          '/fmu/in/trajectory_setpoint': {'min': 50, 'max': 300}},
+         'steps': [{'success': True, 'decision': 'APPROVE',
+                    'output': {'reason_codes': ['CHECKS_PASSED'], 'error_code': None,
+                               'execution_status': 'SUCCEEDED', 'failure_code': None,
+                               'verification': 'INCONCLUSIVE'},
+                    'state': {'armed': True, 'landed': False,
+                              'position_ned_m.z': {'min': -3.5, 'max': -2.5}},
+                    'commands': [22, 400]},
+                   {'success': True, 'decision': 'APPROVE',
+                    'output': {'reason_codes': ['CHECKS_PASSED'], 'error_code': None,
+                               'execution_status': 'SUCCEEDED', 'failure_code': None,
+                               'verification': 'INCONCLUSIVE'},
+                    'state': {'armed': True, 'landed': False, 'flight_mode': 'OFFBOARD'},
+                    'commands': [176],
+                    'hold_evidence': {'duration_s': 5.0, 'position_tolerance_m': 0.5,
+                                      'max_sample_gap_s': 0.5}},
+                   {'success': True, 'decision': 'APPROVE',
+                    'output': {'reason_codes': ['CHECKS_PASSED'], 'error_code': None,
+                               'execution_status': 'SUCCEEDED', 'failure_code': None,
+                               'verification': 'INCONCLUSIVE'},
+                    'state': {'armed': False, 'landed': True}, 'commands': [21]}]},
+        id='7g-1-takeoff-hold-land',
+    ),
 ])
 def test_action_sitl(
     test_input_case: dict[str, Any], expected_output_case: dict[str, Any], test_temp_sitl_run: Path,
@@ -107,6 +153,7 @@ def test_action_sitl(
         TrajectorySetpoint,
         VehicleCommand,
         VehicleCommandAck,
+        VehicleLocalPosition,
     )
 
     test_temp_messages: list[dict[str, Any]] = []
@@ -121,6 +168,7 @@ def test_action_sitl(
         _subscribe_messages(node, {
             **{topic: item[0] for topic, item in test_temp_topics.items()},
             '/fmu/out/vehicle_command_ack': VehicleCommandAck,
+            '/fmu/out/vehicle_local_position': VehicleLocalPosition,
         }, test_temp_messages)
         state = _wait_state(node, test_temp_sitl_run,
                             lambda state: _matches(state, test_input_case['initial_state']))
@@ -180,6 +228,11 @@ def test_action_sitl(
                     assert decision['decision_id'] in test_temp_event['recorded_decisions']
                     test_temp_execution_ids.append(command['execution_id'])
                     test_temp_record_index += 1
+                if 'hold_evidence' in expected_output_step:
+                    _check_hold_evidence(
+                        test_temp_sitl_run, test_temp_result_record,
+                        test_temp_messages[test_temp_start:], expected_output_step['hold_evidence'],
+                    )
                 test_temp_commands = [item for item in test_temp_messages[test_temp_start:]
                                       if item['topic'] == '/fmu/in/vehicle_command']
                 assert [item['message']['command'] for item in test_temp_commands] == expected_output_step['commands']
@@ -211,6 +264,86 @@ def test_action_sitl(
         _save(test_temp_sitl_run / 'test_temp_command_messages.json', test_temp_messages)
         node.destroy_node()
         rclpy.shutdown()
+
+
+def _check_hold_evidence(
+    test_temp_run: Path, test_temp_result_record: dict[str, Any],
+    test_temp_messages: list[dict[str, Any]], expected_output_hold: dict[str, float],
+) -> None:
+    '''从真实位置 Trace 与发送记录核对最后一个完整 Hold 窗口，不以响应成功代替。'''
+    from math import hypot
+
+    result = test_temp_result_record['result']
+    test_temp_begin = datetime.fromisoformat(result['started_at']).timestamp()
+    test_temp_end = datetime.fromisoformat(result['ended_at']).timestamp()
+    expected_output_duration = expected_output_hold['duration_s']
+    expected_output_gap = expected_output_hold['max_sample_gap_s']
+    assert test_temp_end - test_temp_begin >= expected_output_duration
+    test_temp_setpoints = [item for item in test_temp_messages
+                           if item['topic'] == '/fmu/in/trajectory_setpoint'
+                           and test_temp_begin <= datetime.fromisoformat(item['received_at'])
+                           .timestamp() <= test_temp_end]
+    assert test_temp_setpoints
+    test_temp_heartbeats = [item for item in test_temp_messages
+                            if item['topic'] == '/fmu/in/offboard_control_mode'
+                            and test_temp_begin <= datetime.fromisoformat(item['received_at'])
+                            .timestamp() <= test_temp_end]
+    assert test_temp_heartbeats and all(
+        item['message']['position'] for item in test_temp_heartbeats
+    )
+    test_temp_target = test_temp_setpoints[0]['message']['position']
+    assert all(item['message']['position'] == test_temp_target for item in test_temp_setpoints)
+    test_temp_window = test_temp_end - expected_output_duration
+    test_temp_states = [json.loads(line) for line in
+                        (test_temp_run / 'world.jsonl').read_text().splitlines()]
+    test_temp_states = [item for item in test_temp_states
+                        if test_temp_window <= datetime.fromisoformat(
+                            item['recorded_at']).timestamp() <= test_temp_end]
+    assert test_temp_states
+    for item in test_temp_states:
+        assert _matches(item['state'], {
+            'armed': True, 'landed': False, 'position_valid': True,
+            'flight_mode': 'OFFBOARD', 'failsafe_active': False,
+            'health_flags.local_position_fresh': True,
+        }), item
+    # 原始位置在独立客户端接收，避免把 server 的 Trace 定时器间隔当成位置采样间隔。
+    test_temp_samples = [item for item in test_temp_messages
+                         if item['topic'] == '/fmu/out/vehicle_local_position'
+                         and test_temp_window - expected_output_gap <= datetime.fromisoformat(
+                             item['received_at']).timestamp() <= test_temp_end]
+    test_temp_times = [datetime.fromisoformat(item['received_at']).timestamp()
+                       for item in test_temp_samples]
+    test_temp_left = [i for i, value in enumerate(test_temp_times) if value <= test_temp_window]
+    assert test_temp_left, 'Hold 窗口缺少起点位置'
+    test_temp_samples = test_temp_samples[test_temp_left[-1]:]
+    test_temp_times = test_temp_times[test_temp_left[-1]:]
+    assert test_temp_end - test_temp_times[-1] <= expected_output_gap
+    assert all(0 < after - before <= expected_output_gap
+               for before, after in pairwise(test_temp_times))
+    test_temp_horizontal_errors, test_temp_vertical_errors = [], []
+    test_temp_source_times = []
+    for item in test_temp_samples:
+        position = item['message']
+        assert position['xy_valid'] and position['z_valid'], position
+        test_temp_source_times.append(position['timestamp_sample'])
+        test_temp_horizontal_errors.append(hypot(position['x'] - test_temp_target[0],
+                                                  position['y'] - test_temp_target[1]))
+        test_temp_vertical_errors.append(abs(position['z'] - test_temp_target[2]))
+    assert all(0 < after - before <= expected_output_gap * 1_000_000
+               for before, after in pairwise(test_temp_source_times))
+    _save(test_temp_run / 'test_temp_hold_evidence.json', {
+        'execution_id': result['execution_id'], 'target_ned_m': test_temp_target,
+        'execution_elapsed_s': test_temp_end - test_temp_begin,
+        'window_duration_s': expected_output_duration, 'sample_count': len(test_temp_samples),
+        'first_sample_at': test_temp_samples[0]['received_at'],
+        'last_sample_at': test_temp_samples[-1]['received_at'],
+        'max_sample_gap_s': max(after - before for before, after in
+                                pairwise(test_temp_times)),
+        'max_horizontal_error_m': max(test_temp_horizontal_errors),
+        'max_vertical_error_m': max(test_temp_vertical_errors),
+    })
+    assert max(test_temp_horizontal_errors) <= expected_output_hold['position_tolerance_m']
+    assert max(test_temp_vertical_errors) <= expected_output_hold['position_tolerance_m']
 
 
 def _matches(actual: dict[str, Any], expected_output_fields: dict[str, Any]) -> bool:
