@@ -30,7 +30,6 @@ class SafetyDecisionType(StrEnum):
 
     APPROVE = 'APPROVE'
     REJECT = 'REJECT'
-    HUMAN_APPROVAL = 'HUMAN_APPROVAL'
 
 
 class SafetyReasonCode(StrEnum):
@@ -52,9 +51,6 @@ class SafetyReasonCode(StrEnum):
     INSUFFICIENT_BATTERY = 'INSUFFICIENT_BATTERY'
     SYSTEM_UNHEALTHY = 'SYSTEM_UNHEALTHY'
     HOME_REFERENCE_UNAVAILABLE = 'HOME_REFERENCE_UNAVAILABLE'
-    HUMAN_APPROVAL_REQUIRED = 'HUMAN_APPROVAL_REQUIRED'
-    HUMAN_APPROVAL_REJECTED = 'HUMAN_APPROVAL_REJECTED'
-    HUMAN_APPROVAL_TIMEOUT = 'HUMAN_APPROVAL_TIMEOUT'
 
 
 class SafetyDecision(_StrictFrozenModel):
@@ -69,7 +65,7 @@ class SafetyDecision(_StrictFrozenModel):
 
     @model_validator(mode='after')
     def reasons_match_decision(self) -> SafetyDecision:
-        '''限制三类Decision可携带的Reason Code组合。'''
+        '''限制批准与拒绝决策可携带的原因码组合。'''
 
         reasons = set(self.reason_codes)
         if len(reasons) != len(self.reason_codes):
@@ -77,12 +73,6 @@ class SafetyDecision(_StrictFrozenModel):
         if self.decision is SafetyDecisionType.APPROVE:
             if self.reason_codes != (SafetyReasonCode.CHECKS_PASSED,):
                 raise ValueError('APPROVE requires only CHECKS_PASSED')
-        elif self.decision is SafetyDecisionType.HUMAN_APPROVAL:
-            if self.reason_codes != (SafetyReasonCode.HUMAN_APPROVAL_REQUIRED,):
-                raise ValueError('HUMAN_APPROVAL requires only HUMAN_APPROVAL_REQUIRED')
-        elif reasons & {
-            SafetyReasonCode.CHECKS_PASSED,
-            SafetyReasonCode.HUMAN_APPROVAL_REQUIRED,
-        }:
+        elif SafetyReasonCode.CHECKS_PASSED in reasons:
             raise ValueError('REJECT requires rejection reason codes')
         return self

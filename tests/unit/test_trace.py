@@ -310,3 +310,28 @@ def test_record_write_failure_propagates(tmp_path: Path) -> None:
     recorder = TraceRecorder(tmp_path)
     with pytest.raises(OSError):
         recorder.record_llm_response(prompt='', success=False, response='', info='unavailable')
+
+
+@pytest.mark.parametrize(('test_input_decision', 'test_input_reason'), [
+    ('HUMAN_APPROVAL', 'HUMAN_APPROVAL_REQUIRED'),
+    ('REJECT', 'HUMAN_APPROVAL_REQUIRED'),
+    ('REJECT', 'HUMAN_APPROVAL_REJECTED'),
+    ('REJECT', 'HUMAN_APPROVAL_TIMEOUT'),
+])
+def test_trace_replay_rejects_legacy_approval_values(
+    tmp_path: Path, test_input_decision: str, test_input_reason: str,
+) -> None:
+    '''旧审批 Trace 必须明确报错并保留文件行号，不转换为当前决策。'''
+    test_input_record = {
+        'recorded_at': datetime.now(UTC).isoformat(), 'type': 'safety_decision',
+        'proposal': {'proposal_id': 'proposal-1', 'skill_name': 'hold',
+                     'arguments': {'duration_s': 1.0}, 'based_on_state_id': 'state-1'},
+        'decision': {'decision_id': 'decision-1', 'proposal_id': 'proposal-1',
+                     'decision': test_input_decision, 'reason_codes': [test_input_reason],
+                     'checked_state_id': 'state-1', 'policy_version': 'm4-policy-v1'},
+    }
+    test_temp_path = tmp_path / 'test_temp_legacy_approval.jsonl'
+    test_temp_path.write_text(json.dumps(test_input_record) + '\n', encoding='utf-8')
+    with pytest.raises(TraceReplayError, match=':1: invalid safety decision record') as test_temp_error:
+        tuple(TraceReplay(test_temp_path).iter_safety_decision_records())
+    assert str(test_temp_path) in str(test_temp_error.value)

@@ -53,7 +53,7 @@ V1 目标：取得初始观察后等待人工输入。`RosAgent` 根据观察和
 | 验证与恢复 | 飞行动作服务响应中的 `verification` | 固定为 `INCONCLUSIVE`；旧任务验证与恢复占位已删除，没有任务成功判定、重新规划或安全收尾实现 |
 | Trace | `TraceRecorder`、`TraceReplay` | 已接入 WorldState、安全决策、观察、LLM 响应及 Gate 动作结果/异常记录，并通过替身主链审计，详见 [MX-5 审计](plans/MX-5-audit.md)；完整 Episode 因果链尚未完成 |
 | 测评数据 | `agent_benchmark_sets/`、schema 与 validation scripts | Dev 用例存在；Validation/Frozen Test 目前只是预留 manifest，不得报告冻结测评指标 |
-| 旧审批原型 | `human_approval` 模型、组件、Mock 和测试 | 尚存仓库，但不是当前自主执行链，不等于任务级人工确认产品功能 |
+| 旧审批原型 | 模型、协议、组件、Mock、公共导出和专属测试已删除 | 旧审批决策枚举与原因码也已移除；见 [删除记录](plans/M4.md#8b-18b-2-删除范围与影响)与 [契约收敛](plans/M4.md#8b-3-契约收敛) |
 
 ### 2.1 文件处置决定（分批实施）
 
@@ -67,7 +67,7 @@ V1 目标：取得初始观察后等待人工输入。`RosAgent` 根据观察和
 | `components/vehicle/state/`、`Px4WorldStateAdapter` | **保留并接入观察层** | 新建统一观察入口；行为执行后再次读取 |
 | `components/safety/`、`safety_model.py`、PX4 Backend/adapters | **保留并复用** | 飞行原子动作经 Gate 调用 Supervisor；只有批准命令才交给 Backend。逐边数据见第 4 节 |
 | `components/tracing/`、`agent_benchmark_sets/`、`eval_harness/` | **保留并扩展** | 提供审计与测评，不参与任务决策 |
-| 旧 `human_approval` 组件、模型、协议、Mock、公共导出及专属测试 | **删除** | 逐 Proposal 审批不在 V1；历史由 Git 保存，未来产品审批另行设计 |
+| 旧 `human_approval` 组件、模型、协议、Mock、公共导出及专属测试 | **已删除** | [M4-8b-1/2](plans/M4.md#8b-18b-2-删除范围与影响) 已移除未接入的原型；旧决策枚举与原因码已按 [8b-3](plans/M4.md#8b-3-契约收敛) 清理，未来产品审批另行设计 |
 | 旧设计中的通用 `PreToolUse`/`PostToolUse`/`OnToolError`/`Stop` Hooks 与第二套 Tool Invocation 工作流 | **从目标架构删除** | 当前无对应生产模块；记录与超时由 Behavior Executor 或飞行原子动作处理，不新增第二套任务调度。V1 暂不实现取消协议 |
 
 `configs/safety.yaml` 仍是未生效的预留配置。MX-4 另建安全 JSON，由 `--safety-json` 加载系统 `MissionConstraints`；两者不能混作已生效来源。表中未完成项仍按实施条件分批迁移。

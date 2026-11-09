@@ -1,10 +1,5 @@
 '''Typed contracts shared by Agent components.'''
 
-from flight_agent.contracts.models.human_approval_model import (
-    HumanApprovalRequest,
-    HumanApprovalResult,
-    HumanApprovalStatus,
-)
 from flight_agent.contracts.models.mission_model import (
     MissionConstraints,
     NedGeofence,
@@ -46,7 +41,6 @@ from flight_agent.contracts.protocols.controller_speed_limit_protocol import (
 from flight_agent.contracts.protocols.flight_execution_protocol import (
     FlightExecutionBackendProtocol,
 )
-from flight_agent.contracts.protocols.human_approval_protocol import HumanApprovalProtocol
 from flight_agent.contracts.px4_parameter_error import Px4ParameterReadError
 
 __all__ = [
@@ -59,10 +53,6 @@ __all__ = [
     'GlobalPosition',
     'GoToArgs',
     'HoldArgs',
-    'HumanApprovalProtocol',
-    'HumanApprovalRequest',
-    'HumanApprovalResult',
-    'HumanApprovalStatus',
     'LandArgs',
     'MissionConstraints',
     'NedGeofence',

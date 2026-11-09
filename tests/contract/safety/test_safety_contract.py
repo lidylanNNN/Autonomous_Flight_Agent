@@ -122,17 +122,13 @@ def test_skill_proposal_preserves_unapproved_content_for_safety_review() -> None
                 SafetyReasonCode.AUTHORITY_NOT_GRANTED,
             ),
         ),
-        (
-            SafetyDecisionType.HUMAN_APPROVAL,
-            (SafetyReasonCode.HUMAN_APPROVAL_REQUIRED,),
-        ),
     ],
 )
 def test_safety_decision_accepts_only_matching_reason_families(
     decision: SafetyDecisionType,
     reason_codes: tuple[SafetyReasonCode, ...],
 ) -> None:
-    '''验证三类Safety Decision各自接受合法原因码组合。'''
+    '''验证批准与拒绝各自接受合法原因码组合。'''
 
     assert make_decision(decision, reason_codes).reason_codes == reason_codes
 
@@ -142,10 +138,6 @@ def test_safety_decision_accepts_only_matching_reason_families(
     [
         (SafetyDecisionType.APPROVE, (SafetyReasonCode.STALE_STATE,)),
         (SafetyDecisionType.REJECT, (SafetyReasonCode.CHECKS_PASSED,)),
-        (
-            SafetyDecisionType.HUMAN_APPROVAL,
-            (SafetyReasonCode.HUMAN_APPROVAL_TIMEOUT,),
-        ),
         (
             SafetyDecisionType.REJECT,
             (SafetyReasonCode.STALE_STATE, SafetyReasonCode.STALE_STATE),
@@ -172,3 +164,21 @@ def test_reason_codes_match_existing_agent_benchmark_cases() -> None:
         'WAYPOINT_OUTSIDE_GEOFENCE'
     )
     assert SafetyReasonCode.AUTHORITY_NOT_GRANTED.value == 'AUTHORITY_NOT_GRANTED'
+
+
+@pytest.mark.parametrize(('test_input_decision', 'test_input_reason'), [
+    ('HUMAN_APPROVAL', 'HUMAN_APPROVAL_REQUIRED'),
+    ('REJECT', 'HUMAN_APPROVAL_REQUIRED'),
+    ('REJECT', 'HUMAN_APPROVAL_REJECTED'),
+    ('REJECT', 'HUMAN_APPROVAL_TIMEOUT'),
+])
+def test_safety_decision_rejects_legacy_approval_values(
+    test_input_decision: str, test_input_reason: str,
+) -> None:
+    '''旧审批决策和原因码不得从 JSON 重新进入 V1 契约。'''
+    test_input_payload = make_decision(
+        SafetyDecisionType.REJECT, (SafetyReasonCode.STALE_STATE,),
+    ).model_dump(mode='json')
+    test_input_payload.update(decision=test_input_decision, reason_codes=[test_input_reason])
+    with pytest.raises(ValidationError, match='Input should be'):
+        SafetyDecision.model_validate(test_input_payload)

@@ -72,14 +72,14 @@ Proposal 顶层结构仍然是严格的：额外字段、空 `proposal_id` 与�
 
 ## Safety Decision
 
-V1 目标仲裁结果只有两类：
+V1 当前仲裁结果只有两类：
 
 - `APPROVE`：所有确定性检查通过，只能携带 `CHECKS_PASSED`；
 - `REJECT`：至少携带一个拒绝原因码。
 
 Supervisor 只返回决策。Gate 成功写入决策 Trace 后，仅对 `APPROVE` 分配新的 `execution_id`，并从本次检查的提案快照创建绑定 `decision_id` 的 `ApprovedSkillCommand`，再调用 Backend。拒绝和 Trace 写入失败不分配执行 ID、不派发；调用方不得预分配执行 ID。
 
-X1 已移除按 Skill 名触发的 Proposal 级审批分支；当前代码仍有 `HUMAN_APPROVAL` 枚举与原因码，尚未完全迁移到上述 V1 目标契约。如出现该决策，Episode 按流程错误处理，不计自主成功。
+旧 `HUMAN_APPROVAL` 决策及 `HUMAN_APPROVAL_REQUIRED/REJECTED/TIMEOUT` 原因码已移除；包含这些旧值的 JSON 与 Trace 将校验失败，TraceReplay 保留文件及行号错误，不自动转换为当前决策。现行测评数据未引用这些旧值；历史记录保持原样，需要使用对应历史版本读取。
 
 ## 已实现检查
 
@@ -152,7 +152,7 @@ GoTo 生效，以 `WorldState.home_position_ned_m` 为圆心计算目标的水�
 
 ROS 侧 main 已按 [SPEC 的 V1 约定](../SPEC_DEV.md#5-安全不变量)设置默认权限；启动设置验证见 [7c 记录](../plans/M4.md#7c-实施记录)。Takeoff/Land 的真实批准执行与 PX4/Gazebo 起降已通过，证据与范围见 [7f 记录](../plans/M4.md#7f-实施记录)。M3 调试入口直连 Backend，不属于受控服务链；不能声明仓库所有路径均经过 Gate。后续实施与验证见 [M4 计划](../plans/M4.md)。
 
-原 M4-6 Proposal 级审批协议、状态机和 Mock 仍在仓库，但不属于 M1–M8 设计或 V1 目标契约。X1 已移除 `human_approval_skills` 与 Supervisor 分支；相关原因码、决策枚举及原型公共导出仍待后续批次迁移。测评后的产品阶段需重新定义 Plan 级审批。
+原 M4-6 Proposal 级审批模型、协议、状态机、Mock、公共导出和专属测试已按 [M4-8b-1/2](../plans/M4.md#8b-18b-2-删除范围与影响) 删除。旧审批原因码、决策枚举及三态 SafetyDecision 校验已按 [8b-3 记录](../plans/M4.md#8b-3-契约收敛) 清理。测评后的产品阶段需重新定义 Plan 级审批。
 
 后续版本待优化：PX4 `HomePosition` 按变更发布，M4 只依据已接收的 Home
 有效标志与位置引用进行检查，不主动回读 PX4 当前 Home；缓存值与飞控当前值
