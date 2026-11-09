@@ -1,4 +1,4 @@
-'''通过实际 ROS 服务验证 PX4/Gazebo 拒绝、起降与定时悬停；显式使用 -m sitl 运行。'''
+'''通过实际 ROS 服务验证 PX4/Gazebo 拒绝、起降、定时悬停与局部坐标移动；显式使用 -m sitl 运行。'''
 
 from __future__ import annotations
 
@@ -142,6 +142,55 @@ pytestmark = pytest.mark.sitl
                     'state': {'armed': False, 'landed': True}, 'commands': [21]}]},
         id='7g-1-takeoff-hold-land',
     ),
+    pytest.param(
+        {'milestone': 'm4-7g-2',
+         'description': 'Takeoff 3m, GoTo N3 E2 altitude 3m, then Land via actual services',
+         'px4': {'speed_limit_mps': 8.0, 'heartbeat_hz': 10},
+         'initial_state': {'position_valid': True, 'home_valid': True,
+                           'landed': True, 'armed': False},
+         'steps': [{'service': '/takeoff', 'input': {'target_altitude_m': 3.0},
+                    'timeout_s': 100.0, 'record_name': 'takeoff',
+                    'ready': {'state_age_ms': {'min': 0, 'max': 199}}},
+                   {'service': '/goto',
+                    'input': {'north_m': 3.0, 'east_m': 2.0, 'altitude_m': 3.0,
+                              'acceptance_radius_m': 0.5},
+                    'timeout_s': 40.0, 'record_name': 'goto',
+                    'ready': {'state_age_ms': {'min': 0, 'max': 199},
+                              'flight_mode': 'AUTO_LOITER', 'armed': True, 'landed': False,
+                              'position_ned_m.z': {'min': -3.2, 'max': -2.8},
+                              'velocity_ned_mps.x': {'min': -0.1, 'max': 0.1},
+                              'velocity_ned_mps.y': {'min': -0.1, 'max': 0.1},
+                              'velocity_ned_mps.z': {'min': -0.1, 'max': 0.1}}},
+                   {'service': '/land', 'input': {}, 'timeout_s': 100.0,
+                    'record_name': 'land',
+                    'ready': {'state_age_ms': {'min': 0, 'max': 199},
+                              'flight_mode': 'OFFBOARD'}}]},
+        {'topic_counts': {'/fmu/in/offboard_control_mode': {'min': 20, 'max': 600},
+                          '/fmu/in/trajectory_setpoint': {'min': 20, 'max': 600}},
+         'steps': [{'success': True, 'decision': 'APPROVE',
+                    'output': {'reason_codes': ['CHECKS_PASSED'], 'error_code': None,
+                               'execution_status': 'SUCCEEDED', 'failure_code': None,
+                               'verification': 'INCONCLUSIVE'},
+                    'state': {'armed': True, 'landed': False,
+                              'position_ned_m.z': {'min': -3.5, 'max': -2.5}},
+                    'commands': [22, 400]},
+                   {'success': True, 'decision': 'APPROVE',
+                    'output': {'reason_codes': ['CHECKS_PASSED'], 'error_code': None,
+                               'execution_status': 'SUCCEEDED', 'failure_code': None,
+                               'verification': 'INCONCLUSIVE'},
+                    'state': {'armed': True, 'landed': False, 'flight_mode': 'OFFBOARD'},
+                    'commands': [176],
+                    'goto_evidence': {'target_ned_m': [3.0, 2.0, -3.0],
+                                      'horizontal_tolerance_m': 0.5,
+                                      'vertical_tolerance_m': 0.5,
+                                      'min_displacement_m': 2.5, 'max_sample_gap_s': 0.5}},
+                   {'success': True, 'decision': 'APPROVE',
+                    'output': {'reason_codes': ['CHECKS_PASSED'], 'error_code': None,
+                               'execution_status': 'SUCCEEDED', 'failure_code': None,
+                               'verification': 'INCONCLUSIVE'},
+                    'state': {'armed': False, 'landed': True}, 'commands': [21]}]},
+        id='7g-2-takeoff-goto-land',
+    ),
 ])
 def test_action_sitl(
     test_input_case: dict[str, Any], expected_output_case: dict[str, Any], test_temp_sitl_run: Path,
@@ -232,6 +281,11 @@ def test_action_sitl(
                     _check_hold_evidence(
                         test_temp_sitl_run, test_temp_result_record,
                         test_temp_messages[test_temp_start:], expected_output_step['hold_evidence'],
+                    )
+                if 'goto_evidence' in expected_output_step:
+                    _check_goto_evidence(
+                        test_temp_sitl_run, test_temp_result_record,
+                        test_temp_messages[test_temp_start:], expected_output_step['goto_evidence'],
                     )
                 test_temp_commands = [item for item in test_temp_messages[test_temp_start:]
                                       if item['topic'] == '/fmu/in/vehicle_command']
@@ -344,6 +398,67 @@ def _check_hold_evidence(
     })
     assert max(test_temp_horizontal_errors) <= expected_output_hold['position_tolerance_m']
     assert max(test_temp_vertical_errors) <= expected_output_hold['position_tolerance_m']
+
+
+
+def _check_goto_evidence(
+    test_temp_run: Path, test_temp_result_record: dict[str, Any],
+    test_temp_messages: list[dict[str, Any]], expected_output_goto: dict[str, Any],
+) -> None:
+    '''核对 GoTo 的目标映射、独立位置采样、实际位移及执行结束时的终点误差。'''
+    from math import hypot
+
+    result = test_temp_result_record['result']
+    test_temp_begin = datetime.fromisoformat(result['started_at']).timestamp()
+    test_temp_end = datetime.fromisoformat(result['ended_at']).timestamp()
+    expected_output_target = expected_output_goto['target_ned_m']
+    expected_output_gap = expected_output_goto['max_sample_gap_s']
+    test_temp_setpoints = [item for item in test_temp_messages
+                           if item['topic'] == '/fmu/in/trajectory_setpoint'
+                           and test_temp_begin <= datetime.fromisoformat(
+                               item['received_at']).timestamp() <= test_temp_end]
+    assert test_temp_setpoints
+    assert all(item['message']['position'] == expected_output_target
+               for item in test_temp_setpoints)
+    test_temp_samples = [item for item in test_temp_messages
+                         if item['topic'] == '/fmu/out/vehicle_local_position'
+                         and test_temp_begin <= datetime.fromisoformat(
+                             item['received_at']).timestamp() <= test_temp_end]
+    assert len(test_temp_samples) >= 2
+    test_temp_times = [datetime.fromisoformat(item['received_at']).timestamp()
+                       for item in test_temp_samples]
+    assert test_temp_times[0] - test_temp_begin <= expected_output_gap
+    assert test_temp_end - test_temp_times[-1] <= expected_output_gap
+    assert all(0 < after - before <= expected_output_gap
+               for before, after in pairwise(test_temp_times))
+    test_temp_source_times = [item['message']['timestamp_sample'] for item in test_temp_samples]
+    assert all(0 < after - before <= expected_output_gap * 1_000_000
+               for before, after in pairwise(test_temp_source_times))
+    assert all(item['message']['xy_valid'] and item['message']['z_valid']
+               for item in test_temp_samples)
+    test_temp_first = test_temp_samples[0]['message']
+    test_temp_last = test_temp_samples[-1]['message']
+    test_temp_displacement = hypot(test_temp_last['x'] - test_temp_first['x'],
+                                   test_temp_last['y'] - test_temp_first['y'])
+    test_temp_horizontal_error = hypot(test_temp_last['x'] - expected_output_target[0],
+                                       test_temp_last['y'] - expected_output_target[1])
+    test_temp_vertical_error = abs(test_temp_last['z'] - expected_output_target[2])
+    _save(test_temp_run / 'test_temp_goto_evidence.json', {
+        'execution_id': result['execution_id'], 'target_ned_m': expected_output_target,
+        'execution_elapsed_s': test_temp_end - test_temp_begin,
+        'sample_count': len(test_temp_samples),
+        'first_sample_at': test_temp_samples[0]['received_at'],
+        'last_sample_at': test_temp_samples[-1]['received_at'],
+        'start_ned_m': [test_temp_first[key] for key in ('x', 'y', 'z')],
+        'end_ned_m': [test_temp_last[key] for key in ('x', 'y', 'z')],
+        'horizontal_displacement_m': test_temp_displacement,
+        'horizontal_error_m': test_temp_horizontal_error,
+        'vertical_error_m': test_temp_vertical_error,
+        'max_sample_gap_s': max(after - before for before, after in pairwise(test_temp_times)),
+    })
+    assert test_temp_displacement >= expected_output_goto['min_displacement_m']
+    assert test_temp_horizontal_error <= expected_output_goto['horizontal_tolerance_m']
+    assert test_temp_vertical_error <= expected_output_goto['vertical_tolerance_m']
 
 
 def _matches(actual: dict[str, Any], expected_output_fields: dict[str, Any]) -> bool:
