@@ -141,7 +141,7 @@ UDP 8888 初始化 uXRCE-DDS Client。Timeout 退出是有意设计，用于避�
 
 ## 用 pytest 重复运行真实拒绝场景
 
-用例：`ros2_ws/src/flight_agent_ros/test/test_flight_sitl.py`。单一 `test_action_sitl` 使用 `pytest.mark.parametrize` 配置场景；7e 请求起飞 6 米并验证系统 5 米上限导致拒绝、后端零执行及三个命令 Topic 零派发，7f 请求起飞 3 米后降落，7g-1 起飞后等待稳定、悬停 5 秒再降落。7g-2 起飞后移动到北 3 米、东 2 米、高 3 米再降落。四组均启动真实 PX4/Gazebo 和实际 server，不替换后端或适配器。
+用例：`ros2_ws/src/flight_agent_ros/test/test_flight_sitl.py`。单一 `test_action_sitl` 使用 `pytest.mark.parametrize` 配置场景；7e 请求起飞 6 米并验证系统 5 米上限导致拒绝、后端零执行及三个命令 Topic 零派发，7f 请求起飞 3 米后降落，7g-1 起飞后等待稳定、悬停 5 秒再降落。7g-2 起飞后移动到北 3 米、东 2 米、高 3 米再降落。7g-3 起飞、GoTo 到异地后经 RTL 自动返回并着陆。五组均启动真实 PX4/Gazebo 和实际 server，不替换后端或适配器。
 
 普通 pytest 默认排除 `sitl`。需要运行时，在仓库根目录执行：
 
@@ -152,9 +152,9 @@ export PYTHONPATH="$PWD/ros2_ws/src/flight_agent_ros:$PWD/src:$PWD/.venv/lib/pyt
 PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 /usr/bin/python3 -m pytest -q -s -m sitl ros2_ws/src/flight_agent_ros/test/test_flight_sitl.py
 ```
 
-可追加 `-k 7e`、`-k 7f`、`-k 7g-1` 或 `-k 7g-2` 选择参数项。新增同类场景只需增加一对参数：`test_input_case` 保存输入配置，`expected_output_case` 保存预期结果；逐步对应 `test_input_step`、`expected_output_step`。配置中，`initial_state` 指定初始状态，`px4` 指定临时限速/心跳，输入侧 `steps` 指定服务、输入、等待条件和超时，预期侧 `steps` 指定预期响应/状态和命令，预期侧 `topic_counts` 指定 Topic 计数，`safety` 可覆盖本轮限制。字段条件支持精确值、点分路径及 `{min, max}` 闭区间；起降属于同一参数项的两步序列。
+可追加 `-k 7e`、`-k 7f`、`-k 7g-1`、`-k 7g-2` 或 `-k 7g-3` 选择参数项。新增同类场景只需增加一对参数：`test_input_case` 保存输入配置，`expected_output_case` 保存预期结果；逐步对应 `test_input_step`、`expected_output_step`。配置中，`initial_state` 指定初始状态，`px4` 指定临时限速/心跳，输入侧 `steps` 指定服务、输入、等待条件和超时，预期侧 `steps` 指定预期响应/状态和命令，预期侧 `topic_counts` 指定 Topic 计数，`safety` 可覆盖本轮限制。字段条件支持精确值、点分路径及 `{min, max}` 闭区间；起降属于同一参数项的两步序列。
 
-测试会打印本轮 `artifacts/m4-7e/pytest-时间/`、`artifacts/m4-7f/pytest-时间/`、`artifacts/m4-7g-1/pytest-时间/` 或 `artifacts/m4-7g-2/pytest-时间/` 路径，保存环境、代码及测试文件校验值、请求、响应、状态、安全决策、后端调用次数和命令记录。退出时清理本轮启动的进程，失败时也保留证据。运行前应停止其他 PX4 或同名服务，避免共享环境干扰；本用例只负责自己启动的进程。
+测试会打印本轮 `artifacts/m4-7e/pytest-时间/`、`artifacts/m4-7f/pytest-时间/`、`artifacts/m4-7g-1/pytest-时间/`、`artifacts/m4-7g-2/pytest-时间/` 或 `artifacts/m4-7g-3/pytest-时间/` 路径，保存环境、代码及测试文件校验值、请求、响应、状态、安全决策、后端调用次数和命令记录。退出时清理本轮启动的进程，失败时也保留证据。运行前应停止其他 PX4 或同名服务，避免共享环境干扰；本用例只负责自己启动的进程。
 
 当前命名规则见 [AGENT.md](../../AGENT.md#测试覆盖与证据核对)。业务返回值保留 `success`，实际 server 加载的配置使用 `safety.json`，正式 Trace 为 `world.jsonl` 与 `safety.jsonl`；业务代码中不存在的对象及其记录文件，如 `test_temp_counts`、`test_temp_messages`、`test_temp_backend_calls.json`，使用 `test_temp_` 前缀。历史证据保持运行时文件名，不追溯改名。
 
@@ -217,3 +217,20 @@ Hold 目标 NED 为 `(0.073888, -0.035925, -2.881249)` 米，实际执行耗时 
 GoTo 返回时的 WorldState Trace 综合年龄为 1205 ms，低频着陆状态不新鲜，但位置自身新鲜。终点检查使用独立客户端在执行结束前收到的原始位置，未把响应中较早的聚合位置当作终点；后续 Land 等待新的状态年龄小于 200 ms 后再请求。该现象不改变 Gate 条件，也不证明在途安全监测已实现。
 
 通过范围仅为本场景实际动作服务链、目标映射及采样位置验收；服务 `verification` 仍为 `INCONCLUSIVE`，未运行 LLM/Agent 主循环，不覆盖 RTL、M6、M7-S、实机或采样间隔内连续轨迹。复现使用上文 pytest 命令加 `-k 7g-2`。
+
+
+## M4 实际服务返航记录
+
+2026-11-09，基于 `422c28d`（v0.10.73）及本批测试改动，在冻结 PX4 `54f0455`、ROS 2 Jazzy、Gazebo x500 上运行 `test_action_sitl[7g-3-takeoff-goto-rtl]`，首轮 `1 passed, 4 deselected in 51.30s`。证据目录为 `artifacts/m4-7g-3/pytest-20261109T025650481218Z/`。源码、工作树差异和环境版本由 manifest 绑定；所有证据校验值及测试源码匹配已复核。
+
+准备阶段复用前述起飞与 GoTo：经真实 `/takeoff` 到 3 米，经 `/goto` 到北 3 米、东 2 米、高 3 米。等待 OFFBOARD、Home 有效、已解锁离地、位置处于目标附近且状态年龄小于 200 ms，再经 `/rtl` 发送空参数。RTL 请求时冻结 Home NED `(-0.031941, 0.003313, -0.010177)` 米，避免把着陆后可能更新的 Home 当成原目标。RTL 场景没有 `/land` 请求。
+
+PX4 源码默认 RTL_RETURN_ALT 为 60 米，但本轮实际运行初值回读为 30 米；测试不依赖源码默认值作为运行值。为保持本场景高度 5 米、半径 10 米及围栏 ±10 米的既有限制，测试临时设置 RTL_RETURN_ALT=3、RTL_DESCEND_ALT=2、RTL_LAND_DELAY=0、RTL_TYPE=0、RTL_CONE_ANG=0，逐项设置后回读。退出回读恢复值分别为 30、10、0、0、45，详见 `test_temp_rtl_parameters.json`；PX4 水平限速设置前、运行中与恢复后均为 8 m/s，心跳退出恢复 1 Hz。该配置只覆盖受控低空返航，不代表默认高度参数组合已验收。
+
+入口仍为实际 `flight_atomic_action_server.main()` 装配的 ROS 服务、Gate、Supervisor、真实 Backend 与 PX4 适配器。V1 假定操作员已授权，其他检查生效；本轮无替身或直接 Backend 调用。Trace 关联三个动作的提案、决策与执行 ID，并验证决策先落盘后进入后端、发送命令。命令依次为起飞 `22, 400`、GoTo `176`、RTL `20`，全部收到接受 ACK；RTL 接受后停止 GoTo 的 Offboard 流，由 PX4 执行返航着陆。
+
+RTL 位置检查保留执行开始前 0.5 秒内最后一个采样，起点 NED 为 `(3.021241, 2.080707, -3.002689)` 米，水平距原 Home 3.692896 米；结束前最后采样为 `(0.003132, -0.012308, 0.029027)` 米，水平误差 0.038393 米，小于 1 米门槛。执行耗时 9.959 秒，997 个有效位置采样的接收时间及源采样时间均递增、间隔不超过 0.5 秒，最大接收间隔 12.822 ms，末采样距执行结束不超过 0.5 秒。正式 WorldState Trace 在执行窗口中记录 OFFBOARD 转入 AUTO_RTL，包含空中已解锁的 RTL 状态，窗口内无 failsafe；最终响应证实着陆且已上锁。
+
+`test_temp_rtl_evidence.json` 保存原 Home、起终点、距离、耗时与采样汇总；原始位置和命令/ACK 存于既有消息文件，请求响应与正式 Trace 沿用既有命名。临时副本中的未返回 Home、删除执行开始前采样、移除 RTL 模式均使新增检查失败，原始证据通过。未改生产逻辑或正式证据。退出记录确认本轮 server、PX4/Gazebo 和 XRCE Agent 所属启动进程已结束，参数恢复读数已保存。
+
+服务仍返回 `verification=INCONCLUSIVE`。本场景证明受控低空 RTL 的实际服务链与返回原 Home 后着陆，不代表 M6 独立验证、M7-S 在途监测、完整 Agent/LLM 闭环、其他 RTL 参数组合或真机能力。复现使用本页 pytest 命令加 `-k 7g-3`；完整 ROS 回归的源码优先路径见 [7g-2 回归环境](../../plans/M4.md#7g-2-回归环境)。

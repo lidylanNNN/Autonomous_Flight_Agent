@@ -49,7 +49,7 @@ V1 目标：取得初始观察后等待人工输入。`RosAgent` 根据观察和
 | MX-3 有人入口与行为序列 | `ros_agent_srv.main()` 已装配 `RosEnv`、`RosAgent`、观察服务和行为执行器；逐边调用见第 4 节 | 观察文本仍为标源占位，默认 LLM 明确失败；显式固定两步已通过实际飞行动作服务和 Gate 的单轮集成，外部 PX4 与权限来源使用替身。证据见 [MX-4 单轮记录](plans/MX-4-structure-change.md#单轮主链集成记录) |
 | MX-4 飞行动作服务 | `flight_atomic_action_server` 从 `--safety-json` 加载限制，发布 `hold`、`takeoff`、`goto`、`rtl`、`land` 并调用 Safety Gate | 五个服务测试覆盖 `UNKNOWN` 拒绝、Trace/状态读取失败零派发，以及替身批准、执行失败和异常响应；不代表 PX4/Gazebo 端到端证据 |
 | 确定性飞行动作 | `flight_execution_backend.py`、PX4 Command/Offboard adapters、Skill Registry | Takeoff、GoTo、Hold、RTL、Land 有代码映射；M3 调试脚本有 SITL 验证记录，不等于 Agent 任务闭环 |
-| 执行前 Safety | `SafetyExecutionGate` 调用 `SafetySupervisor`，批准后调用 `FlightExecutionBackend` | Gate 和检查器、决策 Trace 已实现；MX-4 1b 已移除 Proposal 与 Gate 的旧任务身份；ROS 侧 main 已按 M4-7c 设置默认权限并验证启动传参与日志；Takeoff/Land 的真实服务起降及 Hold 5 秒已通过，GoTo 已通过，RTL 尚待验收；见 [7f 记录](plans/M4.md#7f-实施记录)、[7g-1 记录](plans/M4.md#7g-1-实施记录)与 [7g-2 记录](plans/M4.md#7g-2-实施记录) |
+| 执行前 Safety | `SafetyExecutionGate` 调用 `SafetySupervisor`，批准后调用 `FlightExecutionBackend` | Gate 和检查器、决策 Trace 已实现；MX-4 1b 已移除 Proposal 与 Gate 的旧任务身份；ROS 侧 main 已按 M4-7c 设置默认权限并验证启动传参与日志；Takeoff/Land 的真实服务起降及 Hold 5 秒已通过，GoTo、RTL 已通过受控场景验证；见 [7f 记录](plans/M4.md#7f-实施记录)、[7g-1 记录](plans/M4.md#7g-1-实施记录)、[7g-2 记录](plans/M4.md#7g-2-实施记录)与 [7g-3 记录](plans/M4.md#7g-3-实施记录) |
 | 验证与恢复 | 飞行动作服务响应中的 `verification` | 固定为 `INCONCLUSIVE`；旧任务验证与恢复占位已删除，没有任务成功判定、重新规划或安全收尾实现 |
 | Trace | `TraceRecorder`、`TraceReplay` | 已接入 WorldState、安全决策、观察、LLM 响应及 Gate 动作结果/异常记录，并通过替身主链审计，详见 [MX-5 审计](plans/MX-5-audit.md)；完整 Episode 因果链尚未完成 |
 | 测评数据 | `agent_benchmark_sets/`、schema 与 validation scripts | Dev 用例存在；Validation/Frozen Test 目前只是预留 manifest，不得报告冻结测评指标 |

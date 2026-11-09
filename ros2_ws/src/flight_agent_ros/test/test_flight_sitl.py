@@ -11,7 +11,7 @@ import subprocess
 import sys
 import threading
 from collections.abc import Callable, Iterator
-from contextlib import contextmanager
+from contextlib import ExitStack, contextmanager
 from datetime import UTC, datetime
 from itertools import pairwise
 from pathlib import Path
@@ -191,6 +191,62 @@ pytestmark = pytest.mark.sitl
                     'state': {'armed': False, 'landed': True}, 'commands': [21]}]},
         id='7g-2-takeoff-goto-land',
     ),
+    pytest.param(
+        {'milestone': 'm4-7g-3',
+         'description': 'Takeoff 3m, GoTo N3 E2, then RTL to original Home and land',
+         'px4': {'speed_limit_mps': 8.0, 'heartbeat_hz': 10,
+                 'rtl_parameters': {'RTL_RETURN_ALT': 3.0, 'RTL_DESCEND_ALT': 2.0,
+                                    'RTL_LAND_DELAY': 0.0, 'RTL_TYPE': 0, 'RTL_CONE_ANG': 0}},
+         'initial_state': {'position_valid': True, 'home_valid': True,
+                           'landed': True, 'armed': False},
+         'steps': [{'service': '/takeoff', 'input': {'target_altitude_m': 3.0},
+                    'timeout_s': 100.0, 'record_name': 'takeoff',
+                    'ready': {'state_age_ms': {'min': 0, 'max': 199}}},
+                   {'service': '/goto',
+                    'input': {'north_m': 3.0, 'east_m': 2.0, 'altitude_m': 3.0,
+                              'acceptance_radius_m': 0.5},
+                    'timeout_s': 40.0, 'record_name': 'goto',
+                    'ready': {'state_age_ms': {'min': 0, 'max': 199},
+                              'flight_mode': 'AUTO_LOITER', 'armed': True, 'landed': False,
+                              'position_ned_m.z': {'min': -3.2, 'max': -2.8},
+                              'velocity_ned_mps.x': {'min': -0.1, 'max': 0.1},
+                              'velocity_ned_mps.y': {'min': -0.1, 'max': 0.1},
+                              'velocity_ned_mps.z': {'min': -0.1, 'max': 0.1}}},
+                   {'service': '/rtl', 'input': {}, 'timeout_s': 140.0,
+                    'record_name': 'rtl',
+                    'ready': {'state_age_ms': {'min': 0, 'max': 199},
+                              'flight_mode': 'OFFBOARD', 'home_valid': True,
+                              'armed': True, 'landed': False,
+                              'position_ned_m.x': {'min': 2.5, 'max': 3.5},
+                              'position_ned_m.y': {'min': 1.5, 'max': 2.5}}}]},
+        {'topic_counts': {'/fmu/in/offboard_control_mode': {'min': 20, 'max': 600},
+                          '/fmu/in/trajectory_setpoint': {'min': 20, 'max': 600}},
+         'steps': [{'success': True, 'decision': 'APPROVE',
+                    'output': {'reason_codes': ['CHECKS_PASSED'], 'error_code': None,
+                               'execution_status': 'SUCCEEDED', 'failure_code': None,
+                               'verification': 'INCONCLUSIVE'},
+                    'state': {'armed': True, 'landed': False,
+                              'position_ned_m.z': {'min': -3.5, 'max': -2.5}},
+                    'commands': [22, 400]},
+                   {'success': True, 'decision': 'APPROVE',
+                    'output': {'reason_codes': ['CHECKS_PASSED'], 'error_code': None,
+                               'execution_status': 'SUCCEEDED', 'failure_code': None,
+                               'verification': 'INCONCLUSIVE'},
+                    'state': {'armed': True, 'landed': False, 'flight_mode': 'OFFBOARD'},
+                    'commands': [176],
+                    'goto_evidence': {'target_ned_m': [3.0, 2.0, -3.0],
+                                      'horizontal_tolerance_m': 0.5,
+                                      'vertical_tolerance_m': 0.5,
+                                      'min_displacement_m': 2.5, 'max_sample_gap_s': 0.5}},
+                   {'success': True, 'decision': 'APPROVE',
+                    'output': {'reason_codes': ['CHECKS_PASSED'], 'error_code': None,
+                               'execution_status': 'SUCCEEDED', 'failure_code': None,
+                               'verification': 'INCONCLUSIVE'},
+                    'state': {'armed': False, 'landed': True}, 'commands': [20],
+                    'rtl_evidence': {'min_start_distance_m': 2.5,
+                                     'max_home_error_m': 1.0, 'max_sample_gap_s': 0.5}}]},
+        id='7g-3-takeoff-goto-rtl',
+    ),
 ])
 def test_action_sitl(
     test_input_case: dict[str, Any], expected_output_case: dict[str, Any], test_temp_sitl_run: Path,
@@ -229,7 +285,8 @@ def test_action_sitl(
         _save(test_temp_sitl_run / 'test_temp_publishers.json', test_temp_publishers)
         for topic, (_, publisher) in test_temp_topics.items():
             assert publisher in test_temp_publishers[topic]
-        with _px4_settings(test_temp_sitl_run, test_input_case['px4']):
+        with (_px4_settings(test_temp_sitl_run, test_input_case['px4']),
+              _px4_rtl_settings(test_temp_sitl_run, test_input_case['px4'].get('rtl_parameters', {}))):
             _spin_for(node, 2.0)
             test_temp_record_index = 0
             test_temp_execution_ids: list[str] = []
@@ -286,6 +343,11 @@ def test_action_sitl(
                     _check_goto_evidence(
                         test_temp_sitl_run, test_temp_result_record,
                         test_temp_messages[test_temp_start:], expected_output_step['goto_evidence'],
+                    )
+                if 'rtl_evidence' in expected_output_step:
+                    _check_rtl_evidence(
+                        test_temp_sitl_run, test_temp_result_record,
+                        test_temp_messages[test_temp_start:], expected_output_step['rtl_evidence'],
                     )
                 test_temp_commands = [item for item in test_temp_messages[test_temp_start:]
                                       if item['topic'] == '/fmu/in/vehicle_command']
@@ -461,6 +523,70 @@ def _check_goto_evidence(
     assert test_temp_vertical_error <= expected_output_goto['vertical_tolerance_m']
 
 
+
+def _check_rtl_evidence(
+    test_temp_run: Path, test_temp_result_record: dict[str, Any],
+    test_temp_messages: list[dict[str, Any]], expected_output_rtl: dict[str, float],
+) -> None:
+    '''以请求时冻结的 Home 核对异地返航、RTL 模式及着陆上锁证据。'''
+    from math import hypot
+
+    request = json.loads((test_temp_run / 'test_temp_rtl_request.json').read_text())
+    test_temp_home = request['state']['home_position_ned_m']
+    assert request['state']['home_valid']
+    result = test_temp_result_record['result']
+    test_temp_begin = datetime.fromisoformat(result['started_at']).timestamp()
+    test_temp_end = datetime.fromisoformat(result['ended_at']).timestamp()
+    expected_output_gap = expected_output_rtl['max_sample_gap_s']
+    test_temp_samples = [item for item in test_temp_messages
+                         if item['topic'] == '/fmu/out/vehicle_local_position'
+                         and test_temp_begin - expected_output_gap <= datetime.fromisoformat(
+                             item['received_at']).timestamp() <= test_temp_end]
+    test_temp_left = [i for i, item in enumerate(test_temp_samples)
+                      if datetime.fromisoformat(item['received_at']).timestamp() <= test_temp_begin]
+    assert test_temp_left, 'RTL 缺少执行开始前的位置'
+    test_temp_samples = test_temp_samples[test_temp_left[-1]:]
+    assert len(test_temp_samples) >= 2
+    test_temp_times = [datetime.fromisoformat(item['received_at']).timestamp()
+                       for item in test_temp_samples]
+    assert test_temp_end - test_temp_times[-1] <= expected_output_gap
+    assert all(0 < after - before <= expected_output_gap
+               for before, after in pairwise(test_temp_times))
+    test_temp_source_times = [item['message']['timestamp_sample'] for item in test_temp_samples]
+    assert all(0 < after - before <= expected_output_gap * 1_000_000
+               for before, after in pairwise(test_temp_source_times))
+    assert all(item['message']['xy_valid'] and item['message']['z_valid']
+               for item in test_temp_samples)
+    test_temp_first, test_temp_last = (test_temp_samples[i]['message'] for i in (0, -1))
+    test_temp_start_distance = hypot(test_temp_first['x'] - test_temp_home['x'],
+                                     test_temp_first['y'] - test_temp_home['y'])
+    test_temp_home_error = hypot(test_temp_last['x'] - test_temp_home['x'],
+                                 test_temp_last['y'] - test_temp_home['y'])
+    test_temp_states = [json.loads(line) for line in
+                        (test_temp_run / 'world.jsonl').read_text().splitlines()]
+    test_temp_states = [item['state'] for item in test_temp_states
+                        if test_temp_begin <= datetime.fromisoformat(
+                            item['recorded_at']).timestamp() <= test_temp_end]
+    assert any(state['flight_mode'] == 'AUTO_RTL' and state['armed']
+               and state['landed'] is False for state in test_temp_states)
+    assert test_temp_states and not any(state['failsafe_active'] for state in test_temp_states)
+    state = json.loads((test_temp_run / 'test_temp_rtl_response.json').read_text())['state']
+    assert state['landed'] is True and state['armed'] is False
+    _save(test_temp_run / 'test_temp_rtl_evidence.json', {
+        'execution_id': result['execution_id'], 'home_ned_m': test_temp_home,
+        'start_ned_m': [test_temp_first[key] for key in ('x', 'y', 'z')],
+        'end_ned_m': [test_temp_last[key] for key in ('x', 'y', 'z')],
+        'start_distance_m': test_temp_start_distance, 'home_error_m': test_temp_home_error,
+        'execution_elapsed_s': test_temp_end - test_temp_begin,
+        'sample_count': len(test_temp_samples),
+        'max_sample_gap_s': max(after - before for before, after in pairwise(test_temp_times)),
+        'flight_modes': sorted({state['flight_mode'] for state in test_temp_states}),
+    })
+    assert test_temp_start_distance >= expected_output_rtl['min_start_distance_m']
+    assert test_temp_home_error <= expected_output_rtl['max_home_error_m']
+
+
+
 def _matches(actual: dict[str, Any], expected_output_fields: dict[str, Any]) -> bool:
     '''按字段路径比较精确值或闭区间；缺少字段时不满足条件。'''
     for expected_output_path, expected_output_value in expected_output_fields.items():
@@ -523,6 +649,50 @@ def _px4_settings(test_temp_run: Path, test_input_settings: dict[str, Any]) -> I
                 restored_speed_limit = asyncio.run(Px4ParameterAdapter().read_validated_speed_limit(max_age_s=2.0))
                 _save(test_temp_run / 'test_temp_parameter_restore.json', {'MPC_XY_VEL_MAX': restored_speed_limit})
                 assert restored_speed_limit == speed_before
+
+
+
+@contextmanager
+def _px4_rtl_settings(
+    test_temp_run: Path, test_input_parameters: dict[str, float],
+) -> Iterator[None]:
+    '''临时设置低空 RTL 参数，逐项读回并在退出时恢复原值，失败也保留记录。'''
+    px4_root = Path(os.environ.get('PX4_ROOT', str(Path.home() / 'PX4-Autopilot')))
+    test_temp_command = str(px4_root / 'build/px4_sitl_default/bin/px4-param')
+    test_temp_rootfs = px4_root / 'build/px4_sitl_default/rootfs'
+    test_temp_readings: dict[str, dict[str, float]] = {}
+
+    def test_temp_read(test_input_name: str) -> float:
+        '''通过 PX4 参数命令读取当前值。'''
+        return float(subprocess.check_output(
+            [test_temp_command, 'show', '-q', test_input_name], cwd=test_temp_rootfs, text=True,
+        ).strip())
+
+    def test_temp_set(test_input_name: str, test_input_value: float) -> None:
+        '''设置并读回，避免仅以命令返回成功作为配置生效证据。'''
+        subprocess.check_output(
+            [test_temp_command, 'set', test_input_name, str(test_input_value)], cwd=test_temp_rootfs,
+        )
+        assert test_temp_read(test_input_name) == test_input_value
+
+    def test_temp_restore(test_input_name: str, test_input_value: float) -> None:
+        '''恢复单个参数并保存实际回读值。'''
+        test_temp_set(test_input_name, test_input_value)
+        test_temp_readings[test_input_name]['restored'] = test_temp_read(test_input_name)
+
+    try:
+        with ExitStack() as test_temp_stack:
+            for test_input_name, test_input_value in test_input_parameters.items():
+                test_temp_before = test_temp_read(test_input_name)
+                test_temp_readings[test_input_name] = {'before': test_temp_before}
+                test_temp_stack.callback(test_temp_restore, test_input_name, test_temp_before)
+                test_temp_set(test_input_name, test_input_value)
+                test_temp_readings[test_input_name]['during'] = test_temp_read(test_input_name)
+            yield
+    finally:
+        if test_input_parameters:
+            _save(test_temp_run / 'test_temp_rtl_parameters.json', test_temp_readings)
+
 
 
 def _subscribe_messages(
