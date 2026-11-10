@@ -57,6 +57,8 @@ class RecordingLLM(LLMNode):
 def test_main_observes_before_human_input_then_reobserves_after_llm_failure(
     tmp_path: Path,
 ) -> None:
+    '''验证真实状态摘要进入人工入口的 prompt 和 Trace，模型失败后重新观察。'''
+
     rclpy.init()
     aggregator = WorldStateAggregator()
     source = Px4WorldStateAdapter(
@@ -99,9 +101,12 @@ def test_main_observes_before_human_input_then_reobserves_after_llm_failure(
         replay = TraceReplay(trace_path)
         observations = tuple(replay.iter_observation_records())
         assert len(observations) == 2
-        assert all(record.source == 'px4_world_state_adapter:mx_placeholder' for record in observations)
-        assert observations[0].observation == 'MX_UNIMPLEMENTED_TEXT_SUMMARY state_id=state-21-1'
-        assert observations[0].message == 'WorldState acquired; text summary is not implemented'
+        assert all(record.source == 'px4_world_state_adapter' for record in observations)
+        assert 'state_id=state-21-1' in observations[0].observation
+        assert 'frame=NED' in observations[0].observation
+        assert 'null=unknown' in observations[0].observation
+        assert observations[0].observation in llm.prompts[0]
+        assert observations[0].message == 'WorldState snapshot acquired'
         reply, = replay.iter_llm_response_records()
         assert reply.prompt == llm.prompts[0]
         assert (reply.success, reply.response, reply.info) == (False, '', 'LLM_UNAVAILABLE_MX2')

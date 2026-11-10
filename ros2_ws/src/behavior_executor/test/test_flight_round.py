@@ -205,7 +205,7 @@ def test_human_round_through_flight_service_and_gate(
             (obs.success, obs.observation, obs.source, obs.message) for obs in _observations
         ]
         assert all(
-            trace_record.source == 'px4_world_state_adapter:mx_placeholder'
+            trace_record.source == 'px4_world_state_adapter'
             for trace_record in trace_observation_records
         )
         trace_llm_record, = agent_replay.iter_llm_response_records()

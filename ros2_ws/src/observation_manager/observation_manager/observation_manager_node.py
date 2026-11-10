@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+
 import rclpy
 from flight_agent_ros.adapters.px4_world_state_adapter import Px4WorldStateAdapter
 from rclpy.executors import MultiThreadedExecutor
@@ -20,7 +22,7 @@ class ObservationManagerNode(Node):
     def get_observation(
         self, _request: Observation.Request, response: Observation.Response
     ) -> Observation.Response:
-        """Read a real snapshot; mark unfinished text rendering explicitly."""
+        '''读取快照并生成状态摘要；取得快照不表示安全批准或任务完成。'''
 
         try:
             state = self.state_source.read_world_state()
@@ -32,9 +34,18 @@ class ObservationManagerNode(Node):
             return response
 
         response.success = True
-        response.observation = f'MX_UNIMPLEMENTED_TEXT_SUMMARY state_id={state.state_id}'
-        response.source = 'px4_world_state_adapter:mx_placeholder'
-        response.message = 'WorldState acquired; text summary is not implemented'
+        summary = state.model_dump(mode='json')
+        summary['state_age_ms'] = state.age_ms()
+        response.observation = (
+            f'WorldState snapshot state_id={state.state_id}\n'
+            'Local frame=NED: x=north, y=east, z=down; '
+            'position in m, velocity in m/s; battery in percent.\n'
+            'null=unknown; validity and health flags are snapshot facts, '
+            'not safety approval or task verification.\n'
+            + json.dumps(summary, ensure_ascii=False, sort_keys=True)
+        )
+        response.source = 'px4_world_state_adapter'
+        response.message = 'WorldState snapshot acquired'
         return response
 
 
