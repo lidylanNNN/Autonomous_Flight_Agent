@@ -1,6 +1,6 @@
 # Autonomous Flight Agent 开发规格 v2.1
 
-> 状态：当前总体设计基线；待确认事项见第 10 节。原实现基线：2026-10-16 的 `8a13b81`；MX 后续进度见 [MX 计划](plans/MX.md)。架构对齐依据为 ROS-LLM 论文 v3 与本次核对的开源主分支。设计目标不代表代码迁移已完成。
+> 状态：当前总体设计基线；待确认事项见第 10 节。原实现基线：2026-10-16 的 `8a13b81`；MX 后续进度见 [MX 计划](plans/MX.md)。架构对齐依据为 ROS-LLM 论文 v3 与第 1.2 节固定的开源版本。设计目标不代表代码迁移已完成。
 > 历史规格：[DEV_SPEC v1.44](docs/archive/DEV_SPEC_v1.44.md)。历史文件保留决策过程，不再作为当前实现或新开发的验收依据。
 > 适用范围：V1 飞行机器人任务系统、仓库结构、开发顺序、测评和版本管理。代码事实以实际生产入口及测试证据为准；本文目标不自动等于已实现。
 
@@ -14,7 +14,7 @@
 
 设计依据分三层，不混称为同一技术方案：
 
-1. **系统调用流**：以 [ROS-LLM 开源项目](https://github.com/huawei-noah/HEBO/tree/master/ROSLLM)的 Agent、Observation Manager、Behavior Executor、Atomic Action Library 及人工反馈闭环为基线。不能把本项目自行设计的 Hooks、MissionService 或无人续跑称为上游架构。
+1. **系统调用流**：以 [ROS-LLM 开源项目](https://github.com/huawei-noah/HEBO/tree/1573874e81e97213761a67950130e006bf13cf6d/ROSLLM)的 Agent、Observation Manager、Behavior Executor、Atomic Action Library 及人工反馈闭环为基线。不能把本项目自行设计的 Hooks、MissionService 或无人续跑称为上游架构。
 2. **产品交互决策点**：参考 [DJI FlightHub 2 Copilot 公开手册](https://fh.dji.com/user-manual/cn/copilot-assistant/copilot-remote-control.html)讨论计划确认、接管和紧急停止；这不代表知道 DJI 的内部实现，也不把尚未实现的交互写成当前能力。
 3. **飞行行为与安全条件**：以冻结的 PX4/ROS 2 接口、本仓库代码及 SITL 实测为准。产品参照不得覆盖确定性安全边界或 PX4 原生 failsafe。
 
@@ -28,16 +28,20 @@ V1 目标：取得初始观察后等待人工输入。`RosAgent` 根据观察和
 
 ### 1.2 源码证据与一一映射
 
+工程参考版本固定为 [huawei-noah/HEBO `1573874`](https://github.com/huawei-noah/HEBO/commit/1573874e81e97213761a67950130e006bf13cf6d)，完整 SHA 为 `1573874e81e97213761a67950130e006bf13cf6d`，提交时间 2025-11-27 08:46:42 UTC，范围为 `ROSLLM/`。该版本晚于论文 v3，不代表论文实验使用的确切代码或模型权重；版本核对和差异证据见 [M5-2a-1](plans/M5.md#2a-1-实施记录)。
+
 | ROS-LLM 依据 | 上游职责 | 本项目目标对应物 |
 |---|---|---|
-| [`ros_agent_srv` 主循环](https://github.com/huawei-noah/HEBO/blob/master/ROSLLM/agent_comm/scripts/ros_agent_srv) | `main()` 创建 `RosEnv` 与 `RosAgent`，先调用 `env.get_obs()`，等待人工输入，再调用 `agent.get_action(human, obs)` 和 `env.step(action)`；`step()` 内执行行为并再次获取观察 | 唯一的有人任务入口；主循环调度 `RosAgent` 决策和 `RosEnv` 环境交互，二者互不调度 |
-| [`agent_comm`](https://github.com/huawei-noah/HEBO/tree/master/ROSLLM/agent_comm) | LLM 服务与 Agent 通信 | LLM Provider 和 prompt/行为提取 |
-| [`observation_manager`](https://github.com/huawei-noah/HEBO/tree/master/ROSLLM/observation_manager) | 聚合各观察服务，通过统一 `get_observation` 返回文本观察 | 由 `WorldState` 等来源构造统一观察，不让 Agent 直接消费 PX4 Topic |
-| [`behavior_executor`](https://github.com/huawei-noah/HEBO/tree/master/ROSLLM/behavior_executor) | `ExecuteBehavior` 服务接收行为；序列/行为树/代码等执行器返回成功标志与消息 | ROS 2 行为执行器；V1 先实现序列模式，逐项调用原子动作、失败即停止 |
+| [`ros_agent_srv` 主循环](https://github.com/huawei-noah/HEBO/blob/1573874e81e97213761a67950130e006bf13cf6d/ROSLLM/agent_comm/scripts/ros_agent_srv) | `main()` 创建 `RosEnv` 与 `RosAgent`，先调用 `env.get_obs()`，等待人工输入，再调用 `agent.get_action(human, obs)` 和 `env.step(action)`；`step()` 内执行行为并再次获取观察 | 唯一的有人任务入口；主循环调度 `RosAgent` 决策和 `RosEnv` 环境交互，二者互不调度 |
+| [`agent_comm`](https://github.com/huawei-noah/HEBO/tree/1573874e81e97213761a67950130e006bf13cf6d/ROSLLM/agent_comm) | LLM 服务与 Agent 通信 | LLM Provider 和 prompt/行为提取 |
+| [`observation_manager`](https://github.com/huawei-noah/HEBO/tree/1573874e81e97213761a67950130e006bf13cf6d/ROSLLM/observation_manager) | 聚合各观察服务，通过统一 `get_observation` 返回文本观察 | 由 `WorldState` 等来源构造统一观察，不让 Agent 直接消费 PX4 Topic |
+| [`behavior_executor`](https://github.com/huawei-noah/HEBO/tree/1573874e81e97213761a67950130e006bf13cf6d/ROSLLM/behavior_executor) | `ExecuteBehavior` 服务接收行为；序列/行为树/代码等执行器返回成功标志与消息 | ROS 2 行为执行器；V1 先实现序列模式，逐项调用原子动作、失败即停止 |
 | [论文 §3.1、§3.5](https://arxiv.org/html/2406.19741v3) | 带名称、类型、描述和输入/输出的原子动作库；JSON 序列中的动作依次执行，前项输出可传给后项 | 飞行原子动作描述库及 ROS 2 action/service 接口，内部复用 Gate/Backend |
 | [论文 §3.2–§3.4](https://arxiv.org/html/2406.19741v3) | 文本观察、人工反馈和动作库共同进入每轮 prompt；一轮行为结束后再等待人 | 飞行状态文本化、人工下一轮反馈 |
 
-上游 prompt 允许多动作序列，`sequence_executor` 也按序列调用原子动作；但上游 `ros_agent_srv` 的提取正则只捕获代码块中的首个 JSON 对象。本项目在 MX-3 已验证固定两步行为的完整提取，M5 再完善真实模型输出的解析和错误处理；这是补齐上游实现缺口，不改变主循环拓扑。以上链接当前指向主分支，正式对齐验收前须记录确切上游 commit。
+固定版本的 prompt 与执行器均支持 JSON Lines 多动作序列。原规格“上游正则只捕获首个 JSON 对象”的判断不成立：该正则受结束代码围栏约束，可以捕获完整多行对象。本项目的区别是使用整段匹配及派发前完整序列校验，M5 继续完善真实模型输出的边界处理；不能将已验证的两步提取归因为修复了上述虚构缺口。
+
+上游以搜索方式取首个匹配代码块，本项目拒绝块外说明文字；当前本项目提取器仍可能合并多个代码块，再由执行器解析拒绝。该边界尚未在提取层收紧，不将目标中的“唯一代码块”当作已完整实现。
 
 ## 2. 当前实现基线
 
@@ -103,7 +107,7 @@ manifests/、configs/                 环境声明与配置；预留配置不自
 
 ### 3.1 目标目录与文件
 
-以下是**迁移完成后的目标路径，不是当前文件清单**。主链采用 [ROS-LLM 源码的包名](https://github.com/huawei-noah/HEBO/tree/master/ROSLLM)：`agent_comm`、`observation_manager`、`behavior_executor`、`rosllm_srvs`、`rosllm_msgs`。节点沿用上游的 `ros_agent_srv`、`llm_node`、`observation_manager_node`、`sequence_executor`；`.py`、`setup.py`、`package.xml` 和接口构建方式按 ROS 2 调整。`flight_agent_ros`、`px4_msgs`、`flight_agent` 是 PX4/飞行适配或现有 Python 工程边界，不冒充上游包。没有自定义消息需求前不创建空的 `rosllm_msgs` 包。
+以下是**迁移完成后的目标路径，不是当前文件清单**。主链采用 [ROS-LLM 源码的包名](https://github.com/huawei-noah/HEBO/tree/1573874e81e97213761a67950130e006bf13cf6d/ROSLLM)：`agent_comm`、`observation_manager`、`behavior_executor`、`rosllm_srvs`、`rosllm_msgs`。节点沿用上游的 `ros_agent_srv`、`llm_node`、`observation_manager_node`、`sequence_executor`；`.py`、`setup.py`、`package.xml` 和接口构建方式按 ROS 2 调整。`flight_agent_ros`、`px4_msgs`、`flight_agent` 是 PX4/飞行适配或现有 Python 工程边界，不冒充上游包。没有自定义消息需求前不创建空的 `rosllm_msgs` 包。
 
 ```text
 ros2_ws/src/
@@ -275,7 +279,7 @@ V1 不建立任务 ID 或任务会话。飞行动作服务以 `--safety-json` �
 
 1. V1 默认权限已设置，Takeoff/Land 已通过受控 SITL，其余验收按 [M4 计划](plans/M4.md)推进；可信 Authority 已移入 V2，不再阻塞 V1 最小闭环。
 2. 序列上限与动作失败后的飞行安全处置条件仍待确认；MX-4 的飞行动作 JSON 输入输出语义按 [结构变更单](plans/MX-4-structure-change.md)分批冻结。
-3. M5/M7/M7-S 的实际工作量与时间表，待 M4 收口和第一条真实 Agent 纵向切片后重估；上游准确 commit 与序列执行对照测试待锁定。
+3. M5/M7/M7-S 的实际工作量与时间表，待 M4 收口和第一条真实 Agent 纵向切片后重估；上游参考 commit 已固定，见第 1.2 节；上游 ROS 1 序列执行的运行时对照仍未完成，源码核对不等于运行验证。
 
 这些是待决策或待实现项，不得在进度表中提前标为完成。
 
