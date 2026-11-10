@@ -216,7 +216,9 @@ def test_human_round_through_flight_service_and_gate(
         assert trace_llm_record.info == 'MX_FIXED_BEHAVIOR: hold,rtl'
         assert f'Observation: {trace_observation_records[0].observation}\n' in trace_llm_record.prompt
         assert 'HumanInput: 执行固定两步' in trace_llm_record.prompt
-        assert 'input=MX_UNIMPLEMENTED output=MX_UNIMPLEMENTED' in trace_llm_record.prompt
+        assert 'MX_UNIMPLEMENTED' not in trace_llm_record.prompt
+        assert 'input_schema=' in trace_llm_record.prompt
+        assert 'AtomicAction.Response(success: bool, output: JSON string)' in trace_llm_record.prompt
         assert [json.loads(line)['type'] for line in agent_trace_path.read_text().splitlines()] == [
             'observation', 'llm_response', 'observation',
         ]

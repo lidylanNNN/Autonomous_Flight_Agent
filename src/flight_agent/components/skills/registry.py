@@ -35,8 +35,19 @@ _SKILL_SPECS = (
     ),
     SkillSpec(
         name=SkillName.HOLD,
-        description='保持当前位置直到持续时间结束或收到取消。',
-        args_schema=HoldArgs.model_json_schema(),
+        description='保持当前位置指定的有限时长。',
+        # 公开服务要求有限时长；内部 HoldArgs 仍保留 None/缺省的历史执行语义。
+        args_schema={
+            **HoldArgs.model_json_schema(),
+            'description': '保持当前位置指定的有限时长。',
+            'properties': {
+                'duration_s': {
+                    'type': 'number', 'exclusiveMinimum': 0,
+                    'description': '必须为有限正数秒，不允许省略、null 或布尔值。',
+                },
+            },
+            'required': ['duration_s'],
+        },
         required_state=('fresh_world_state', 'runtime_healthy', 'airborne', 'position_valid'),
         authority=SkillAuthority.SAFETY_APPROVAL_REQUIRED,
         timeout_s=30.0,

@@ -22,7 +22,7 @@ from rosllm_srvs.srv import LLM, AtomicAction, ExecuteBehavior, Observation
 from flight_agent.components.skills.registry import list_skill_specs
 from flight_agent.components.tracing import TraceRecorder, TraceReplay
 from flight_agent.components.vehicle.state import WorldStateAggregator
-from flight_agent.contracts import HoldArgs, RTLArgs
+from flight_agent.contracts import HoldArgs, RTLArgs, SkillName, parse_skill_arguments
 
 
 def test_timeout_budgets_cover_skills_and_full_sequence() -> None:
@@ -97,7 +97,46 @@ def test_main_observes_before_human_input_then_reobserves_after_llm_failure(
         assert 'HumanInput: 检查当前位置' in llm.prompts[0]
         assert 'state_id=state-21-1' in llm.prompts[0]
         assert 'takeoff: 起飞到指定的正数目标高度。' in llm.prompts[0]
-        assert 'input=MX_UNIMPLEMENTED' in llm.prompts[0]
+        assert 'MX_UNIMPLEMENTED' not in llm.prompts[0]
+        action_library = llm.prompts[0].split('AtomicActionLibrary:\n', 1)[1].split(
+            '\nObservation source:', 1,
+        )[0]
+        assert 'type=ROS2 service' in action_library
+        assert 'JSON object encoded as a string' in action_library
+        assert 'altitude is positive upward' in action_library
+        assert 'INCONCLUSIVE is not verified task success' in action_library
+        for expected_output_field in (
+            'source', 'proposal_id', 'decision_id', 'execution_id', 'reason_codes',
+            'execution_status', 'failure_code', 'error_code', 'verification',
+        ):
+            assert expected_output_field in action_library
+        test_temp_schemas = {
+            line.split(':', 1)[0]: json.loads(line.split('input_schema=', 1)[1])
+            for line in action_library.splitlines() if 'input_schema=' in line
+        }
+        test_input_arguments = {
+            'takeoff': {'target_altitude_m': 3.0},
+            'goto': {
+                'north_m': 1.0, 'east_m': 2.0, 'altitude_m': 3.0,
+                'acceptance_radius_m': 1.0,
+            },
+            'hold': {'duration_s': 1.0}, 'rtl': {}, 'land': {},
+        }
+        assert set(test_temp_schemas) == set(test_input_arguments)
+        for spec in list_skill_specs():
+            input_schema = test_temp_schemas[spec.name.value]
+            assert input_schema['additionalProperties'] is False
+            assert set(input_schema.get('required', [])) == set(
+                test_input_arguments[spec.name.value]
+            )
+            if spec.name is SkillName.HOLD:
+                assert input_schema['properties']['duration_s']['type'] == 'number'
+                assert input_schema['properties']['duration_s']['exclusiveMinimum'] == 0
+                assert HoldArgs().duration_s is None
+                assert 'V1 has no cancellation protocol' in action_library
+            assert input_schema == spec.args_schema
+            arguments = parse_skill_arguments(spec.name, test_input_arguments[spec.name.value])
+            assert arguments.model_dump() == test_input_arguments[spec.name.value]
         replay = TraceReplay(trace_path)
         observations = tuple(replay.iter_observation_records())
         assert len(observations) == 2

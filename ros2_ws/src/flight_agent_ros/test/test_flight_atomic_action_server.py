@@ -146,7 +146,14 @@ def test_action_ros_service_rejects_unknown_authority_and_records_trace(
         assert len(trace_path.read_text().splitlines()) == 2
 
         invalid_inputs = (
-            [('{}', 'INVALID_INPUT'), ('[]', 'INVALID_INPUT'), ('{', 'INVALID_INPUT')]
+            [
+                ('{}', 'INVALID_INPUT'), ('[]', 'INVALID_INPUT'), ('{', 'INVALID_INPUT'),
+                ('{"duration_s":null}', 'INVALID_INPUT'),
+                ('{"duration_s":true}', 'INVALID_INPUT'),
+                ('{"duration_s":0}', 'INVALID_INPUT'),
+                ('{"duration_s":-1}', 'INVALID_INPUT'),
+                ('{"duration_s":Infinity}', 'INVALID_INPUT'),
+            ]
             if service_name == 'hold' else [
                 ('{}', None), ('{"target_altitude_m":0}', None),
                 ('{"target_altitude_m":-1}', None), ('{"target_altitude_m":"bad"}', None),

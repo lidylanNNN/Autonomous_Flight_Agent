@@ -10,6 +10,7 @@ from flight_agent.contracts import (
     ApprovedSkillCommand,
     FlightExecutionBackendProtocol,
     GoToArgs,
+    HoldArgs,
     LandArgs,
     SkillExecutionStatus,
     SkillName,
@@ -172,3 +173,16 @@ def test_flight_backend_protocol_is_structural() -> None:
             raise NotImplementedError
 
     assert isinstance(BackendDouble(), FlightExecutionBackendProtocol)
+
+
+def test_registry_hold_describes_finite_public_service_without_changing_internal_args() -> None:
+    '''检查公开 hold 的有限时长描述，同时保留内部模型可选时长语义。'''
+    spec = SKILL_REGISTRY[SkillName.HOLD]
+    assert spec.description == '保持当前位置指定的有限时长。'
+    assert spec.args_schema['required'] == ['duration_s']
+    assert spec.args_schema['additionalProperties'] is False
+    assert spec.args_schema['properties']['duration_s']['type'] == 'number'
+    assert spec.args_schema['properties']['duration_s']['exclusiveMinimum'] == 0
+    assert 'anyOf' not in spec.args_schema['properties']['duration_s']
+    assert HoldArgs().duration_s is None
+    assert HoldArgs(duration_s=None).duration_s is None

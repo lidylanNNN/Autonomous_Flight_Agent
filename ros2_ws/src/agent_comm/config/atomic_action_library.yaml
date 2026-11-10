@@ -1,4 +1,4 @@
-# MX-2 indexes existing Skill Registry descriptions; action IO is not implemented.
+# Service allowlist; Registry owns action descriptions and public input schemas.
 skills:
   - takeoff
   - goto

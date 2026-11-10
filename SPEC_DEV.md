@@ -111,7 +111,7 @@ ros2_ws/src/
     package.xml
     setup.py
     config/
-      atomic_action_library.yaml      [MX-2 已建；输入/输出描述仍未实现]
+      atomic_action_library.yaml      [五动作索引；1b 由 RosEnv 生成输入/输出说明]
     agent_comm/
       ros_agent_srv.py                 [MX-3 已接入行为执行与再观察]
       llm_node.py                      [默认失败；显式固定两步开发模式]
@@ -152,7 +152,7 @@ src/flight_agent/
   components/
     vehicle/state/world_state_aggregator.py [已实现；状态聚合]
     safety/                            [已实现；飞行原子动作内部 Gate/检查]
-    skills/registry.py                 [已实现；动作注册基础，待补动作描述]
+    skills/registry.py                 [已有参数 schema；1b 供 RosEnv 生成服务描述]
     tracing/                           [已实现；追踪基础]
 agent_benchmark_sets/                 [已存在；Agent 测评集]
 eval_harness/                         [已存在；测评执行辅助]
@@ -253,7 +253,7 @@ V1 不建立任务 ID 或任务会话。飞行动作服务以 `--safety-json` �
 | M3 确定性飞行动作 | 已有阶段记录 | 保留调试入口与 Backend 回归，不把它计作 Agent 任务成功 |
 | [MX 主流程骨架贯通](plans/MX.md) | **替身范围完成，2026-11-04 已复核** | 后续进入 M4 默认授权接线与受控 SITL；完整 Episode 等剩余边界见 [MX-5 审计](plans/MX-5-audit.md#发现) |
 | M4 Contract/Safety Gate | **已完成（受控场景范围）** | 默认授权、五动作实际服务、重复运行及旧审批清理已收口；限速拒绝等未覆盖项见 [M4 收口结论](plans/M4.md#收口结论)，不代表完整 Agent 任务闭环 |
-| [M5 ROS-LLM 有人主链](plans/M5.md) | 进行中（1a） | 在 MX 已贯通的模块链上替换固定返回：真实 LLM 决策、动作描述与稳健行为解析、完整人类反馈；从生产入口和替身/SITL 均可追踪 |
+| [M5 ROS-LLM 有人主链](plans/M5.md) | 进行中（1a/1b） | 在 MX 已贯通的模块链上替换固定返回：真实 LLM 决策、动作描述与稳健行为解析、完整人类反馈；从生产入口和替身/SITL 均可追踪 |
 | M6 飞行原子动作完成判定 | 未开始 | 五个飞行动作以状态证据产生成功/失败标志、超时与假成功测试；不再把占位 `INCONCLUSIVE` 当作已完成结果 |
 | M7 人类反馈修正与失败报告 | 未开始 | 行为失败后停止序列、返回结果和新观察；仅在下一轮人工输入后让 Agent 生成修正行为。无人续跑移出 ROS-LLM 对齐基线 |
 | M7-S 飞行运行中安全专项 | 未开始 | 独立运行中监测、抢占仲裁、处置 Trace 与故障 SITL 测试；不创建任务调度循环 |

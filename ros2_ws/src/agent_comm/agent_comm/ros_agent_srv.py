@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import re
 from collections.abc import Callable
 from pathlib import Path
@@ -65,18 +66,39 @@ class RosEnv:
         return response
 
     def get_atomic_action_library(self) -> str:
-        """Read the action index and reuse Skill Registry descriptions."""
+        '''从动作白名单和 Registry 通用生成飞行服务说明。'''
 
         config_path = Path(get_package_share_directory('agent_comm')) / 'config' / 'atomic_action_library.yaml'
         config = yaml.safe_load(config_path.read_text(encoding='utf-8'))
         if not isinstance(config, dict) or not isinstance(config.get('skills'), list):
             raise TypeError('INVALID_ATOMIC_ACTION_LIBRARY')
-        descriptions = []
+        descriptions = [
+            (
+                'All actions: type=ROS2 service (rosllm_srvs/srv/AtomicAction). '
+                'input is a JSON object encoded as a string; input_schema below describes that object. '
+                'All distances/altitudes/radii are in metres, duration_s in seconds. '
+                'goto uses local NED north/east; altitude is positive upward. '
+                'Only business arguments are allowed; no safety limits, authority, IDs or timeout. '
+                'prev_output carries the preceding action output unchanged; '
+                'flight services do not interpret it as arguments or authorization. '
+                'V1 has no cancellation protocol.'
+            ),
+            (
+                'All actions output: AtomicAction.Response(success: bool, output: JSON string). '
+                'output fields: source (flight_atomic_action_server), '
+                'proposal_id/decision_id/execution_id (string or null), reason_codes (string array), '
+                'execution_status/failure_code/error_code (string or null), '
+                'verification (INCONCLUSIVE). Unproduced fields are null; reason_codes may be empty. '
+                'success=true requires Safety APPROVE and execution SUCCEEDED; '
+                'false reports rejection, failure or service error. '
+                'INCONCLUSIVE is not verified task success.'
+            ),
+        ]
         for name in config['skills']:
             spec = get_skill_spec(SkillName(name))
             descriptions.append(
                 f'{spec.name.value}: {spec.description} '
-                'input=MX_UNIMPLEMENTED output=MX_UNIMPLEMENTED'
+                f'input_schema={json.dumps(spec.args_schema, ensure_ascii=False, sort_keys=True)}'
             )
         return '\n'.join(descriptions)
 
