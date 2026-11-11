@@ -7,11 +7,19 @@ from datetime import UTC, datetime
 from pathlib import Path
 from threading import Thread
 from types import SimpleNamespace
+from unittest.mock import MagicMock, Mock
 
 import pytest
 import rclpy
+from agent_comm import llm_node, ros_agent_srv
 from agent_comm.llm_node import _FIXED_BEHAVIOR, LLMNode
-from agent_comm.ros_agent_srv import _BEHAVIOR_TIMEOUT_S, RosAgent, RosEnv, main
+from agent_comm.ros_agent_srv import (
+    _BEHAVIOR_TIMEOUT_S,
+    _LLM_RESPONSE_TIMEOUT_S,
+    RosAgent,
+    RosEnv,
+    main,
+)
 from behavior_executor.sequence_executor import _DEFAULT_TIMEOUT_S, _MAX_ACTIONS, SequenceExecutor
 from flight_agent_ros.adapters.px4_world_state_adapter import Px4WorldStateAdapter
 from observation_manager.observation_manager_node import ObservationManagerNode
@@ -28,6 +36,7 @@ from flight_agent.contracts import HoldArgs, RTLArgs, SkillName, parse_skill_arg
 def test_timeout_budgets_cover_skills_and_full_sequence() -> None:
     '''防止 Skill 或执行器预算增长后，上层仍用较短的旧等待预算。'''
     longest_skill = max(spec.timeout_s for spec in list_skill_specs())
+    assert _LLM_RESPONSE_TIMEOUT_S > llm_node._HTTP_TIMEOUT_S
     assert _DEFAULT_TIMEOUT_S >= longest_skill + 30.0
     assert _BEHAVIOR_TIMEOUT_S > _MAX_ACTIONS * 2 * _DEFAULT_TIMEOUT_S
 
@@ -54,10 +63,23 @@ class RecordingLLM(LLMNode):
         return super().get_response(request, response)
 
 
+@pytest.mark.parametrize('test_input_failure', ['config', 'timeout'])
 def test_main_observes_before_human_input_then_reobserves_after_llm_failure(
-    tmp_path: Path,
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, test_input_failure: str,
 ) -> None:
-    '''验证真实状态摘要进入人工入口的 prompt 和 Trace，模型失败后重新观察。'''
+    '''验证主入口的配置/网络失败零派发、重新观察，以及完整来源记录。'''
+    monkeypatch.delenv('FLIGHT_LLM_API_KEY', raising=False)
+    monkeypatch.delenv('FLIGHT_LLM_BASE_URL', raising=False)
+    monkeypatch.delenv('FLIGHT_LLM_MODEL', raising=False)
+    test_temp_opener = Mock()
+    test_temp_opener.open.side_effect = TimeoutError('test-only-secret')
+    monkeypatch.setattr(llm_node.urllib.request, 'build_opener', lambda *_: test_temp_opener)
+    if test_input_failure == 'timeout':
+        monkeypatch.setenv('FLIGHT_LLM_API_KEY', 'test-only-secret')
+    test_temp_call = Mock(wraps=ros_agent_srv._call_service)
+    monkeypatch.setattr(ros_agent_srv, '_call_service', test_temp_call)
+    test_temp_step = Mock(side_effect=AssertionError('unexpected behavior dispatch'))
+    monkeypatch.setattr(RosEnv, 'step', test_temp_step)
 
     rclpy.init()
     aggregator = WorldStateAggregator()
@@ -95,6 +117,17 @@ def test_main_observes_before_human_input_then_reobserves_after_llm_failure(
         assert observation.calls == 2
         assert len(llm.prompts) == 1
         assert 'HumanInput: 检查当前位置' in llm.prompts[0]
+        test_temp_format = llm.prompts[0].split('AtomicActionLibrary:', 1)[0]
+        assert test_temp_format.startswith('ResponseFormat:')
+        assert 'only one ```json code block containing JSON Lines' in test_temp_format
+        assert f'1 to {_MAX_ACTIONS} actions, one JSON object per line' in test_temp_format
+        assert 'exactly "name" and "input"' in test_temp_format
+        assert 'action name from AtomicActionLibrary' in test_temp_format
+        assert 'string encoding one JSON object' in test_temp_format
+        assert 'that action input_schema' in test_temp_format
+        assert 'for parameterless actions use the string "{}"' in test_temp_format
+        assert 'Do not return a JSON array, extra fields, executable code' in test_temp_format
+        assert 'multiple code blocks, or any text outside the code block' in test_temp_format
         assert 'state_id=state-21-1' in llm.prompts[0]
         assert 'takeoff: 起飞到指定的正数目标高度。' in llm.prompts[0]
         assert 'MX_UNIMPLEMENTED' not in llm.prompts[0]
@@ -148,7 +181,20 @@ def test_main_observes_before_human_input_then_reobserves_after_llm_failure(
         assert observations[0].message == 'WorldState snapshot acquired'
         reply, = replay.iter_llm_response_records()
         assert reply.prompt == llm.prompts[0]
-        assert (reply.success, reply.response, reply.info) == (False, '', 'LLM_UNAVAILABLE_MX2')
+        assert reply.success is False and reply.response == ''
+        assert json.loads(reply.info)['error_code'] == (
+            'LLM_CONFIG_ERROR' if test_input_failure == 'config' else 'LLM_TIMEOUT'
+        )
+        assert 'test-only-secret' not in reply.info
+        assert test_temp_opener.open.call_count == (0 if test_input_failure == 'config' else 1)
+        test_temp_step.assert_not_called()
+        test_temp_llm_calls = [
+            call for call in test_temp_call.call_args_list if isinstance(call.args[2], LLM.Request)
+        ]
+        assert len(test_temp_llm_calls) == 1
+        assert test_temp_llm_calls[0].kwargs == {
+            'timeout_s': 35.0, 'discovery_timeout_s': 5.0,
+        }
     finally:
         executor.shutdown()
         thread.join(timeout=5)
@@ -157,7 +203,28 @@ def test_main_observes_before_human_input_then_reobserves_after_llm_failure(
         rclpy.shutdown()
 
 
-def test_main_executes_two_actions_then_observes_success_and_failure(tmp_path: Path, monkeypatch) -> None:
+@pytest.mark.parametrize('test_input_model', ['fixed', 'api'])
+def test_main_executes_two_actions_then_observes_success_and_failure(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, test_input_model: str,
+) -> None:
+    '''从真实入口验证固定模式和 HTTP 边界替身均可执行序列并返回观察。'''
+    test_temp_response = MagicMock()
+    test_temp_response.__enter__.return_value = test_temp_response
+    test_temp_response.status = 200
+    test_temp_response.read.return_value = json.dumps({
+        'id': 'test-response', 'model': 'deepseek-flash',
+        'choices': [{'finish_reason': 'stop', 'message': {
+            'role': 'assistant', 'content': _FIXED_BEHAVIOR,
+        }}],
+        'usage': {'prompt_tokens': 10, 'completion_tokens': 5, 'total_tokens': 15,
+                  'prompt_cache_hit_tokens': 0, 'prompt_cache_miss_tokens': 10},
+    }).encode()
+    test_temp_opener = Mock()
+    test_temp_opener.open.return_value = test_temp_response
+    monkeypatch.setattr(llm_node.urllib.request, 'build_opener', lambda *_: test_temp_opener)
+    monkeypatch.setenv('FLIGHT_LLM_API_KEY', 'test-only-secret')
+    monkeypatch.setenv('FLIGHT_LLM_BASE_URL', 'https://api.deepseek.com')
+    monkeypatch.setenv('FLIGHT_LLM_MODEL', 'deepseek-flash')
     rclpy.init()
     aggregator = WorldStateAggregator()
     source = Px4WorldStateAdapter(aggregator=aggregator, trace_path=tmp_path / 'world_state.jsonl')
@@ -171,7 +238,7 @@ def test_main_executes_two_actions_then_observes_success_and_failure(tmp_path: P
     source._record_snapshot()
     observation = RecordingObservationManager(source)
     llm = RecordingLLM()
-    llm.set_parameters([Parameter('mx_fixed_behavior', value=True)])
+    llm.set_parameters([Parameter('mx_fixed_behavior', value=test_input_model == 'fixed')])
     sequence = SequenceExecutor(action_timeout_s=0.5)
     actions = rclpy.create_node('mx3_entry_test_actions')
     calls: list[tuple[str, str, str]] = []
@@ -235,11 +302,18 @@ def test_main_executes_two_actions_then_observes_success_and_failure(tmp_path: P
         assert steps == [(-0.5, False, {}), (-1.0, False, {})]
         replay = TraceReplay(trace_path)
         assert len(tuple(replay.iter_observation_records())) == 3
+        assert test_temp_opener.open.call_count == (2 if test_input_model == 'api' else 0)
+        if test_input_model == 'api':
+            for reply in replay.iter_llm_response_records():
+                assert json.loads(reply.info)['usage']['total_tokens'] == 15
+                assert 'test-only-secret' not in reply.info
         replies = tuple(replay.iter_llm_response_records())
         assert [record.prompt for record in replies] == llm.prompts
-        assert all((record.success, record.response, record.info) == (
-            True, _FIXED_BEHAVIOR, 'MX_FIXED_BEHAVIOR: hold,rtl',
-        ) for record in replies)
+        assert all(record.success and record.response == _FIXED_BEHAVIOR for record in replies)
+        if test_input_model == 'fixed':
+            assert all(record.info == 'MX_FIXED_BEHAVIOR: hold,rtl' for record in replies)
+        else:
+            assert all(json.loads(record.info)['source'] == 'deepseek_api' for record in replies)
     finally:
         executor.shutdown()
         thread.join(timeout=5)

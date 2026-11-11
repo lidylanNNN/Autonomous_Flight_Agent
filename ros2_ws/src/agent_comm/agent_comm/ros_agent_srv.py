@@ -21,17 +21,21 @@ from flight_agent.components.tracing import TraceRecorder
 from flight_agent.contracts import SkillName
 
 _SERVICE_TIMEOUT_S = 5.0
+_LLM_RESPONSE_TIMEOUT_S = 35.0
 # 与 SequenceExecutor 默认预算同步：最多 16 项，每项发现服务和等待响应各 150 秒。
 _BEHAVIOR_TIMEOUT_S = 16 * (150.0 + 150.0) + _SERVICE_TIMEOUT_S
 _BEHAVIOR_BLOCK = re.compile(r'\s*```json\s*\n(?P<behavior>.*?)\n```\s*', re.DOTALL)
 
 
 def _call_service(
-    node: Node, client: Client, request: Any, timeout_s: float = _SERVICE_TIMEOUT_S
+    node: Node, client: Client, request: Any, timeout_s: float = _SERVICE_TIMEOUT_S,
+    *, discovery_timeout_s: float | None = None,
 ) -> Any:
-    """Call a service with a bounded wait; never leave the human loop hanging."""
+    '''分别限制服务发现和响应等待；未指定发现预算时保持原行为。'''
 
-    if not client.wait_for_service(timeout_sec=timeout_s):
+    if not client.wait_for_service(
+        timeout_sec=timeout_s if discovery_timeout_s is None else discovery_timeout_s,
+    ):
         raise RuntimeError(f'SERVICE_UNAVAILABLE: {client.srv_name}')
     future = client.call_async(request)
     rclpy.spin_until_future_complete(node, future, timeout_sec=timeout_s)
@@ -131,18 +135,30 @@ class RosAgent:
         self._llm_client = node.create_client(LLM, 'call_llm')
 
     def get_action(self, human: str, obs: Observation.Response) -> LLM.Response:
-        """Return the LLM result; failed observations cannot become flight plans."""
+        '''组合人工输入、观察、动作库与输出格式指令；观察失败时不调用模型。'''
 
         if not obs.success:
             return LLM.Response(success=False, response='', info='OBSERVATION_UNAVAILABLE')
         prompt = (
+            'ResponseFormat:\n'
+            'Return only one ```json code block containing JSON Lines, '
+            'with 1 to 16 actions, one JSON object per line. '
+            'Each object must contain exactly "name" and "input". '
+            'The name must be an action name from AtomicActionLibrary. '
+            'The input must be a string encoding one JSON object that conforms to '
+            'that action input_schema; for parameterless actions use the string "{}". '
+            'Do not return a JSON array, extra fields, executable code, '
+            'multiple code blocks, or any text outside the code block.\n'
             f'AtomicActionLibrary:\n{self._action_library}\n'
             f'Observation source: {obs.source}\nObservation: {obs.observation}\n'
             f'HumanInput: {human}'
         )
         response = cast(
             LLM.Response,
-            _call_service(self._node, self._llm_client, LLM.Request(prompt=prompt)),
+            _call_service(
+                self._node, self._llm_client, LLM.Request(prompt=prompt),
+                timeout_s=_LLM_RESPONSE_TIMEOUT_S, discovery_timeout_s=_SERVICE_TIMEOUT_S,
+            ),
         )
         try:
             self._recorder.record_llm_response(
