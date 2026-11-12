@@ -46,8 +46,9 @@ from flight_agent.contracts import (
 ])
 def test_human_round_through_flight_service_and_gate(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, outcome: str,
+    capfd: pytest.CaptureFixture[str],
 ) -> None:
-    '''验证两步成功、首项失败和权限拒绝后，主入口均重新观察并等待人工输入。'''
+    '''验证真实服务/Gate 的执行事实和新观察显示，失败后仍等待人工输入。'''
     rclpy.init()
     aggregator = WorldStateAggregator()
     source = Px4WorldStateAdapter(aggregator=aggregator, trace_path=tmp_path / 'world.jsonl')
@@ -191,6 +192,22 @@ def test_human_round_through_flight_service_and_gate(
         assert _inputs == 2
         assert all(obs.success for obs in _observations)
         assert _rewards == ([-0.5] if outcome == 'success' else [-1.0])
+        test_temp_output = capfd.readouterr()
+        test_temp_terminal = test_temp_output.out + test_temp_output.err
+        assert all(obs.observation in test_temp_terminal for obs in _observations)
+        assert '任务验证：INCONCLUSIVE（未完成独立任务验证）' in test_temp_terminal
+        if outcome == 'success':
+            assert '动作序列执行成功' in test_temp_terminal
+            assert '动作序列执行失败或被拒绝' not in test_temp_terminal
+        else:
+            assert '动作序列执行失败或被拒绝' in test_temp_terminal
+            assert '动作序列执行成功' not in test_temp_terminal
+            if outcome == 'unknown_authority':
+                assert 'AUTHORITY_NOT_GRANTED' in test_temp_terminal
+            elif outcome in {'execution_failure', 'execution_timeout'}:
+                assert 'TEST_EXECUTION_FAILURE' in test_temp_terminal
+            else:
+                assert 'SERVICE_ERROR' in test_temp_terminal
         expected_skills = (
             [SkillName.HOLD, SkillName.RTL] if outcome == 'success' else
             [] if outcome in {'unknown_authority', 'decision_trace_failure'} else [SkillName.HOLD]

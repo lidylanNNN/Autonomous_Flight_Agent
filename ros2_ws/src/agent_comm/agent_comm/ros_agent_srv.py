@@ -54,7 +54,7 @@ class RosEnv:
         self._behavior_client = node.create_client(ExecuteBehavior, 'execute_behavior')
 
     def get_obs(self) -> Observation.Response:
-        """Request the current observation from Observation Manager."""
+        '''取得并记录观察，同时向操作者显示状态或获取失败原因。'''
 
         response = cast(
             Observation.Response,
@@ -67,6 +67,14 @@ class RosEnv:
             )
         except OSError as error:
             raise OSError(f'OBSERVATION_TRACE_WRITE_FAILED: {error}') from error
+        if response.success:
+            self._node.get_logger().info(
+                f'当前观察（来源：{response.source}）：\n{response.observation}'
+            )
+        else:
+            self._node.get_logger().warning(
+                f'观察获取失败（来源：{response.source}）：{response.message}'
+            )
         return response
 
     def get_atomic_action_library(self) -> str:
@@ -107,7 +115,7 @@ class RosEnv:
         return '\n'.join(descriptions)
 
     def step(self, behavior: str) -> tuple[Observation.Response, float, bool, dict[str, object]]:
-        """Execute one behavior, then refresh the observation even if it fails."""
+        '''执行行为并展示原始诊断，随后更新观察；执行成功不等于任务已验证。'''
 
         result = cast(
             ExecuteBehavior.Response,
@@ -118,9 +126,9 @@ class RosEnv:
                 timeout_s=_BEHAVIOR_TIMEOUT_S,
             ),
         )
-        self._node.get_logger().info(
-            f'execute_behavior success={result.success} info={result.info} message={result.message}'
-        )
+        status = '动作序列执行成功' if result.success else '动作序列执行失败或被拒绝'
+        self._node.get_logger().info(f'{status}：{result.message}')
+        self._node.get_logger().info('任务验证：INCONCLUSIVE（未完成独立任务验证）')
         obs = self.get_obs()
         return obs, (-0.5 if result.success else -1.0), False, {}
 
@@ -208,27 +216,27 @@ def main(
             try:
                 result = agent.get_action(human, obs)
             except RuntimeError as error:
-                node.get_logger().warning(str(error))
+                node.get_logger().warning(f'模型调用失败，未派发行为：{error}')
                 obs = env.get_obs()
                 continue
             if not result.success:
-                node.get_logger().warning(result.info)
+                node.get_logger().warning(f'本轮决策失败，未派发行为：{result.info}')
                 obs = env.get_obs()
                 continue
             try:
                 behavior = agent.extract_behavior(result)
             except ValueError as error:
-                node.get_logger().warning(str(error))
+                node.get_logger().warning(f'行为提取失败，未派发行为：{error}')
                 obs = env.get_obs()
                 continue
             node.get_logger().info(f'behavior_source={result.info}')
             try:
                 obs, reward, done, info = env.step(behavior)
             except RuntimeError as error:
-                node.get_logger().warning(str(error))
+                node.get_logger().warning(f'行为服务调用失败，执行状态未知：{error}')
                 obs = env.get_obs()
                 continue
-            node.get_logger().info(f'behavior_reward={reward} done={done} info={info}')
+            node.get_logger().debug(f'behavior_reward={reward} done={done} info={info}')
     finally:
         node.destroy_node()
         if owns_context and rclpy.ok():

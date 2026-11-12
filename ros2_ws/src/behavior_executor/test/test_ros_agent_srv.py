@@ -66,8 +66,9 @@ class RecordingLLM(LLMNode):
 @pytest.mark.parametrize('test_input_failure', ['config', 'timeout'])
 def test_main_observes_before_human_input_then_reobserves_after_llm_failure(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, test_input_failure: str,
+    capfd: pytest.CaptureFixture[str],
 ) -> None:
-    '''验证主入口的配置/网络失败零派发、重新观察，以及完整来源记录。'''
+    '''验证配置/网络失败零派发、重新观察，并显示失败原因和实际观察。'''
     monkeypatch.delenv('FLIGHT_LLM_API_KEY', raising=False)
     monkeypatch.delenv('FLIGHT_LLM_BASE_URL', raising=False)
     monkeypatch.delenv('FLIGHT_LLM_MODEL', raising=False)
@@ -195,6 +196,13 @@ def test_main_observes_before_human_input_then_reobserves_after_llm_failure(
         assert test_temp_llm_calls[0].kwargs == {
             'timeout_s': 35.0, 'discovery_timeout_s': 5.0,
         }
+        test_temp_output = capfd.readouterr()
+        test_temp_terminal = test_temp_output.out + test_temp_output.err
+        assert '本轮决策失败，未派发行为' in test_temp_terminal
+        assert json.loads(reply.info)['error_code'] in test_temp_terminal
+        assert all(record.observation in test_temp_terminal for record in observations)
+        assert '动作序列执行成功' not in test_temp_terminal
+        assert 'test-only-secret' not in test_temp_terminal
     finally:
         executor.shutdown()
         thread.join(timeout=5)
@@ -206,8 +214,9 @@ def test_main_observes_before_human_input_then_reobserves_after_llm_failure(
 @pytest.mark.parametrize('test_input_model', ['fixed', 'api'])
 def test_main_executes_two_actions_then_observes_success_and_failure(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, test_input_model: str,
+    capfd: pytest.CaptureFixture[str],
 ) -> None:
-    '''从真实入口验证固定模式和 HTTP 边界替身均可执行序列并返回观察。'''
+    '''验证固定模式及 HTTP 替身的序列执行、再观察和操作者输出。'''
     test_temp_response = MagicMock()
     test_temp_response.__enter__.return_value = test_temp_response
     test_temp_response.status = 200
@@ -314,6 +323,15 @@ def test_main_executes_two_actions_then_observes_success_and_failure(
             assert all(record.info == 'MX_FIXED_BEHAVIOR: hold,rtl' for record in replies)
         else:
             assert all(json.loads(record.info)['source'] == 'deepseek_api' for record in replies)
+        test_temp_output = capfd.readouterr()
+        test_temp_terminal = test_temp_output.out + test_temp_output.err
+        assert '动作序列执行成功' in test_temp_terminal
+        assert '动作序列执行失败或被拒绝' in test_temp_terminal
+        assert 'ATOMIC_ACTION_FAILED name=hold: hold-failed' in test_temp_terminal
+        assert test_temp_terminal.count('任务验证：INCONCLUSIVE') == 2
+        assert all(
+            record.observation in test_temp_terminal for record in replay.iter_observation_records()
+        )
     finally:
         executor.shutdown()
         thread.join(timeout=5)
@@ -339,8 +357,10 @@ def test_agent_rejects_behavior_outside_a_single_json_block() -> None:
 
 @pytest.mark.parametrize('scenario', ['missing_observation', 'observation_write', 'llm_write'])
 def test_main_records_observation_failure_and_stops_on_trace_write_failure(
-    tmp_path: Path, monkeypatch, scenario: str,
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, scenario: str,
+    capfd: pytest.CaptureFixture[str],
 ) -> None:
+    '''核对观察失败的终端说明与零派发，Trace 写入失败仍向上传播。'''
     trace_path = tmp_path / 'configured_agent.jsonl'
     rclpy.init(args=['--ros-args', '-p', f'agent_trace_path:={trace_path}'])
     aggregator = WorldStateAggregator()
@@ -389,6 +409,11 @@ def test_main_records_observation_failure_and_stops_on_trace_write_failure(
             assert all(record.source == 'px4_world_state_adapter' and record.message for record in records)
             assert not llm.prompts
             assert not tuple(TraceReplay(trace_path).iter_llm_response_records())
+            test_temp_output = capfd.readouterr()
+            test_temp_terminal = test_temp_output.out + test_temp_output.err
+            assert '观察获取失败（来源：px4_world_state_adapter）' in test_temp_terminal
+            assert all(record.message in test_temp_terminal for record in records)
+            assert '动作序列执行成功' not in test_temp_terminal
         else:
             method = 'record_observation' if scenario == 'observation_write' else 'record_llm_response'
             monkeypatch.setattr(TraceRecorder, method, fail_write)
