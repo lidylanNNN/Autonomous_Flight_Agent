@@ -56,6 +56,11 @@
 - 新增组件前说明由谁创建、由谁持有、在什么条件下调用，以及生产环境是否已接入；没有明确使用场景的组件不得提前批量开发。
 - 优先通过实际生产装配路径验证链路，单测补充边界与故障覆盖；证据和替身范围按下节报告。
 
+## 代码命名
+
+- 对象数量统一使用 `<对象名>_cnt`，例如 `action_cnt`、`input_cnt`；禁止用 `<对象名>s` 表示数量。复数名称表示对象集合，例如 `actions`、`inputs`。测试代码同时遵守下节的命名前缀要求，例如 `test_temp_input_cnt` 表示测试输入次数，`test_temp_inputs` 表示测试输入集合。
+- 测试中定义、业务代码里没有对应实现的函数，名称统一使用 `test_temp_` 前缀，例如 `test_temp_record_step`、`test_temp_fail_write`；有对应真实业务实现的函数保持业务名称。
+
 ## 测试覆盖与证据核对
 
 - **测试专用命名**：测试输入参数使用 `test_input_` 前缀，预期输出使用 `expected_output_` 前缀。上述输入、预期输出以外，业务代码中不存在的对象及其记录文件使用 `test_temp_` 前缀，例如 `test_temp_counts`、`test_temp_messages`、`test_temp_backend_calls.json`。业务代码中已有的对象、返回值、配置文件及正式 Trace 保持业务名称，例如 `success`、`safety.json`。按业务代码中是否存在对应对象或数据判断，不按变量所在文件、创建位置或文件后缀判断。

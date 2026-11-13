@@ -33,38 +33,40 @@ from flight_agent.components.vehicle.state import WorldStateAggregator
 from flight_agent.contracts import HoldArgs, RTLArgs, SkillName, parse_skill_arguments
 
 
-def test_timeout_budgets_cover_skills_and_full_sequence() -> None:
+def test_temp_timeout_budgets_cover_skills_and_full_sequence() -> None:
     '''防止 Skill 或执行器预算增长后，上层仍用较短的旧等待预算。'''
-    longest_skill = max(spec.timeout_s for spec in list_skill_specs())
+    expected_output_skill_timeout_s = max(spec.timeout_s for spec in list_skill_specs())
     assert _LLM_RESPONSE_TIMEOUT_S > llm_node._HTTP_TIMEOUT_S
-    assert _DEFAULT_TIMEOUT_S >= longest_skill + 30.0
+    assert _DEFAULT_TIMEOUT_S >= expected_output_skill_timeout_s + 30.0
     assert _BEHAVIOR_TIMEOUT_S > _MAX_ACTIONS * 2 * _DEFAULT_TIMEOUT_S
 
 
 class RecordingObservationManager(ObservationManagerNode):
     def __init__(self, source: Px4WorldStateAdapter) -> None:
-        self.calls = 0
+        self.test_temp_call_cnt = 0
         super().__init__(source)
 
     def get_observation(
         self, request: Observation.Request, response: Observation.Response
     ) -> Observation.Response:
-        self.calls += 1
+        self.test_temp_call_cnt += 1
         return super().get_observation(request, response)
 
 
 class RecordingLLM(LLMNode):
     def __init__(self) -> None:
-        self.prompts: list[str] = []
+        '''创建真实模型服务，并保存测试用 prompt 记录集合。'''
+        self.test_temp_prompts: list[str] = []
         super().__init__()
 
     def get_response(self, request: LLM.Request, response: LLM.Response) -> LLM.Response:
-        self.prompts.append(request.prompt)
+        '''记录请求后调用真实模型服务实现。'''
+        self.test_temp_prompts.append(request.prompt)
         return super().get_response(request, response)
 
 
 @pytest.mark.parametrize('test_input_failure', ['config', 'timeout'])
-def test_main_observes_before_human_input_then_reobserves_after_llm_failure(
+def test_temp_main_observes_before_human_input_then_reobserves_after_llm_failure(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, test_input_failure: str,
     capfd: pytest.CaptureFixture[str],
 ) -> None:
@@ -100,25 +102,26 @@ def test_main_observes_before_human_input_then_reobserves_after_llm_failure(
     executor = MultiThreadedExecutor(num_threads=3)
     for node in (source, observation, llm):
         executor.add_node(node)
-    thread = Thread(target=executor.spin, daemon=True)
-    thread.start()
-    inputs = 0
+    test_temp_thread = Thread(target=executor.spin, daemon=True)
+    test_temp_thread.start()
+    test_temp_input_cnt = 0
 
-    def read_input(_prompt: str) -> str:
-        nonlocal inputs
-        inputs += 1
-        assert observation.calls == inputs
-        if inputs == 1:
+    def test_temp_read_input(_prompt: str) -> str:
+        '''提供一次人工输入，再以 EOF 结束主循环。'''
+        nonlocal test_temp_input_cnt
+        test_temp_input_cnt += 1
+        assert observation.test_temp_call_cnt == test_temp_input_cnt
+        if test_temp_input_cnt == 1:
             return '检查当前位置'
         raise EOFError
 
     try:
         trace_path = tmp_path / 'agent.jsonl'
-        main(input_reader=read_input, trace_path=trace_path)
-        assert observation.calls == 2
-        assert len(llm.prompts) == 1
-        assert 'HumanInput: 检查当前位置' in llm.prompts[0]
-        test_temp_format = llm.prompts[0].split('AtomicActionLibrary:', 1)[0]
+        main(input_reader=test_temp_read_input, trace_path=trace_path)
+        assert observation.test_temp_call_cnt == 2
+        assert len(llm.test_temp_prompts) == 1
+        assert 'HumanInput: 检查当前位置' in llm.test_temp_prompts[0]
+        test_temp_format = llm.test_temp_prompts[0].split('AtomicActionLibrary:', 1)[0]
         assert test_temp_format.startswith('ResponseFormat:')
         assert 'only one ```json code block containing JSON Lines' in test_temp_format
         assert f'1 to {_MAX_ACTIONS} actions, one JSON object per line' in test_temp_format
@@ -129,10 +132,10 @@ def test_main_observes_before_human_input_then_reobserves_after_llm_failure(
         assert 'for parameterless actions use the string "{}"' in test_temp_format
         assert 'Do not return a JSON array, extra fields, executable code' in test_temp_format
         assert 'multiple code blocks, or any text outside the code block' in test_temp_format
-        assert 'state_id=state-21-1' in llm.prompts[0]
-        assert 'takeoff: 起飞到指定的正数目标高度。' in llm.prompts[0]
-        assert 'MX_UNIMPLEMENTED' not in llm.prompts[0]
-        action_library = llm.prompts[0].split('AtomicActionLibrary:\n', 1)[1].split(
+        assert 'state_id=state-21-1' in llm.test_temp_prompts[0]
+        assert 'takeoff: 起飞到指定的正数目标高度。' in llm.test_temp_prompts[0]
+        assert 'MX_UNIMPLEMENTED' not in llm.test_temp_prompts[0]
+        action_library = llm.test_temp_prompts[0].split('AtomicActionLibrary:\n', 1)[1].split(
             '\nObservation source:', 1,
         )[0]
         assert 'type=ROS2 service' in action_library
@@ -178,10 +181,10 @@ def test_main_observes_before_human_input_then_reobserves_after_llm_failure(
         assert 'state_id=state-21-1' in observations[0].observation
         assert 'frame=NED' in observations[0].observation
         assert 'null=unknown' in observations[0].observation
-        assert observations[0].observation in llm.prompts[0]
+        assert observations[0].observation in llm.test_temp_prompts[0]
         assert observations[0].message == 'WorldState snapshot acquired'
         reply, = replay.iter_llm_response_records()
-        assert reply.prompt == llm.prompts[0]
+        assert reply.prompt == llm.test_temp_prompts[0]
         assert reply.success is False and reply.response == ''
         assert json.loads(reply.info)['error_code'] == (
             'LLM_CONFIG_ERROR' if test_input_failure == 'config' else 'LLM_TIMEOUT'
@@ -205,14 +208,14 @@ def test_main_observes_before_human_input_then_reobserves_after_llm_failure(
         assert 'test-only-secret' not in test_temp_terminal
     finally:
         executor.shutdown()
-        thread.join(timeout=5)
+        test_temp_thread.join(timeout=5)
         for node in (llm, observation, source):
             node.destroy_node()
         rclpy.shutdown()
 
 
 @pytest.mark.parametrize('test_input_model', ['fixed', 'api'])
-def test_main_executes_two_actions_then_observes_success_and_failure(
+def test_temp_main_executes_two_actions_then_observes_success_and_failure(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, test_input_model: str,
     capfd: pytest.CaptureFixture[str],
 ) -> None:
@@ -249,38 +252,38 @@ def test_main_executes_two_actions_then_observes_success_and_failure(
     llm = RecordingLLM()
     llm.set_parameters([Parameter('mx_fixed_behavior', value=test_input_model == 'fixed')])
     sequence = SequenceExecutor(action_timeout_s=0.5)
-    actions = rclpy.create_node('mx3_entry_test_actions')
-    calls: list[tuple[str, str, str]] = []
-    fail_hold = False
-    steps: list[tuple[float, bool, dict[str, object]]] = []
-    original_step = RosEnv.step
+    test_temp_actions = rclpy.create_node('mx3_entry_test_actions')
+    test_temp_calls: list[tuple[str, str, str]] = []
+    test_temp_fail_hold = False
+    test_temp_steps: list[tuple[float, bool, dict[str, object]]] = []
+    test_temp_original_step = RosEnv.step
     test_temp_waiting = Event()
     test_temp_resume = Event()
     test_temp_wait_samples: list[tuple[int, int, int]] = []
     test_temp_input_boundaries: list[tuple[int, int, int]] = []
 
-    def record_step(
+    def test_temp_record_step(
         self: RosEnv, behavior: str,
     ) -> tuple[Observation.Response, float, bool, dict[str, object]]:
         '''调用真实环境步，仅记录返回值。'''
-        result = original_step(self, behavior)
-        steps.append(result[1:])
+        result = test_temp_original_step(self, behavior)
+        test_temp_steps.append(result[1:])
         return result
 
-    monkeypatch.setattr(RosEnv, 'step', record_step)
+    monkeypatch.setattr(RosEnv, 'step', test_temp_record_step)
 
     def hold(request: AtomicAction.Request, response: AtomicAction.Response) -> AtomicAction.Response:
         '''验证实际收到的 hold JSON 参数，并返回脚本化动作结果。'''
         assert HoldArgs.model_validate_json(request.input).duration_s == 1.0
-        calls.append(('hold', request.input, request.prev_output))
-        response.success = not fail_hold
+        test_temp_calls.append(('hold', request.input, request.prev_output))
+        response.success = not test_temp_fail_hold
         response.output = 'hold-output' if response.success else 'hold-failed'
         return response
 
     def rtl(request: AtomicAction.Request, response: AtomicAction.Response) -> AtomicAction.Response:
         '''验证实际收到的 rtl 空参数对象，再返回动作替身结果。'''
         RTLArgs.model_validate_json(request.input)
-        calls.append(('rtl', request.input, request.prev_output))
+        test_temp_calls.append(('rtl', request.input, request.prev_output))
         aggregator.update_local_position(SimpleNamespace(
             timestamp=24, x=4.0, y=5.0, z=-6.0,
             vx=0.0, vy=0.0, vz=0.0, xy_valid=True, z_valid=True,
@@ -290,54 +293,61 @@ def test_main_executes_two_actions_then_observes_success_and_failure(
         response.output = 'rtl-output'
         return response
 
-    actions.create_service(AtomicAction, 'hold', hold)
-    actions.create_service(AtomicAction, 'rtl', rtl)
+    test_temp_actions.create_service(AtomicAction, 'hold', hold)
+    test_temp_actions.create_service(AtomicAction, 'rtl', rtl)
 
     def test_temp_sample_wait() -> None:
         '''人工输入阻塞期间，让 ROS 定时回调记录真实服务与动作调用次数。'''
         if test_temp_waiting.is_set() and not test_temp_resume.is_set():
-            test_temp_wait_samples.append((len(llm.prompts), observation.calls, len(calls)))
+            test_temp_wait_samples.append((
+                len(llm.test_temp_prompts), observation.test_temp_call_cnt, len(test_temp_calls),
+            ))
             if len(test_temp_wait_samples) == 3:
                 test_temp_resume.set()
 
-    actions.create_timer(0.05, test_temp_sample_wait)
+    test_temp_actions.create_timer(0.05, test_temp_sample_wait)
     executor = MultiThreadedExecutor(num_threads=4)
-    for node in (source, observation, llm, sequence, actions):
+    for node in (source, observation, llm, sequence, test_temp_actions):
         executor.add_node(node)
-    thread = Thread(target=executor.spin, daemon=True)
-    thread.start()
-    inputs = 0
+    test_temp_thread = Thread(target=executor.spin, daemon=True)
+    test_temp_thread.start()
+    test_temp_input_cnt = 0
 
-    def read_input(_prompt: str) -> str:
+    def test_temp_read_input(_prompt: str) -> str:
         '''逐轮释放人工输入，并在第二轮输入前阻塞等待 ROS 回调采样。'''
-        nonlocal inputs, fail_hold
-        inputs += 1
-        assert observation.calls == inputs
-        assert len(llm.prompts) == inputs - 1
-        test_temp_input_boundaries.append((len(llm.prompts), observation.calls, len(calls)))
-        if inputs == 1:
+        nonlocal test_temp_input_cnt, test_temp_fail_hold
+        test_temp_input_cnt += 1
+        assert observation.test_temp_call_cnt == test_temp_input_cnt
+        assert len(llm.test_temp_prompts) == test_temp_input_cnt - 1
+        test_temp_input_boundaries.append((
+            len(llm.test_temp_prompts), observation.test_temp_call_cnt, len(test_temp_calls),
+        ))
+        if test_temp_input_cnt == 1:
             return '执行固定两步'
-        if inputs == 2:
+        if test_temp_input_cnt == 2:
             test_temp_waiting.set()
             assert test_temp_resume.wait(timeout=5.0), 'ROS wait probes did not complete'
             assert test_temp_wait_samples == [(1, 2, 2)] * 3
-            assert len(llm.prompts) == 1 and len(calls) == 2
-            fail_hold = True
+            assert len(llm.test_temp_prompts) == 1 and len(test_temp_calls) == 2
+            test_temp_fail_hold = True
             return '再次执行固定两步'
         raise EOFError
 
     try:
         trace_path = tmp_path / 'agent.jsonl'
-        main(input_reader=read_input, trace_path=trace_path)
-        assert observation.calls == 3
-        assert len(llm.prompts) == 2
+        main(input_reader=test_temp_read_input, trace_path=trace_path)
+        assert observation.test_temp_call_cnt == 3
+        assert len(llm.test_temp_prompts) == 2
         assert test_temp_input_boundaries == [(0, 1, 0), (1, 2, 2), (2, 3, 3)]
-        assert [(name, json.loads(payload), previous) for name, payload, previous in calls] == [
+        assert [
+            (name, json.loads(payload), previous)
+            for name, payload, previous in test_temp_calls
+        ] == [
             ('hold', {'duration_s': 1.0}, ''),
             ('rtl', {}, 'hold-output'),
             ('hold', {'duration_s': 1.0}, ''),
         ]
-        assert steps == [(-0.5, False, {}), (-1.0, False, {})]
+        assert test_temp_steps == [(-0.5, False, {}), (-1.0, False, {})]
         replay = TraceReplay(trace_path)
         observations = tuple(replay.iter_observation_records())
         assert len(observations) == 3
@@ -346,11 +356,11 @@ def test_main_executes_two_actions_then_observes_success_and_failure(
             {'x': 4.0, 'y': 5.0, 'z': -6.0},
         ]
         for test_temp_index, test_input_human in enumerate(('执行固定两步', '再次执行固定两步')):
-            assert f'HumanInput: {test_input_human}' in llm.prompts[test_temp_index]
-            assert observations[test_temp_index].observation in llm.prompts[test_temp_index]
+            assert f'HumanInput: {test_input_human}' in llm.test_temp_prompts[test_temp_index]
+            assert observations[test_temp_index].observation in llm.test_temp_prompts[test_temp_index]
             state = json.loads(observations[test_temp_index].observation.splitlines()[-1])
             assert state['position_ned_m'] == expected_output_positions[test_temp_index]
-        assert observations[0].observation not in llm.prompts[1]
+        assert observations[0].observation not in llm.test_temp_prompts[1]
         assert [json.loads(line)['type'] for line in trace_path.read_text().splitlines()] == [
             'observation', 'llm_response', 'observation', 'llm_response', 'observation',
         ]
@@ -360,7 +370,7 @@ def test_main_executes_two_actions_then_observes_success_and_failure(
                 assert json.loads(reply.info)['usage']['total_tokens'] == 15
                 assert 'test-only-secret' not in reply.info
         replies = tuple(replay.iter_llm_response_records())
-        assert [record.prompt for record in replies] == llm.prompts
+        assert [record.prompt for record in replies] == llm.test_temp_prompts
         assert all(record.success and record.response == _FIXED_BEHAVIOR for record in replies)
         if test_input_model == 'fixed':
             assert all(record.info == 'MX_FIXED_BEHAVIOR: hold,rtl' for record in replies)
@@ -377,30 +387,34 @@ def test_main_executes_two_actions_then_observes_success_and_failure(
         )
     finally:
         executor.shutdown()
-        thread.join(timeout=5)
-        for node in (actions, sequence, llm, observation, source):
+        test_temp_thread.join(timeout=5)
+        for node in (test_temp_actions, sequence, llm, observation, source):
             node.destroy_node()
         rclpy.shutdown()
 
 
-def test_agent_rejects_behavior_outside_a_single_json_block() -> None:
-    valid = LLM.Response(success=True, response=(
+def test_temp_agent_rejects_behavior_outside_a_single_json_block() -> None:
+    test_input_response = LLM.Response(success=True, response=(
         '```json\n{"name":"hold","input":"wait"}\n'
         '{"name":"rtl","input":"home"}\n```'
     ))
-    assert RosAgent.extract_behavior(valid).count('\n') == 1
-    for text in ('{"name":"hold","input":"wait"}', '```json\n```', '```json\nx\n```\nextra'):
+    assert RosAgent.extract_behavior(test_input_response).count('\n') == 1
+    for test_input_text in (
+        '{"name":"hold","input":"wait"}', '```json\n```', '```json\nx\n```\nextra',
+    ):
         try:
-            RosAgent.extract_behavior(LLM.Response(success=True, response=text))
+            RosAgent.extract_behavior(LLM.Response(success=True, response=test_input_text))
         except ValueError as error:
             assert 'INVALID_BEHAVIOR_RESPONSE' in str(error)
         else:
-            raise AssertionError(f'accepted invalid response: {text!r}')
+            raise AssertionError(f'accepted invalid response: {test_input_text!r}')
 
 
-@pytest.mark.parametrize('scenario', ['missing_observation', 'observation_write', 'llm_write'])
-def test_main_records_observation_failure_and_stops_on_trace_write_failure(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, scenario: str,
+@pytest.mark.parametrize(
+    'test_input_scenario', ['missing_observation', 'observation_write', 'llm_write'],
+)
+def test_temp_main_records_observation_failure_and_stops_on_trace_write_failure(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, test_input_scenario: str,
     capfd: pytest.CaptureFixture[str],
 ) -> None:
     '''核对观察失败的终端说明与零派发，Trace 写入失败仍向上传播。'''
@@ -408,7 +422,7 @@ def test_main_records_observation_failure_and_stops_on_trace_write_failure(
     rclpy.init(args=['--ros-args', '-p', f'agent_trace_path:={trace_path}'])
     aggregator = WorldStateAggregator()
     source = Px4WorldStateAdapter(aggregator=aggregator, trace_path=tmp_path / 'state.jsonl')
-    if scenario != 'missing_observation':
+    if test_input_scenario != 'missing_observation':
         aggregator.update_local_position(SimpleNamespace(
             timestamp=23, x=1.0, y=2.0, z=-3.0,
             vx=0.0, vy=0.0, vz=0.0, xy_valid=True, z_valid=True,
@@ -417,40 +431,45 @@ def test_main_records_observation_failure_and_stops_on_trace_write_failure(
     observation = RecordingObservationManager(source)
     llm = RecordingLLM()
     llm.set_parameters([Parameter('mx_fixed_behavior', value=True)])
-    behavior = rclpy.create_node('mx5_behavior_dispatch_probe')
-    dispatched = []
+    test_temp_behavior = rclpy.create_node('mx5_behavior_dispatch_probe')
+    test_temp_dispatched = []
 
-    def execute(request, response):
-        dispatched.append(request.behavior)
+    def test_temp_execute_behavior(
+        request: ExecuteBehavior.Request, response: ExecuteBehavior.Response,
+    ) -> ExecuteBehavior.Response:
+        '''记录行为服务请求，并返回成功替身响应。'''
+        test_temp_dispatched.append(request.behavior)
         response.success = True
         return response
 
-    behavior.create_service(ExecuteBehavior, 'execute_behavior', execute)
+    test_temp_behavior.create_service(ExecuteBehavior, 'execute_behavior', test_temp_execute_behavior)
     executor = MultiThreadedExecutor(num_threads=4)
-    nodes = (source, observation, llm, behavior)
+    nodes = (source, observation, llm, test_temp_behavior)
     for node in nodes:
         executor.add_node(node)
-    thread = Thread(target=executor.spin, daemon=True)
-    thread.start()
-    inputs = iter(['执行固定两步'])
+    test_temp_thread = Thread(target=executor.spin, daemon=True)
+    test_temp_thread.start()
+    test_input_humans = iter(['执行固定两步'])
 
-    def read_input(_prompt):
+    def test_temp_read_input(_prompt: str) -> str:
+        '''逐项提供预设人工输入，耗尽后以 EOF 结束主循环。'''
         try:
-            return next(inputs)
+            return next(test_input_humans)
         except StopIteration:
             raise EOFError from None
 
-    def fail_write(*_args, **_kwargs):
+    def test_temp_fail_write(*_args: object, **_kwargs: object) -> None:
+        '''注入 Trace 写入失败。'''
         raise PermissionError('injected trace write denial')
 
     try:
-        if scenario == 'missing_observation':
-            main(input_reader=read_input)
+        if test_input_scenario == 'missing_observation':
+            main(input_reader=test_temp_read_input)
             records = tuple(TraceReplay(trace_path).iter_observation_records())
             assert len(records) == 2
             assert all(not record.success and record.observation == '' for record in records)
             assert all(record.source == 'px4_world_state_adapter' and record.message for record in records)
-            assert not llm.prompts
+            assert not llm.test_temp_prompts
             assert not tuple(TraceReplay(trace_path).iter_llm_response_records())
             test_temp_output = capfd.readouterr()
             test_temp_terminal = test_temp_output.out + test_temp_output.err
@@ -458,16 +477,21 @@ def test_main_records_observation_failure_and_stops_on_trace_write_failure(
             assert all(record.message in test_temp_terminal for record in records)
             assert '动作序列执行成功' not in test_temp_terminal
         else:
-            method = 'record_observation' if scenario == 'observation_write' else 'record_llm_response'
-            monkeypatch.setattr(TraceRecorder, method, fail_write)
-            expected = 'OBSERVATION' if scenario == 'observation_write' else 'LLM'
-            with pytest.raises(OSError, match=f'{expected}_TRACE_WRITE_FAILED'):
-                main(input_reader=read_input)
-            assert len(llm.prompts) == (1 if scenario == 'llm_write' else 0)
-        assert dispatched == []
+            test_temp_method = (
+                'record_observation' if test_input_scenario == 'observation_write'
+                else 'record_llm_response'
+            )
+            monkeypatch.setattr(TraceRecorder, test_temp_method, test_temp_fail_write)
+            expected_output_trace = (
+                'OBSERVATION' if test_input_scenario == 'observation_write' else 'LLM'
+            )
+            with pytest.raises(OSError, match=f'{expected_output_trace}_TRACE_WRITE_FAILED'):
+                main(input_reader=test_temp_read_input)
+            assert len(llm.test_temp_prompts) == (1 if test_input_scenario == 'llm_write' else 0)
+        assert test_temp_dispatched == []
     finally:
         executor.shutdown()
-        thread.join(timeout=5)
+        test_temp_thread.join(timeout=5)
         for node in reversed(nodes):
             node.destroy_node()
         rclpy.shutdown()
