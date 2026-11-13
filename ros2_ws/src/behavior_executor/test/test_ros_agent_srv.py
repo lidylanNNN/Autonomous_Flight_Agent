@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from datetime import UTC, datetime
 from pathlib import Path
-from threading import Thread
+from threading import Event, Thread
 from types import SimpleNamespace
 from unittest.mock import MagicMock, Mock
 
@@ -216,7 +216,7 @@ def test_main_executes_two_actions_then_observes_success_and_failure(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, test_input_model: str,
     capfd: pytest.CaptureFixture[str],
 ) -> None:
-    '''验证固定模式及 HTTP 替身的序列执行、再观察和操作者输出。'''
+    '''验证两轮人工触发、等待期间无决策，以及新观察进入下一轮 prompt。'''
     test_temp_response = MagicMock()
     test_temp_response.__enter__.return_value = test_temp_response
     test_temp_response.status = 200
@@ -254,8 +254,15 @@ def test_main_executes_two_actions_then_observes_success_and_failure(
     fail_hold = False
     steps: list[tuple[float, bool, dict[str, object]]] = []
     original_step = RosEnv.step
+    test_temp_waiting = Event()
+    test_temp_resume = Event()
+    test_temp_wait_samples: list[tuple[int, int, int]] = []
+    test_temp_input_boundaries: list[tuple[int, int, int]] = []
 
-    def record_step(self: RosEnv, behavior: str):
+    def record_step(
+        self: RosEnv, behavior: str,
+    ) -> tuple[Observation.Response, float, bool, dict[str, object]]:
+        '''调用真实环境步，仅记录返回值。'''
         result = original_step(self, behavior)
         steps.append(result[1:])
         return result
@@ -274,12 +281,26 @@ def test_main_executes_two_actions_then_observes_success_and_failure(
         '''验证实际收到的 rtl 空参数对象，再返回动作替身结果。'''
         RTLArgs.model_validate_json(request.input)
         calls.append(('rtl', request.input, request.prev_output))
+        aggregator.update_local_position(SimpleNamespace(
+            timestamp=24, x=4.0, y=5.0, z=-6.0,
+            vx=0.0, vy=0.0, vz=0.0, xy_valid=True, z_valid=True,
+        ), datetime.now(UTC))
+        source._record_snapshot()
         response.success = True
         response.output = 'rtl-output'
         return response
 
     actions.create_service(AtomicAction, 'hold', hold)
     actions.create_service(AtomicAction, 'rtl', rtl)
+
+    def test_temp_sample_wait() -> None:
+        '''人工输入阻塞期间，让 ROS 定时回调记录真实服务与动作调用次数。'''
+        if test_temp_waiting.is_set() and not test_temp_resume.is_set():
+            test_temp_wait_samples.append((len(llm.prompts), observation.calls, len(calls)))
+            if len(test_temp_wait_samples) == 3:
+                test_temp_resume.set()
+
+    actions.create_timer(0.05, test_temp_sample_wait)
     executor = MultiThreadedExecutor(num_threads=4)
     for node in (source, observation, llm, sequence, actions):
         executor.add_node(node)
@@ -288,12 +309,19 @@ def test_main_executes_two_actions_then_observes_success_and_failure(
     inputs = 0
 
     def read_input(_prompt: str) -> str:
+        '''逐轮释放人工输入，并在第二轮输入前阻塞等待 ROS 回调采样。'''
         nonlocal inputs, fail_hold
         inputs += 1
         assert observation.calls == inputs
+        assert len(llm.prompts) == inputs - 1
+        test_temp_input_boundaries.append((len(llm.prompts), observation.calls, len(calls)))
         if inputs == 1:
             return '执行固定两步'
         if inputs == 2:
+            test_temp_waiting.set()
+            assert test_temp_resume.wait(timeout=5.0), 'ROS wait probes did not complete'
+            assert test_temp_wait_samples == [(1, 2, 2)] * 3
+            assert len(llm.prompts) == 1 and len(calls) == 2
             fail_hold = True
             return '再次执行固定两步'
         raise EOFError
@@ -303,6 +331,7 @@ def test_main_executes_two_actions_then_observes_success_and_failure(
         main(input_reader=read_input, trace_path=trace_path)
         assert observation.calls == 3
         assert len(llm.prompts) == 2
+        assert test_temp_input_boundaries == [(0, 1, 0), (1, 2, 2), (2, 3, 3)]
         assert [(name, json.loads(payload), previous) for name, payload, previous in calls] == [
             ('hold', {'duration_s': 1.0}, ''),
             ('rtl', {}, 'hold-output'),
@@ -310,7 +339,21 @@ def test_main_executes_two_actions_then_observes_success_and_failure(
         ]
         assert steps == [(-0.5, False, {}), (-1.0, False, {})]
         replay = TraceReplay(trace_path)
-        assert len(tuple(replay.iter_observation_records())) == 3
+        observations = tuple(replay.iter_observation_records())
+        assert len(observations) == 3
+        expected_output_positions = [
+            {'x': 1.0, 'y': 2.0, 'z': -3.0},
+            {'x': 4.0, 'y': 5.0, 'z': -6.0},
+        ]
+        for test_temp_index, test_input_human in enumerate(('执行固定两步', '再次执行固定两步')):
+            assert f'HumanInput: {test_input_human}' in llm.prompts[test_temp_index]
+            assert observations[test_temp_index].observation in llm.prompts[test_temp_index]
+            state = json.loads(observations[test_temp_index].observation.splitlines()[-1])
+            assert state['position_ned_m'] == expected_output_positions[test_temp_index]
+        assert observations[0].observation not in llm.prompts[1]
+        assert [json.loads(line)['type'] for line in trace_path.read_text().splitlines()] == [
+            'observation', 'llm_response', 'observation', 'llm_response', 'observation',
+        ]
         assert test_temp_opener.open.call_count == (2 if test_input_model == 'api' else 0)
         if test_input_model == 'api':
             for reply in replay.iter_llm_response_records():
