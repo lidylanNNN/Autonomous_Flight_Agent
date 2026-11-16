@@ -72,9 +72,9 @@ REJECTED_BY_PX4
 非成功结果必须提供稳定的 `failure_code`，成功结果不得携带失败码。开始与结束时间
 必须带时区，并且结束时间不能早于开始时间。
 
-`PX4 ACK == ACCEPTED` 只代表协议层接受命令，不是任务步骤最终成功的证据。当前
-PX4 Backend 已按飞行状态作基础终态判断；M6 仍须完成五种飞行动作的状态证据与假成功验收，
-不能把现有基础判断写成完整 Verifier 已交付。
+`PX4 ACK == ACCEPTED` 只代表协议层接受命令，不是任务步骤最终成功的证据。
+飞行动作服务负责动作完成判定，复用 PX4 Backend 的飞行状态终态判断；
+服务等待执行结果后返回成功或失败，不设置独立 Verifier。
 
 ## 超时与取消
 
@@ -95,4 +95,4 @@ Timeout。`required_state` 只是供 M4 使用的声明式元数据，本身不�
 
 `MockFlightExecutionBackend` 和 `Px4Ros2FlightExecutionBackend` 必须同时满足
 `FlightExecutionBackendProtocol`，且切换
-Backend 实现时不得修改 Skill、Safety、Verifier 或 Agent 业务代码。
+Backend 实现时不得修改 Skill、Safety 或 Agent 业务代码。

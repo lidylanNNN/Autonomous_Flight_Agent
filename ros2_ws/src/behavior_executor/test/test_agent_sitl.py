@@ -18,8 +18,15 @@ from types import FrameType
 
 import pytest
 import rclpy
+from agent_comm.ros_agent_srv import RosAgent
 from ament_index_python.packages import get_package_prefix
-from px4_msgs.msg import VehicleCommand, VehicleCommandAck, VehicleLocalPosition
+from px4_msgs.msg import (
+    OffboardControlMode,
+    TrajectorySetpoint,
+    VehicleCommand,
+    VehicleCommandAck,
+    VehicleLocalPosition,
+)
 from rosllm_srvs.srv import LLM, AtomicAction, ExecuteBehavior, Observation
 from test_process_round import test_temp_stop
 
@@ -39,6 +46,9 @@ from flight_agent.components.tracing import TraceReplay
         ('请在本轮按顺序执行且只执行三个动作：飞到局部NED坐标北3米、东2米、高度3米，'
          '接受半径0.5米；原地悬停2秒；原地降落。执行完这三个动作后等待我的下一条指令。'),
     ], [['takeoff'], ['goto', 'hold', 'land']]),
+    ('4b-3', [
+        '请只执行一个动作：起飞到离地6米，然后等待我的下一条指令。',
+    ], [[]]),
 ])
 def test_temp_human_rounds_sitl(
     test_input_model: str, test_input_case: str, test_input_humans: list[str],
@@ -69,6 +79,8 @@ def test_temp_human_rounds_sitl(
         '/fmu/in/vehicle_command': VehicleCommand,
         '/fmu/out/vehicle_command_ack': VehicleCommandAck,
         '/fmu/out/vehicle_local_position': VehicleLocalPosition,
+        '/fmu/in/offboard_control_mode': OffboardControlMode,
+        '/fmu/in/trajectory_setpoint': TrajectorySetpoint,
     }, test_temp_messages)
     try:
         with ExitStack() as test_temp_stack:
@@ -112,7 +124,7 @@ def test_temp_human_rounds_sitl(
                     if test_temp_role == 'flight':
                         test_temp_command += ['--safety-json', str(test_temp_run / 'safety.json'),
                                               '--trace-path', str(test_temp_run / 'safety.jsonl')]
-                        if test_input_case == '4b-2':
+                        if test_input_case in {'4b-2', '4b-3'}:
                             test_temp_command = [
                                 sys.executable, str(Path(__file__).resolve()), str(test_temp_run),
                                 *test_temp_command,
@@ -132,6 +144,17 @@ def test_temp_human_rounds_sitl(
             test_temp_agent = test_temp_processes['agent']
             for test_temp_round, test_input_human in enumerate(test_input_humans, start=1):
                 test_temp_wait_prompt(node, test_temp_run, test_temp_round)
+                if test_input_case == '4b-3':
+                    test_temp_sitl._spin_for(node, 1.0)
+                    test_temp_publishers = {
+                        topic: [info.node_name for info in node.get_publishers_info_by_topic(topic)]
+                        for topic in ('/fmu/in/vehicle_command', '/fmu/in/offboard_control_mode',
+                                      '/fmu/in/trajectory_setpoint')
+                    }
+                    (test_temp_run / 'test_temp_publishers.json').write_text(json.dumps(test_temp_publishers))
+                    assert 'px4_vehicle_command_adapter' in test_temp_publishers['/fmu/in/vehicle_command']
+                    assert all('px4_offboard_setpoint_adapter' in test_temp_publishers[topic]
+                               for topic in ('/fmu/in/offboard_control_mode', '/fmu/in/trajectory_setpoint'))
                 replies = tuple(TraceReplay(test_temp_run / 'agent.jsonl').iter_llm_response_records())
                 assert len(replies) == test_temp_round - 1
                 with (test_temp_run / 'test_temp_inputs.jsonl').open('a') as test_temp_input_log:
@@ -151,7 +174,31 @@ def test_temp_human_rounds_sitl(
                 assert all(item.success for item in replies)
                 assert [item.command.skill_name.value for item in results] == expected_output_completed
                 assert all(item.result.status.value == 'SUCCEEDED' for item in results)
-                if test_temp_round == 1:
+                if test_input_case == '4b-3':
+                    test_temp_sitl._spin_for(node, 1.0)
+                    assert json.loads(replies[0].info)['source'] == 'deepseek_api'
+                    test_temp_generated = json.loads(RosAgent.extract_behavior(LLM.Response(
+                        success=True, response=replies[0].response,
+                    )))
+                    assert test_temp_generated['name'] == 'takeoff'
+                    assert json.loads(test_temp_generated['input']) == {'target_altitude_m': 6.0}
+                    decision, = TraceReplay(test_temp_run / 'safety.jsonl').iter_safety_decision_records()
+                    assert decision.proposal.arguments == {'target_altitude_m': 6.0}
+                    assert decision.decision.decision.value == 'REJECT'
+                    assert 'ALTITUDE_ABOVE_ENVELOPE' in [code.value for code in decision.decision.reason_codes]
+                    call, = [json.loads(line) for line in
+                             (test_temp_run / 'test_temp_service_calls.jsonl').read_text().splitlines()]
+                    assert call['name'] == 'takeoff' and not call['success']
+                    assert json.loads(call['input']) == {'target_altitude_m': 6.0}
+                    assert call['prev_output'] == ''
+                    output = json.loads(call['output'])
+                    assert output['execution_id'] is None and output['execution_status'] is None
+                    assert output['decision_id'] == decision.decision.decision_id
+                    assert json.loads((test_temp_run / 'test_temp_backend_calls.json').read_text())['test_temp_execute_cnt'] == 0
+                    assert not any(item['topic'] in test_temp_publishers for item in test_temp_messages)
+                    assert not tuple(TraceReplay(test_temp_run / 'safety.jsonl').iter_skill_execution_error_records())
+                    assert 'ALTITUDE_ABOVE_ENVELOPE' in (test_temp_run / 'test_temp_agent.log').read_text()
+                elif test_temp_round == 1:
                     test_temp_sitl._wait_state(node, test_temp_run, lambda state:
                         state.get('flight_mode') == 'AUTO_LOITER' and state.get('armed') is True
                         and state.get('landed') is False and state.get('position_ned_m')
@@ -162,7 +209,8 @@ def test_temp_human_rounds_sitl(
             test_temp_agent.communicate(timeout=10)
             assert test_temp_agent.returncode == 0
             observations = tuple(TraceReplay(test_temp_run / 'agent.jsonl').iter_observation_records())
-            assert len(observations) == 3 and all(item.success for item in observations)
+            assert len(observations) == len(test_input_humans) + 1
+            assert all(item.success for item in observations)
             assert all(item.observation in reply.prompt for item, reply in zip(observations, replies))
             state = test_temp_sitl._latest_state(test_temp_run)
             assert state['landed'] is True and state['armed'] is False
@@ -222,13 +270,29 @@ test_temp_wait_prompt.__test__ = False
 
 def test_temp_profile_flight() -> None:
     '''只观察服务回调返回时的请求和响应，不替换对象、参数或执行结果。'''
+    from flight_agent_ros.adapters.flight_execution_backend import Px4Ros2FlightExecutionBackend
     from flight_agent_ros.flight_atomic_action_server import FlightAtomicActionServer
 
     test_temp_run, test_temp_executable = Path(sys.argv[1]), sys.argv[2]
     test_temp_code = FlightAtomicActionServer._handle_action.__code__
+    test_temp_execute_code = Px4Ros2FlightExecutionBackend.execute.__code__
+    test_temp_execute_cnt = 0
+    test_temp_rejection_case = test_temp_run.parent.name == 'm5-4b-3'
+    if test_temp_rejection_case:
+        (test_temp_run / 'test_temp_backend_calls.json').write_text(json.dumps({
+            'test_temp_execute_cnt': 0,
+            'backend_source': sys.modules[Px4Ros2FlightExecutionBackend.__module__].__file__,
+        }))
 
     def test_temp_record_call(frame: FrameType, event: str, arg: object) -> None:
         '''保存实际回调的完整 input、prev_output 和返回值。'''
+        nonlocal test_temp_execute_cnt
+        if test_temp_rejection_case and frame.f_code is test_temp_execute_code and event == 'call':
+            test_temp_execute_cnt += 1
+            (test_temp_run / 'test_temp_backend_calls.json').write_text(json.dumps({
+                'test_temp_execute_cnt': test_temp_execute_cnt,
+                'backend_source': sys.modules[Px4Ros2FlightExecutionBackend.__module__].__file__,
+            }))
         if frame.f_code is test_temp_code and event == 'return' and arg is not None:
             request = frame.f_locals['request']
             with (test_temp_run / 'test_temp_service_calls.jsonl').open('a') as test_temp_log:

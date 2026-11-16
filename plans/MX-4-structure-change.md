@@ -1,5 +1,7 @@
 # MX-4 结构变更单：飞行原子动作接线
 
+> 2026-11-16 设计更新：M6 阶段和独立 Verification 设计已取消，现行动作完成职责见[执行结果契约](../contracts/skill_contract.md#执行结果)。下文相关 M6/Verifier 表述仅保留为历史计划与验证记录。
+
 状态：步骤 1 至 6 及单轮主链替身集成已实施；真实 PX4/SITL 验证仍未完成。生产入口已发布五个飞行动作服务。
 
 依据：[当前规格](../SPEC_DEV.md)、[MX 计划](MX.md)、[ROS-LLM 服务契约](../contracts/rosllm_services.md)、[Safety Contract](../contracts/safety_contract.md)。

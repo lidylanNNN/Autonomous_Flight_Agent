@@ -30,7 +30,7 @@
 
 - `success=true` 当且仅当 Safety 决策为 `APPROVE`，且 `SkillResult.status=SUCCEEDED`。
 - `output` 始终是 JSON 对象文本，包含下表字段；未产生的 ID、状态和失败码为 `null`，未产生 Safety 决策时 `reason_codes=[]`。
-- `verification` 固定为 `INCONCLUSIVE`；MX-4 不把 Backend 基础终态称为 M6 完整状态验证。
+- 动作完成职责见 [执行结果契约](skill_contract.md#执行结果)。当前响应仍保留固定为 `INCONCLUSIVE` 的 `verification` 占位字段；它不参与 `success` 判断，也不代表存在独立 Verification 节点。
 
 | `output` 字段 | 类型 | 含义 |
 |---|---|---|
@@ -51,11 +51,11 @@
 | JSON 无法解析、解析结果不是对象 | `false` | `INVALID_INPUT` | 无决策、无执行 |
 | `hold` 缺少有效正数 `duration_s` | `false` | `INVALID_INPUT` | 无决策、无执行 |
 | 其余参数违反 Skill 模型 | `false` | `null` | Gate 决策包含 `INVALID_SCHEMA` 原因码，可同时含其他检查原因；写入 Trace，不执行 |
-| Safety 拒绝或要求人工批准 | `false` | `null` | 返回原始决策及原因码，不执行 |
+| Safety 拒绝 | `false` | `null` | 返回原始决策及原因码，不执行 |
 | Backend 返回非 `SUCCEEDED` 的 `SkillResult` | `false` | `null` | 返回执行状态与失败码 |
 | 状态读取、Trace 写入或 Backend 调用抛出异常 | `false` | `SERVICE_ERROR` | 只返回服务已取得的字段，未知字段为 null；Trace 写入失败时不得派发 |
 
-生产 Authority 固定为 `UNKNOWN`；批准与执行结果只在测试注入的 Authority 和 Backend 替身下验证。实际接线与调用流见 [MX-4 变更单](../plans/MX-4-structure-change.md#调用流)。
+生产 Authority 来源及 V1 授权假设以 [SPEC 第 5 节](../SPEC_DEV.md#5-安全不变量)为准；受控 SITL 的实际调用证据见 [M5 收口审查](../plans/M5.md#4c-收口审查)。
 
 通用服务字段说明：
 

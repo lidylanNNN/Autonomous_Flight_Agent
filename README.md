@@ -28,7 +28,7 @@ The system is not intended to replace PX4 or low-level flight control. PX4 remai
 - **Agent core:** Python 3.12, Pydantic contracts, typed backend protocols
 - **Planning:** LLM provider abstraction with structured skill proposals
 - **Safety:** deterministic Mission Contract and Safety Supervisor
-- **Verification:** state-based verifier for flight skill outcomes
+- **Action completion:** flight atomic-action services determine completion from vehicle state through the Backend
 - **Feedback:** human-guided correction after each completed or failed behavior; flight-specific deterministic safety response inside the execution boundary
 - **Mission sets:** schema-driven dev / validation / frozen-test cases
 - **Evaluation harness:** unit/contract/safety tests, agent simulation, PX4/Gazebo frozen mission set
