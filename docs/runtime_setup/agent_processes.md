@@ -1,8 +1,8 @@
-# M5-4a 独立进程验收
+# Agent 运行验收
 
-本说明只验证安装产物、服务发现及跨进程人工轮次。阶段结果见 [M5 记录](../../plans/M5.md#4a-实施记录)；真实模型和 PX4/Gazebo 留待 4b 验收。
+4a 验证安装产物、服务发现及跨进程人工轮次；4b-1 使用真实模型与 PX4/Gazebo 验证两轮起降。阶段结果见 [M5 记录](../../plans/M5.md)。
 
-## 运行
+## 4a 运行
 
 在仓库根目录使用 Bash。构建目录和 `--basetemp` 每轮使用新路径，避免 pytest 清除旧证据；以下路径是本次复现示例。需要允许本机 DDS 通信。
 
@@ -37,3 +37,22 @@ mkdir -p artifacts/m5-4a
 - 限速来源固定为 8m/s，不验证 MAVLink 读取或 `max_age_s`。Authority 使用生产入口的 V1 固定授权假设；Gate、检查器、Trace 及五个 ROS 服务均保留实际实现。
 
 该设施不安装为生产入口，也不替代 4b 中实际 PX4 状态与 Backend 的装配。
+
+## 4b-1：真实模型两轮起降
+
+用例为 `behavior_executor/test/test_agent_sitl.py`。沿用上文安装环境，在仓库根目录运行以下命令；密钥只从本地 `.env` 读取，不写入日志或命令参数。先确认无其他 PX4/XRCE 实例；本用例只清理自己启动的进程。
+
+```bash
+set -a
+source .env
+set +a
+export PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 ROS_DOMAIN_ID=0 FLIGHT_M5_LIVE_API=1
+export ROS_LOG_DIR=/tmp/ros_log_m5_4b1
+/usr/bin/python3 -m pytest -q -s -x -m sitl -o faulthandler_timeout=120 ros2_ws/src/behavior_executor/test/test_agent_sitl.py
+```
+
+使用 domain 0 与当前 PX4 XRCE 配置通信；4a 的 domain 43 不沿用。测试复用 M4 的仿真启动、原始消息订阅、状态等待、临时限速及心跳设置，并复用 4a 的进程清理。生产节点全部直接运行安装入口，不加载 PX4 替身，模型采用默认真实 API 模式。
+
+脚本逐轮向 stdin 提供“起飞到离地 3 米”和“立即降落”；两次输入之间等待实际终端提示、空中 `AUTO_LOITER` 及高度容差，并观察 1 秒内没有新增模型回复。每轮只发一次输入，失败即结束，不重发模型请求或动作。系统高度上限 5 米、半径 10 米、围栏 ±10 米，限速 8m/s；临时心跳为 10Hz，退出恢复 1Hz，限速恢复并独立回读。预算沿用 `.env` 指定的已有账本，不新建或清零。
+
+每轮创建 `artifacts/m5-4b-1/时间/`：正式 Trace、两次输入时间、真实命令/ACK/位置、配置、进程日志与退出状态均保留。生产 `verification` 仍为 `INCONCLUSIVE`；着陆证据由测试独立核对，不据此宣称 M6 或实机能力。失败轮次保留，不计为通过。
