@@ -1,4 +1,4 @@
-'''真实模型与 PX4/Gazebo 的两轮人工起降；仅显式运行。'''
+'''真实模型与 PX4/Gazebo 的两轮起降及多动作验收；仅显式运行。'''
 
 from __future__ import annotations
 
@@ -6,11 +6,15 @@ import hashlib
 import importlib.util
 import json
 import os
+import runpy
 import subprocess
+import sys
+import threading
 from contextlib import ExitStack
 from datetime import UTC, datetime
 from pathlib import Path
 from time import monotonic
+from types import FrameType
 
 import pytest
 import rclpy
@@ -25,10 +29,24 @@ from flight_agent.components.tracing import TraceReplay
 @pytest.mark.sitl
 @pytest.mark.skipif(os.environ.get('FLIGHT_M5_LIVE_API') != '1', reason='真实模型须显式启用')
 @pytest.mark.parametrize('test_input_model', ['live'])
-def test_temp_two_human_rounds_takeoff_land(test_input_model: str) -> None:
-    '''通过独立生产入口执行两轮真实模型起降，保留飞行和模型证据。'''
+@pytest.mark.parametrize(('test_input_case', 'test_input_humans', 'expected_output_actions'), [
+    ('4b-1', [
+        '请只执行一个动作：起飞到离地3米，然后等待我的下一条指令。',
+        '请只执行一个动作：立即降落，然后等待我的下一条指令。',
+    ], [['takeoff'], ['land']]),
+    ('4b-2', [
+        '请只执行一个动作：起飞到离地3米，然后等待我的下一条指令。',
+        ('请在本轮按顺序执行且只执行三个动作：飞到局部NED坐标北3米、东2米、高度3米，'
+         '接受半径0.5米；原地悬停2秒；原地降落。执行完这三个动作后等待我的下一条指令。'),
+    ], [['takeoff'], ['goto', 'hold', 'land']]),
+])
+def test_temp_human_rounds_sitl(
+    test_input_model: str, test_input_case: str, test_input_humans: list[str],
+    expected_output_actions: list[list[str]],
+) -> None:
+    '''从实际人工入口执行场景，核对真实模型、服务请求和飞行证据。'''
     test_temp_root = Path(__file__).resolve().parents[4]
-    test_temp_run = test_temp_root / 'artifacts/m5-4b-1' / datetime.now(UTC).strftime('%Y%m%dT%H%M%S%fZ')
+    test_temp_run = test_temp_root / f'artifacts/m5-{test_input_case}' / datetime.now(UTC).strftime('%Y%m%dT%H%M%S%fZ')
     test_temp_run.mkdir(parents=True)
     test_temp_spec = importlib.util.spec_from_file_location(
         'test_temp_sitl_helpers',
@@ -45,10 +63,6 @@ def test_temp_two_human_rounds_takeoff_land(test_input_model: str) -> None:
     test_temp_processes: dict[str, subprocess.Popen[str]] = {}
     test_temp_commands = {}
     test_temp_messages = []
-    test_input_humans = [
-        '请只执行一个动作：起飞到离地3米，然后等待我的下一条指令。',
-        '请只执行一个动作：立即降落，然后等待我的下一条指令。',
-    ]
     rclpy.init()
     node = rclpy.create_node('test_temp_agent_sitl_probe')
     test_temp_sitl._subscribe_messages(node, {
@@ -76,6 +90,7 @@ def test_temp_two_human_rounds_takeoff_land(test_input_model: str) -> None:
                         (LLM, 'call_llm'), (Observation, 'get_observation'),
                         (ExecuteBehavior, 'execute_behavior'),
                         (AtomicAction, 'takeoff'), (AtomicAction, 'land'),
+                        (AtomicAction, 'goto'), (AtomicAction, 'hold'),
                     ]:
                         client = node.create_client(test_input_type, test_input_service)
                         assert client.wait_for_service(timeout_sec=10), test_input_service
@@ -97,6 +112,11 @@ def test_temp_two_human_rounds_takeoff_land(test_input_model: str) -> None:
                     if test_temp_role == 'flight':
                         test_temp_command += ['--safety-json', str(test_temp_run / 'safety.json'),
                                               '--trace-path', str(test_temp_run / 'safety.jsonl')]
+                        if test_input_case == '4b-2':
+                            test_temp_command = [
+                                sys.executable, str(Path(__file__).resolve()), str(test_temp_run),
+                                *test_temp_command,
+                            ]
                     elif test_temp_role == 'agent':
                         test_temp_command += ['--ros-args', '-p',
                                               f'agent_trace_path:={test_temp_run / "agent.jsonl"}']
@@ -123,9 +143,13 @@ def test_temp_two_human_rounds_takeoff_land(test_input_model: str) -> None:
                 test_temp_wait_prompt(node, test_temp_run, test_temp_round + 1)
                 replies = tuple(TraceReplay(test_temp_run / 'agent.jsonl').iter_llm_response_records())
                 results = tuple(TraceReplay(test_temp_run / 'safety.jsonl').iter_skill_result_records())
-                assert len(replies) == len(results) == test_temp_round
+                expected_output_completed = [
+                    name for actions in expected_output_actions[:test_temp_round] for name in actions
+                ]
+                assert len(replies) == test_temp_round
+                assert len(results) == len(expected_output_completed)
                 assert all(item.success for item in replies)
-                assert [item.command.skill_name.value for item in results] == ['takeoff', 'land'][:test_temp_round]
+                assert [item.command.skill_name.value for item in results] == expected_output_completed
                 assert all(item.result.status.value == 'SUCCEEDED' for item in results)
                 if test_temp_round == 1:
                     test_temp_sitl._wait_state(node, test_temp_run, lambda state:
@@ -144,6 +168,29 @@ def test_temp_two_human_rounds_takeoff_land(test_input_model: str) -> None:
             assert state['landed'] is True and state['armed'] is False
             assert not state['failsafe_active']
             assert any(item['topic'] == '/fmu/out/vehicle_command_ack' for item in test_temp_messages)
+            if test_input_case == '4b-2':
+                test_temp_service_calls = [json.loads(line) for line in
+                    (test_temp_run / 'test_temp_service_calls.jsonl').read_text().splitlines()]
+                assert [item['name'] for item in test_temp_service_calls] == expected_output_completed
+                assert [json.loads(item['input']) for item in test_temp_service_calls] == [
+                    {'target_altitude_m': 3.0},
+                    {'north_m': 3.0, 'east_m': 2.0, 'altitude_m': 3.0, 'acceptance_radius_m': 0.5},
+                    {'duration_s': 2.0}, {},
+                ]
+                for test_temp_index, call in enumerate(test_temp_service_calls):
+                    assert call['success']
+                    assert json.loads(call['output'])['execution_id'] == results[test_temp_index].result.execution_id
+                    assert call['prev_output'] == (
+                        '' if test_temp_index < 2 else test_temp_service_calls[test_temp_index - 1]['output']
+                    )
+                assert (results[2].result.ended_at - results[2].result.started_at).total_seconds() >= 2
+                assert any(
+                    item['topic'] == '/fmu/out/vehicle_local_position'
+                    and item['message']['xy_valid'] and item['message']['z_valid']
+                    and (item['message']['x'] - 3) ** 2 + (item['message']['y'] - 2) ** 2 <= 0.5 ** 2
+                    and abs(item['message']['z'] + 3) <= 0.5
+                    for item in test_temp_messages
+                )
     finally:
         node.destroy_node()
         rclpy.shutdown()
@@ -153,7 +200,7 @@ def test_temp_two_human_rounds_takeoff_land(test_input_model: str) -> None:
             'test_sha256': hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
             'px4': subprocess.check_output(['git', '-C', str(Path.home() / 'PX4-Autopilot'),
                                            'rev-parse', 'HEAD'], text=True).strip(),
-            'model': test_input_model, 'commands': test_temp_commands,
+            'model': test_input_model, 'case': test_input_case, 'commands': test_temp_commands,
             'processes': {role: {'pid': item.pid, 'returncode': item.returncode}
                           for role, item in test_temp_processes.items()},
         }, indent=2))
@@ -171,3 +218,38 @@ def test_temp_wait_prompt(node: object, test_temp_run: Path, expected_output_pro
 
 
 test_temp_wait_prompt.__test__ = False
+
+
+def test_temp_profile_flight() -> None:
+    '''只观察服务回调返回时的请求和响应，不替换对象、参数或执行结果。'''
+    from flight_agent_ros.flight_atomic_action_server import FlightAtomicActionServer
+
+    test_temp_run, test_temp_executable = Path(sys.argv[1]), sys.argv[2]
+    test_temp_code = FlightAtomicActionServer._handle_action.__code__
+
+    def test_temp_record_call(frame: FrameType, event: str, arg: object) -> None:
+        '''保存实际回调的完整 input、prev_output 和返回值。'''
+        if frame.f_code is test_temp_code and event == 'return' and arg is not None:
+            request = frame.f_locals['request']
+            with (test_temp_run / 'test_temp_service_calls.jsonl').open('a') as test_temp_log:
+                test_temp_log.write(json.dumps({
+                    'name': frame.f_locals['skill_name'].value,
+                    'input': request.input, 'prev_output': request.prev_output,
+                    'success': arg.success, 'output': arg.output,
+                    'recorded_at': datetime.now(UTC).isoformat(),
+                }) + '\n')
+
+    sys.argv = [test_temp_executable, *sys.argv[3:]]
+    sys.setprofile(test_temp_record_call)
+    threading.setprofile(test_temp_record_call)
+    try:
+        runpy.run_path(test_temp_executable, run_name='__main__')
+    finally:
+        sys.setprofile(None)
+        threading.setprofile(None)
+
+
+test_temp_profile_flight.__test__ = False
+
+if __name__ == '__main__':
+    test_temp_profile_flight()

@@ -1,6 +1,6 @@
 # Agent 运行验收
 
-4a 验证安装产物、服务发现及跨进程人工轮次；4b-1 使用真实模型与 PX4/Gazebo 验证两轮起降。阶段结果见 [M5 记录](../../plans/M5.md)。
+4a 验证安装产物和跨进程人工轮次；4b 使用真实模型与 PX4/Gazebo 验证起降和多动作序列。阶段结果见 [M5 记录](../../plans/M5.md)。
 
 ## 4a 运行
 
@@ -48,7 +48,7 @@ source .env
 set +a
 export PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 ROS_DOMAIN_ID=0 FLIGHT_M5_LIVE_API=1
 export ROS_LOG_DIR=/tmp/ros_log_m5_4b1
-/usr/bin/python3 -m pytest -q -s -x -m sitl -o faulthandler_timeout=120 ros2_ws/src/behavior_executor/test/test_agent_sitl.py
+/usr/bin/python3 -m pytest -q -s -x -m sitl -k 4b-1 -o faulthandler_timeout=120 ros2_ws/src/behavior_executor/test/test_agent_sitl.py
 ```
 
 使用 domain 0 与当前 PX4 XRCE 配置通信；4a 的 domain 43 不沿用。测试复用 M4 的仿真启动、原始消息订阅、状态等待、临时限速及心跳设置，并复用 4a 的进程清理。生产节点全部直接运行安装入口，不加载 PX4 替身，模型采用默认真实 API 模式。
@@ -56,3 +56,13 @@ export ROS_LOG_DIR=/tmp/ros_log_m5_4b1
 脚本逐轮向 stdin 提供“起飞到离地 3 米”和“立即降落”；两次输入之间等待实际终端提示、空中 `AUTO_LOITER` 及高度容差，并观察 1 秒内没有新增模型回复。每轮只发一次输入，失败即结束，不重发模型请求或动作。系统高度上限 5 米、半径 10 米、围栏 ±10 米，限速 8m/s；临时心跳为 10Hz，退出恢复 1Hz，限速恢复并独立回读。预算沿用 `.env` 指定的已有账本，不新建或清零。
 
 每轮创建 `artifacts/m5-4b-1/时间/`：正式 Trace、两次输入时间、真实命令/ACK/位置、配置、进程日志与退出状态均保留。生产 `verification` 仍为 `INCONCLUSIVE`；着陆证据由测试独立核对，不据此宣称 M6 或实机能力。失败轮次保留，不计为通过。
+
+## 4b-2：真实模型多动作序列
+
+沿用 4b-1 的环境和限制，命令中的筛选条件改为 `-k 4b-2`。同一个测试函数按参数选择场景；未筛选时会依次运行两个场景并分别调用真实模型。
+
+起始为地面未解锁。第一轮单独请求起飞至 3 米并等待稳定；第二轮只输入一次，要求模型生成 GoTo（北 3、东 2、高 3 米，接受半径 0.5 米）、Hold 2 秒、Land 三个动作。降落是该序列的最后一项；任一步失败即停止，不追加重试或收尾指令。
+
+飞行服务进程使用 `sys.setprofile`、`threading.setprofile` 观察实际回调返回，不替换服务、Gate、Backend 或输入输出。`test_temp_service_calls.jsonl` 保存收到的 input、prev_output 和原始响应：每轮首项的 prev_output 应为空，后续项应等于紧邻前项的完整 output。飞行动作目前不使用 prev_output 计算参数，本项只验证传递。
+
+证据保存在 `artifacts/m5-4b-2/时间/`，其余格式沿用 4b-1；另外检查 GoTo 附近的原始位置采样、Hold 实际执行耗时、一次清单只产生一轮模型请求，以及整段结束后才读取观察。观察节点与执行节点独立订阅状态，最后一份 Agent 观察可能尚未包含解除解锁状态；应与执行结束状态分别报告，不能把“重新读取观察”当作终态字段已同步。
