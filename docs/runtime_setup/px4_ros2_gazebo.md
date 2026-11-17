@@ -116,6 +116,26 @@ gz service -s /world/default/scene/info \
 
 `target` 应只有一个 `m6_person`，姿态与场景 SDF 一致；`empty` 不应有该实体或带后缀的副本。完整重置时停止终端一的仿真，再执行上述启动和配置步骤；不在运行中的飞机上重置世界/时钟。资源校验失败时先恢复原始文件，不绕过校验。相机图像、ROS 桥接和检测结果仍按后续 M6 子批次验证。
 
+## M6 T01c 检测工具试跑
+
+工具版本、许可、资源测量与通过范围以 [T01c 记录](../../plans/M6.md#t01c-原生图片与检测工具试跑2026-11-17) 为准。使用系统 `/usr/bin/python3`，需要已有 `python3-opencv`、NumPy、Gazebo transport13/msgs10 Python 绑定；不要在项目 uv 环境直接运行。完整重新采集时先停止上一轮仿真，在仓库根目录执行有界验证脚本（约一分钟上限，退出清理本轮进程）：
+
+```bash
+/usr/bin/python3 artifacts/m6_t01c/test_temp_run.py
+```
+
+脚本通过实际启动入口运行 `x500_mono_cam`，配置 `target`，从列出的唯一相机 `/image` topic 取得当前帧，保存到新时间戳目录并调用 HOG。需要宿主机仿真/图形设备及 PX4 运行目录写权限。脚本仅作 T01c 验证，不是生产相机服务或 ROS 桥。
+
+只复跑检测时可消费已保存的真实原图；这不会重新采集，不算新场景运行。输出路径由操作员指定，避免覆盖归档结果：
+
+```bash
+/usr/bin/time -v /usr/bin/python3 artifacts/m6_t01c/test_temp_detect.py \
+  artifacts/m6_t01c/20261117T085203Z/camera.png \
+  /tmp/test_temp_m6_detection.json
+```
+
+该命令固定 CPU 单 OpenCV 线程，不接收场景坐标或真值；JSON 包含输入图片哈希、检测框、SVM score、耗时和检测进程峰值 RSS。空列表表示成功但未检出，图片不可读则非零退出；有输出文件不自动代表检出人物。归档原图、原始消息及结果位于上述证据目录，版本和校验值见 `manifest.json`。
+
 ## 安装顺序
 
 1. 安装 ROS 2 Jazzy。
