@@ -47,7 +47,7 @@ LLM output is limited to mission-level planning and skill selection. The agent m
 
 ## Current Goal
 
-Complete M4's trusted authority and safety gate validation, then build the ROS-LLM-aligned human/agent/environment loop in M5. M7 covers correction after human feedback, not unattended continuation:
+Complete the one-week [M6 visual-scenario functional test](plans/M6.md), then the separate one-week [M7 system evaluation](plans/M7.md). M6 proves the task works; M7 reports how reliably it works using the [evaluation design](docs/eval_doc/v1_evaluation.md). The new M7 does not restore the cancelled feedback-correction stage:
 
 ```text
 Initial observation -> Human mission/feedback -> Model-selected behavior
