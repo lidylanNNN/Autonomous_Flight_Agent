@@ -1,6 +1,24 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+usage() {
+  echo "Usage: $0 [--model x500|x500_mono_cam]"
+}
+
+SIM_MODEL="x500"
+if [[ $# -eq 1 && ( "$1" == "--help" || "$1" == "-h" ) ]]; then
+  usage
+  exit 0
+elif [[ $# -eq 2 && "$1" == "--model" ]]; then
+  case "$2" in
+    x500|x500_mono_cam) SIM_MODEL="$2" ;;
+    *) echo "Unsupported simulation model: $2" >&2; usage >&2; exit 2 ;;
+  esac
+elif [[ $# -ne 0 ]]; then
+  usage >&2
+  exit 2
+fi
+
 PX4_ROOT="${PX4_ROOT:-${HOME}/PX4-Autopilot}"
 AGENT_BIN="${XRCE_AGENT_BIN:-${HOME}/.local/bin/MicroXRCEAgent}"
 XRCE_PORT="${XRCE_PORT:-8888}"
@@ -42,7 +60,8 @@ LD_LIBRARY_PATH="${HOME}/.local/lib:${LD_LIBRARY_PATH:-}" \
 AGENT_PID=$!
 sleep 2
 cd "${PX4_ROOT}"
-HEADLESS=1 make px4_sitl gz_x500 &
+echo "PX4 simulation model: ${SIM_MODEL} (HEADLESS=1)"
+HEADLESS=1 make px4_sitl "gz_${SIM_MODEL}" &
 PX4_PID=$!
 configure_headless_sitl
 echo "PX4 SITL is running; press Ctrl-C to stop."
