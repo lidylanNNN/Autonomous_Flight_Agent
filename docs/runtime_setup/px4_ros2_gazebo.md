@@ -90,6 +90,32 @@ scripts/tracing/replay_trace.sh artifacts/world_state.jsonl
 `--at 2026-09-17T08:44:08+00:00` 定位历史快照。记录序号从 1 开始。无效 JSON、
 未知记录类型、无效 Contract 或 Timestamp 倒序都会报告源文件行号。
 
+## M6 单人物场景
+
+场景配置、预定观察点、资源版本/许可和哈希以 [configs/m6](../../configs/m6/README.md) 为准。开始前停止上一轮仿真，避免沿用旧世界。终端一在仓库根目录启动：
+
+```bash
+GZ_SIM_RESOURCE_PATH="$PWD/configs/m6/models${GZ_SIM_RESOURCE_PATH:+:$GZ_SIM_RESOURCE_PATH}" \
+  scripts/ros2_px4/start_simulation.sh --model x500_mono_cam
+```
+
+等待实际 Gazebo 世界及 PX4 就绪，保持飞机在地面；终端二在仓库根目录选择场景：
+
+```bash
+scripts/ros2_px4/configure_m6_scene.sh target
+# 切换到无目标配置；需要恢复时再次运行 target
+scripts/ros2_px4/configure_m6_scene.sh empty
+```
+
+配置脚本先检查本地资源哈希，再查询世界、移除同名旧目标，按参数决定是否创建人物。脚本只报告服务接受请求，实际实体以世界查询为准：
+
+```bash
+gz service -s /world/default/scene/info \
+  --reqtype gz.msgs.Empty --reptype gz.msgs.Scene --timeout 5000 --req ''
+```
+
+`target` 应只有一个 `m6_person`，姿态与场景 SDF 一致；`empty` 不应有该实体或带后缀的副本。完整重置时停止终端一的仿真，再执行上述启动和配置步骤；不在运行中的飞机上重置世界/时钟。资源校验失败时先恢复原始文件，不绕过校验。相机图像、ROS 桥接和检测结果仍按后续 M6 子批次验证。
+
 ## 安装顺序
 
 1. 安装 ROS 2 Jazzy。

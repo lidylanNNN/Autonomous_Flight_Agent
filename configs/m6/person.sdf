@@ -1,0 +1,10 @@
+<?xml version="1.0"?>
+<sdf version="1.9">
+  <model name="m6_person">
+    <static>true</static>
+    <pose>8 0 0 0 0 1.57079632679</pose>
+    <include merge="true">
+      <uri>model://person_standing</uri>
+    </include>
+  </model>
+</sdf>
