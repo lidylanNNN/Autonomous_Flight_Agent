@@ -47,8 +47,12 @@ class RosEnv:
     """Own observation and behavior service access and the action library."""
 
     def __init__(self, node: Node, recorder: TraceRecorder) -> None:
+        '''持有观察/执行客户端、Trace 和独立结果目录。'''
         self._node = node
         self._recorder = recorder
+        self._result_dir = Path(str(node.declare_parameter(
+            'behavior_result_dir', 'artifacts/behavior_results',
+        ).value)).resolve()
         self._observation_client = node.create_client(Observation, 'get_observation')
         self._behavior_client = node.create_client(ExecuteBehavior, 'execute_behavior')
 
@@ -129,10 +133,68 @@ class RosEnv:
             ),
         )
         status = '动作序列执行成功' if result.success else '动作序列执行失败或被拒绝'
-        self._node.get_logger().info(f'{status}：{result.message}')
+        self._deliver_result(result, status)
         self._node.get_logger().info('任务验证：INCONCLUSIVE（未完成独立任务验证）')
         obs = self.get_obs()
         return obs, (-0.5 if result.success else -1.0), False, {}
+
+    def _deliver_result(self, result: ExecuteBehavior.Response, status: str) -> None:
+        '''显示服务原始结果并独立保存；交付错误不改变执行事实。'''
+        logger = self._node.get_logger()
+        try:
+            report = json.loads(result.message)
+            if (
+                not isinstance(report, dict) or type(report.get('schema_version')) is not int
+                or report['schema_version'] != 1 or not isinstance(report.get('summary'), str)
+                or not isinstance(report.get('steps'), list)
+            ):
+                raise ValueError('invalid result envelope')
+            for index, step in enumerate(report['steps'], start=1):
+                if (
+                    not isinstance(step, dict) or type(step.get('index')) is not int
+                    or step['index'] != index or not isinstance(step.get('name'), str)
+                    or not step['name'] or not {'success', 'output', 'error'} <= step.keys()
+                    or (step['success'] is not None and type(step['success']) is not bool)
+                    or (step['output'] is not None and not isinstance(step['output'], str))
+                    or (step['error'] is not None and not isinstance(step['error'], str))
+                    or (step['success'] is None and (
+                        step['output'] is not None or not step['error']
+                    ))
+                    or (step['success'] is not None and (
+                        step['output'] is None or step['error'] is not None
+                    ))
+                ):
+                    raise ValueError('invalid step result')
+        except (ValueError, TypeError) as error:
+            logger.error(f'INVALID_BEHAVIOR_RESULT: {error}; {status}：{result.message}')
+            return
+        logger.info(f'{status}：{report["summary"]}')
+        for step in report['steps']:
+            logger.info(
+                f'动作结果[{step["index"]}] {step["name"]} success={step["success"]}: '
+                f'{step["output"] if step["output"] is not None else step["error"]}'
+            )
+        report = {
+            'schema_version': 1, 'success': result.success, 'info': result.info,
+            'summary': report['summary'], 'steps': report['steps'],
+        }
+        path = self._result_dir / f'{uuid4().hex}.json'
+        created = False
+        try:
+            self._result_dir.mkdir(parents=True, exist_ok=True)
+            with path.open('x', encoding='utf-8') as stream:
+                created = True
+                json.dump(report, stream, ensure_ascii=False, indent=2)
+                stream.write('\n')
+        except OSError as error:
+            logger.error(f'BEHAVIOR_RESULT_SAVE_FAILED: {error}')
+            if created:
+                try:
+                    path.unlink()
+                except OSError as cleanup_error:
+                    logger.error(f'不完整结果文件清理失败：{path}: {cleanup_error}')
+            return
+        logger.info(f'行为结果文件：{path}')
 
 
 class RosAgent:

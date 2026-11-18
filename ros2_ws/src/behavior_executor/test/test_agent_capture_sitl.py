@@ -31,7 +31,7 @@ from flight_agent.components.tracing import TraceReplay
 def test_temp_agent_capture(test_input_model: str, test_input_task: str) -> None:
     '''运行成功和暂停后失败两轮，核对模型选择、真实服务返回及保存引用。'''
     test_temp_root = Path(__file__).resolve().parents[4]
-    test_temp_stage = 'm6_t04c' if test_input_task == 'inspect' else 'm6_t03c'
+    test_temp_stage = 'm6_t04d'
     test_temp_run = test_temp_root / 'artifacts' / test_temp_stage / datetime.now(UTC).strftime('%Y%m%dT%H%M%S%fZ')
     test_temp_run.mkdir(parents=True)
     print(f'Evidence: {test_temp_run}', flush=True)
@@ -82,7 +82,8 @@ def test_temp_agent_capture(test_input_model: str, test_input_task: str) -> None
                             str(test_temp_run), test_temp_role, *test_temp_command,
                             test_temp_option, str(test_temp_run / 'photos')]
                     if test_temp_role == 'agent':
-                        test_temp_command += ['--ros-args', '-p', f'agent_trace_path:={test_temp_run / "agent.jsonl"}']
+                        test_temp_command += ['--ros-args', '-p', f'agent_trace_path:={test_temp_run / "agent.jsonl"}',
+                                              '-p', f'behavior_result_dir:={test_temp_run / "behavior_results"}']
                         for test_input_type, test_input_service in (
                             (LLM, 'call_llm'), (Observation, 'get_observation'),
                             (ExecuteBehavior, 'execute_behavior'), (AtomicAction, 'capture_photo'),
@@ -174,6 +175,24 @@ def test_temp_agent_capture(test_input_model: str, test_input_task: str) -> None
                         assert test_temp_detection['detection_cnt'] == len(test_temp_detection['detections']) > 0
                         for test_temp_field in ('photo_id', 'image_path', 'metadata_path', 'sha256'):
                             assert test_temp_detection[test_temp_field] == output[test_temp_field]
+                test_temp_terminal = (test_temp_run / 'test_temp_agent.log').read_text()
+                test_temp_paths = [Path(line.split('行为结果文件：', 1)[1].strip())
+                    for line in test_temp_terminal.splitlines() if '行为结果文件：' in line]
+                assert len(test_temp_paths) == test_temp_round
+                assert len(set(test_temp_paths)) == test_temp_round
+                report = json.loads(test_temp_paths[-1].read_text())
+                assert report['success'] == response['success']
+                assert report['steps'][0]['output'] == response['output']
+                assert report['steps'][0]['name'] == 'capture_photo'
+                if test_temp_round == 1:
+                    if test_input_task == 'inspect':
+                        assert len(report['steps']) == 2
+                        assert report['steps'][1]['output'] == test_temp_inspections[0]['output']
+                        assert test_temp_detection['image_path'] in test_temp_terminal
+                    test_temp_first_report = test_temp_paths[0].read_bytes()
+                else:
+                    assert len(report['steps']) == 1
+                    assert test_temp_paths[0].read_bytes() == test_temp_first_report
                 if test_temp_round == 1:
                     assert response['success'] and output['error_code'] is None
                     metadata = json.loads(Path(output['metadata_path']).read_text())

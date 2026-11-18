@@ -66,7 +66,8 @@ class SequenceExecutor(Node):
             if not isinstance(name, str) or name not in self._action_names:
                 raise ValueError(f'INVALID_ACTION line={line_number}: {name!r}')
             if not isinstance(action_input, str):
-                raise ValueError(f'INVALID_INPUT line={line_number}: expected text')
+                # 解析失败统一走 ValueError 响应路径。
+                raise ValueError(f'INVALID_INPUT line={line_number}: expected text')  # noqa: TRY004
             actions.append((name, action_input))
             if len(actions) > _MAX_ACTIONS:
                 raise ValueError(f'INVALID_BEHAVIOR: more than {_MAX_ACTIONS} actions')
@@ -77,7 +78,17 @@ class SequenceExecutor(Node):
     def execute_behavior(
         self, request: ExecuteBehavior.Request, response: ExecuteBehavior.Response
     ) -> ExecuteBehavior.Response:
-        """Validate before dispatch, pass each output forward, and stop on failure."""
+        '''预校验后逐项派发，保留原始输出，失败即停并交付此前结果。'''
+
+        steps: list[dict[str, object]] = []
+
+        def finish() -> ExecuteBehavior.Response:
+            '''将摘要和本轮步骤装入现有响应字段。'''
+            response.message = json.dumps(
+                {'schema_version': 1, 'summary': response.message, 'steps': steps},
+                ensure_ascii=False,
+            )
+            return response
 
         try:
             actions = self._parse(request.behavior)
@@ -85,42 +96,51 @@ class SequenceExecutor(Node):
             response.success = False
             response.message = str(error)
             response.info = -1
-            return response
+            return finish()
 
         prev_output = ''
-        for name, action_input in actions:
+        for index, (name, action_input) in enumerate(actions, start=1):
+            step: dict[str, object] = {
+                'index': index, 'name': name, 'success': None, 'output': None, 'error': None,
+            }
+            steps.append(step)
             client = self._action_clients[name]
             if not client.wait_for_service(timeout_sec=self._timeout_s):
                 response.success = False
                 response.message = f'ATOMIC_ACTION_UNAVAILABLE name={name}'
                 response.info = -2
-                return response
+                step['error'] = response.message
+                return finish()
             try:
                 result = client.call(
                     AtomicAction.Request(input=action_input, prev_output=prev_output),
                     timeout_sec=self._timeout_s,
                 )
-            except Exception as error:
+            except Exception as error:  # noqa: BLE001 — ROS 调用异常均须停止序列并交付已有结果
                 response.success = False
                 response.message = f'ATOMIC_ACTION_CALL_FAILED name={name}: {error}'
                 response.info = -6
-                return response
+                step['error'] = response.message
+                return finish()
             if result is None:
                 response.success = False
                 response.message = f'ATOMIC_ACTION_TIMEOUT name={name}'
                 response.info = -6
-                return response
+                step['error'] = response.message
+                return finish()
+            step['success'] = result.success
+            step['output'] = result.output
             if not result.success:
                 response.success = False
                 response.message = f'ATOMIC_ACTION_FAILED name={name}: {result.output}'
                 response.info = 0
-                return response
+                return finish()
             prev_output = result.output
 
         response.success = True
         response.message = 'successfully executed behavior'
         response.info = 0
-        return response
+        return finish()
 
 
 def main() -> None:

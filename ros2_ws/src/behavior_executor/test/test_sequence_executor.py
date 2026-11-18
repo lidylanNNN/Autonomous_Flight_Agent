@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import json
 from threading import Event, Thread
 from time import monotonic
 
+import pytest
 import rclpy
 from behavior_executor.sequence_executor import SequenceExecutor
 from rclpy.executors import MultiThreadedExecutor
@@ -54,7 +56,10 @@ def test_default_timeout_allows_action_longer_than_thirty_seconds() -> None:
         rclpy.shutdown()
 
 
-def test_sequence_executor_forwards_previous_output_and_stops_on_failure() -> None:
+def test_sequence_executor_forwards_previous_output_and_stops_on_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    '''验证前项传递、预校验及各类终止路径的结果封装。'''
     rclpy.init()
     sequence = SequenceExecutor(action_timeout_s=0.5)
     actions = rclpy.create_node('mx3_test_actions')
@@ -90,6 +95,17 @@ def test_sequence_executor_forwards_previous_output_and_stops_on_failure() -> No
         success = client.call(ExecuteBehavior.Request(behavior=f'{first}\n{second}'), timeout_sec=3)
         assert success is not None and success.success
         assert calls == [('hold', 'wait', ''), ('rtl', 'home', 'hold-evidence')]
+        with monkeypatch.context() as test_temp_patch:
+            def test_temp_fail_call(*_args: object, **_kwargs: object) -> None:
+                '''注入调用异常，验证已完成的首项仍被返回。'''
+                raise RuntimeError('injected call failure')
+            test_temp_patch.setattr(sequence._action_clients['rtl'], 'call', test_temp_fail_call)
+            result = client.call(ExecuteBehavior.Request(behavior=f'{first}\n{second}'), timeout_sec=3)
+            assert result is not None and not result.success
+            steps = json.loads(result.message)['steps']
+            assert steps[0]['output'] == 'hold-evidence'
+            assert steps[1]['success'] is None and steps[1]['output'] is None
+            assert 'ATOMIC_ACTION_CALL_FAILED name=rtl' in steps[1]['error']
 
         calls.clear()
         fail_hold = True
@@ -97,6 +113,10 @@ def test_sequence_executor_forwards_previous_output_and_stops_on_failure() -> No
         assert failed is not None and not failed.success
         assert 'hold-refused' in failed.message
         assert calls == [('hold', 'wait', '')]
+        assert json.loads(failed.message)['steps'] == [
+            {'index': 1, 'name': 'hold', 'success': False,
+             'output': 'hold-refused', 'error': None},
+        ]
 
         calls.clear()
         invalid = client.call(
@@ -105,6 +125,7 @@ def test_sequence_executor_forwards_previous_output_and_stops_on_failure() -> No
         )
         assert invalid is not None and not invalid.success
         assert calls == []
+        assert json.loads(invalid.message)['steps'] == []
 
         empty = client.call(ExecuteBehavior.Request(behavior=''), timeout_sec=3)
         assert empty is not None and not empty.success
@@ -115,8 +136,11 @@ def test_sequence_executor_forwards_previous_output_and_stops_on_failure() -> No
             timeout_sec=3,
         )
         assert unavailable is not None and not unavailable.success
-        assert 'ATOMIC_ACTION_UNAVAILABLE name=takeoff' == unavailable.message
+        assert 'ATOMIC_ACTION_UNAVAILABLE name=takeoff' == json.loads(unavailable.message)['summary']
         assert calls == []
+        steps = json.loads(unavailable.message)['steps']
+        assert steps[0]['success'] is None and steps[0]['output'] is None
+        assert steps[0]['error'] == 'ATOMIC_ACTION_UNAVAILABLE name=takeoff'
     finally:
         executor.shutdown()
         thread.join(timeout=5)
@@ -126,6 +150,7 @@ def test_sequence_executor_forwards_previous_output_and_stops_on_failure() -> No
 
 
 def test_action_response_timeout_stops_before_next_action() -> None:
+    '''超时不生成伪造的服务响应且不执行后项。'''
     rclpy.init()
     sequence = SequenceExecutor(action_timeout_s=1.0)
     actions = rclpy.create_node('mx3_slow_action')
@@ -166,8 +191,12 @@ def test_action_response_timeout_stops_before_next_action() -> None:
         )
         assert hold_started.is_set()
         assert result is not None and not result.success
-        assert result.message == 'ATOMIC_ACTION_TIMEOUT name=hold'
+        assert json.loads(result.message)['summary'] == 'ATOMIC_ACTION_TIMEOUT name=hold'
         assert rtl_calls == []
+        assert json.loads(result.message)['steps'] == [
+            {'index': 1, 'name': 'hold', 'success': None, 'output': None,
+             'error': 'ATOMIC_ACTION_TIMEOUT name=hold'},
+        ]
     finally:
         release_hold.set()
         executor.shutdown()
