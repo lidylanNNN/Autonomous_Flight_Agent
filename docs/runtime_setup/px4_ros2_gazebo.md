@@ -225,7 +225,18 @@ ros2 run agent_comm ros_agent_srv --ros-args -p behavior_result_dir:=/绝对路�
 
 每轮执行结束后，终端显示逐项原始输出和“行为结果文件”的绝对路径。打开该 JSON，按步骤序号读取原始 `output`，用 `photo_id` 关联图片和检测结果；图片及采集时间、位置仍从拍照输出引用的原图和元数据读取。后续动作不覆盖已有步骤，失败轮也保留已返回的结果。`BEHAVIOR_RESULT_SAVE_FAILED` 表示落盘未成功，此时不能把残留文件当作正式交付。字段与边界只在 [T04d 契约](../../contracts/rosllm_services.md#m6-t04d-逐项结果交付)定义。
 
-真实地面验证沿用下一节的环境和命令，证据写入 `artifacts/m6_t04d/<时间>/`，正式结果独立保存在其中的 `behavior_results/`。不需要启动飞行动作服务，飞机保持未解锁；完整飞行返航后交付的验证留 T05a。
+真实地面验证沿用下一节的环境和命令，证据写入 `artifacts/m6_t04d/<时间>/`，正式结果独立保存在其中的 `behavior_results/`。不需要启动飞行动作服务，飞机保持未解锁；单点飞行返航后交付见下方 T05a。
+
+## M6 T05a 单点飞行视觉验证
+
+加载 T03c 所列 ROS、工作区、`.env` 和 `PYTHONPATH` 环境后执行：
+
+```bash
+export ROS_LOG_DIR="$PWD/artifacts/m6_t05a/live_ros_logs"
+FLIGHT_M6_LIVE_API=1 PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 .venv/bin/python -m pytest ros2_ws/src/behavior_executor/test/test_agent_visual_sitl.py -m sitl -q -s -o addopts= -p no:cacheprovider
+```
+
+运行前停止其他同名仿真和节点。用例自行启停实际生产进程，沿用累计模型预算，临时设置并恢复限速、心跳及低空 RTL 参数。输入和判据在调用前保存为 `test_temp_case.json`；证据位于 `artifacts/m6_t05a/<时间>/`，正式交付在其 `behavior_results/` 下。结果和证据边界以 [T05a 记录](../../plans/M6.md#t05a-单点飞行视觉闭环2026-11-18)为准。
 
 ## M6 T04c Agent 拍照后检测验证
 
@@ -236,7 +247,7 @@ export ROS_LOG_DIR="$PWD/artifacts/m6_t04c/live_ros_logs"
 FLIGHT_M6_LIVE_API=1 PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 .venv/bin/python -m pytest ros2_ws/src/behavior_executor/test/test_agent_capture_sitl.py -m sitl -k inspect -q -s -o addopts= -p no:cacheprovider
 ```
 
-用例自行启停仿真、相机桥及生产节点，保持飞机在地面，沿用既有模型预算。检测进程单独使用系统 Python，并从继承的 `PYTHONPATH` 移除本项目 uv 环境，以满足上节系统 OpenCV 的要求；其他节点保持原环境。证据、失败记录和适用范围见 [T04c 记录](../../plans/M6.md#t04c-agent-拍照后检测2026-11-18)。T04d 扩展了该用例，另核对正式终端交付的逐项结果及失败轮不覆盖前轮文件；实际飞行返航仍留 T05a。
+用例自行启停仿真、相机桥及生产节点，保持飞机在地面，沿用既有模型预算。检测进程单独使用系统 Python，并从继承的 `PYTHONPATH` 移除本项目 uv 环境，以满足上节系统 OpenCV 的要求；其他节点保持原环境。证据、失败记录和适用范围见 [T04c 记录](../../plans/M6.md#t04c-agent-拍照后检测2026-11-18)。T04d 扩展了该用例，另核对正式终端交付的逐项结果及失败轮不覆盖前轮文件；单点飞行返航验证见上方 T05a。
 
 ## 安装顺序
 

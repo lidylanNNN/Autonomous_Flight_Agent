@@ -59,8 +59,8 @@ V1 目标：取得初始观察后等待人工输入。`RosAgent` 根据观察和
 | 动作完成判定 | 飞行动作服务复用 PX4 Backend 的状态完成条件 | 服务等待执行结果，Safety 批准且执行状态为 `SUCCEEDED` 才返回成功；序列执行器收到成功后继续，失败即停 |
 | Trace | `TraceRecorder`、`TraceReplay` | 已接入 WorldState、安全决策、观察、LLM 响应及 Gate 动作结果/异常记录，并通过替身主链审计，详见 [MX-5 审计](plans/MX-5-audit.md)；完整 Episode 因果链尚未完成 |
 | 测评数据 | `agent_benchmark_sets/`、schema 与 validation scripts | Dev 用例存在；Validation/Frozen Test 目前只是预留 manifest，不得报告冻结测评指标 |
-| 拍照 | `capture_photo_server`、共享动作白名单及 `RosEnv` 动作说明 | 独立服务及实际有人入口经真实模型调用的地面证据见 [M6 T03b/T03c](plans/M6.md)；终端逐项交付已按 [M6 T04d](plans/M6.md#t04d-结果交付实施2026-11-18)接入并验证；尚无飞行视觉任务 |
-| 图片检测 | `inspect_image_server`、共享动作白名单及 Registry 描述 | 独立服务与实际有人入口串联采集后检测的证据见 [T04b/T04c 记录](plans/M6.md#t04c-agent-拍照后检测2026-11-18)；终端逐项交付已按 [T04d](plans/M6.md#t04d-结果交付实施2026-11-18)验证；尚无飞行视觉任务 |
+| 拍照 | `capture_photo_server`、共享动作白名单及 `RosEnv` 动作说明 | 地面接入及交付见 [M6 T03–T04](plans/M6.md)；固定单点飞行、拍照检测及返航后交付已按 [T05a](plans/M6.md#t05a-单点飞行视觉闭环2026-11-18)验证，不代表多点或系统性能 |
+| 图片检测 | `inspect_image_server`、共享动作白名单及 Registry 描述 | 独立服务及地面串联见 [T04b/T04c](plans/M6.md#t04c-agent-拍照后检测2026-11-18)；飞行视角真实新图检测及返航交付见 [T05a](plans/M6.md#t05a-单点飞行视觉闭环2026-11-18)，尚无真实无目标或多点证据 |
 | 旧审批原型 | 模型、协议、组件、Mock、公共导出和专属测试已删除 | 旧审批决策枚举与原因码也已移除；见 [删除记录](plans/M4.md#8b-18b-2-删除范围与影响)与 [契约收敛](plans/M4.md#8b-3-契约收敛) |
 
 ### 2.1 文件处置决定（分批实施）
@@ -177,7 +177,7 @@ tests/                                [已存在；迁移后新增主链集成�
 
 下方示例逐边标明模块间传递的数据。飞行动作内部的 Safety、Backend 和 Trace 边见 [MX-4 调用流](plans/MX-4-structure-change.md#调用流)。动作完成判定由飞行动作服务负责，复用 Backend 的状态判断，不设置独立 Verification 节点。运行中安全监测的缺口归 M7-S，不能用已有 PX4 failsafe 代替；这些安全路径不选择下一行为。
 
-一次完整转换示例：用户说“去三号塔看看有没有异物，拍张照，然后回来”。此例**假设飞机已在空中**，三号塔位置库、相机和识别服务已经接入；这些视觉/位置服务当前尚未实现，不得把示例当作 V1 已有能力。方括号内是模块、配置源或外部参与者，箭头上是输出的数据对象；`RosAgent`、`SequenceExecutor`、`SafetyExecutionGate` 等是对应模块持有的类对象，不是链路中的数据对象。以下为目标链路，标为“待建”的模块尚未接入生产。
+一次完整转换示例：用户说“去三号塔看看有没有异物，拍张照，然后回来”。此例**假设飞机已在空中**，三号塔位置库、相机和识别服务已经接入；三号塔位置解析与异物识别尚未实现，不能把完整示例当作 V1 已有能力；已接入的拍照与人物检测见第 2 节。方括号内是模块、配置源或外部参与者，箭头上是输出的数据对象；`RosAgent`、`SequenceExecutor`、`SafetyExecutionGate` 等是对应模块持有的类对象，不是链路中的数据对象。以下为目标链路，标为“待建”的模块尚未接入生产。
 
 ```text
 [agent_comm.config.atomic_action_library.yaml] --AtomicActionLibrary(动作描述)--> [agent_comm.RosEnv]
@@ -198,10 +198,10 @@ tests/                                [已存在；迁移后新增主链集成�
 [外部 resolve_poi 服务；未实现] --AtomicActionResponse(output=目标位置)--> [behavior_executor.sequence_executor]
 [behavior_executor.sequence_executor] --AtomicActionRequest(input=飞行参数, prev_output=目标位置)--> [flight_agent_ros.flight_atomic_action_server；goto 已接入]
 [flight_agent_ros.flight_atomic_action_server] --AtomicActionResponse(success, output=到达证据)--> [behavior_executor.sequence_executor]
-[behavior_executor.sequence_executor] --AtomicActionRequest(input=拍照参数, prev_output=到达证据)--> [外部 capture_photo 服务；未实现]
-[外部 capture_photo 服务；未实现] --AtomicActionResponse(output=photo_id)--> [behavior_executor.sequence_executor]
-[behavior_executor.sequence_executor] --AtomicActionRequest(input=识别参数, prev_output=photo_id)--> [外部 inspect_image 服务；未实现]
-[外部 inspect_image 服务；未实现] --AtomicActionResponse(output=识别结论)--> [behavior_executor.sequence_executor]
+[behavior_executor.sequence_executor] --AtomicActionRequest(input=拍照参数, prev_output=到达证据)--> [flight_agent_ros.capture_photo_server；已接入]
+[flight_agent_ros.capture_photo_server；已接入] --AtomicActionResponse(output=photo_id)--> [behavior_executor.sequence_executor]
+[behavior_executor.sequence_executor] --AtomicActionRequest(input=识别参数, prev_output=photo_id)--> [目标异物 inspect_image 服务；未实现]
+[目标异物 inspect_image 服务；未实现] --AtomicActionResponse(output=识别结论)--> [behavior_executor.sequence_executor]
 [behavior_executor.sequence_executor] --AtomicActionRequest(input=返航参数, prev_output=识别结论)--> [flight_agent_ros.flight_atomic_action_server；rtl 已接入]
 [flight_agent_ros.flight_atomic_action_server] --AtomicActionResponse(success, output=返航证据)--> [behavior_executor.sequence_executor]
 
