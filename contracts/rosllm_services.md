@@ -69,11 +69,11 @@
 
 ## M6 T02b 采集有效性判据
 
-状态：2026-11-18 用户已确认；作为采集实现约束，尚未接入生产服务。
+状态：2026-11-18 用户已确认；已由正式拍照服务实现，验证范围见 [M6 T03b 记录](../plans/M6.md#t03b-正式拍照服务2026-11-18)。Agent 接入仍待 T03c。
 
 ### 现状
 
-T02a 已验证真实 Image、CameraInfo 与 `/clock` 接通及内容对应，证据见 [M6 T02a 记录](../plans/M6.md#t02a-恢复实施图像桥接2026-11-17)。正式采集服务、有效帧缓存和下述拒绝行为尚未实现；本节作为 T03a/T03b 的输入，不代表现有桥接程序已提供这些保证。
+T02a 已验证真实 Image、CameraInfo 与 `/clock` 接通及内容对应，证据见 [M6 T02a 记录](../plans/M6.md#t02a-恢复实施图像桥接2026-11-17)。本节约束由拍照服务执行，桥接程序只传递消息，不负责拒绝旧图或保存照片。
 
 ### 目标
 
@@ -117,11 +117,13 @@ T02b 可用真实消息记录及明确标注的边界输入检查判据的可执
 
 C1–C6、时间阈值及重置后必须重启进程的限制已确认。请求参数、媒体输出、错误编码与位置来源留给 T03a，不在本批预定义。
 
-## M6 T03a 拍照服务（草案，待确认）
+## M6 T03a 拍照服务
+
+状态：2026-11-18 用户确认目标与范围；T03b 已实现并通过正式入口的真实地面拍照验证，结果见 [M6 记录](../plans/M6.md#t03b-正式拍照服务2026-11-18)。
 
 ### 现状
 
-现有 `AtomicAction` 已提供 `input`、`prev_output`、`success` 和 `output`；`SequenceExecutor` 会将前一项的 `output` 原样交给下一项，并在失败时停止。`capture_photo` 尚无服务实现，也未列入动作白名单。T03b 实现可直接调用的服务，T03c 才接入 Agent；本节不将这些目标写成已有能力。
+现有 `AtomicAction` 已提供 `input`、`prev_output`、`success` 和 `output`；`SequenceExecutor` 会将前一项的 `output` 原样交给下一项，并在失败时停止。`capture_photo_server` 已发布可直接调用的 `capture_photo` 服务，但尚未列入动作白名单，T03c 才接入 Agent。
 
 ### 目标
 
@@ -205,20 +207,20 @@ T02b 的 5 秒只限制等待新图的时间。磁盘写入不承诺硬实时截
 
 ### 运行方式和对象职责
 
-T03b 拟增加入口 `ros2 run flight_agent_ros capture_photo_server --output-dir <目录>`，默认目录为启动工作目录下的 `artifacts/photos`。启动时解析成绝对路径并检查可创建、可写，失败则非零退出且不发布服务；运行中写入仍可能失败，按 `SAVE_FAILED` 返回。输出目录只由操作员配置，不由模型控制。
+入口为 `ros2 run flight_agent_ros capture_photo_server --output-dir <目录>`，默认目录为启动工作目录下的 `artifacts/photos`。启动时解析成绝对路径并检查可创建、可写，失败则非零退出且不发布服务；运行中写入仍可能失败，按 `SAVE_FAILED` 返回。输出目录只由操作员配置，不由模型控制。
 
 入口创建一个拍照节点，节点持有 Image、CameraInfo、Clock、位置订阅，有限大小的消息缓存和单次拍照状态；收到请求后调用正式业务函数检查图片并保存。不提前建立第二套任务调度器、通用媒体平台或独立校验节点。
 
-T03b 需要在 ROS 包声明 `sensor_msgs`、`rosgraph_msgs` 和 PNG 编码依赖 `python3-pil`，复用已有 `rclpy`、`px4_msgs`、`rosllm_srvs`；不修改核心 Python 包依赖。入口显式使用仿真时间。所有业务源码及调用它的测试纳入 Git，原始图片和大体积运行日志保留在 `artifacts/`。
+ROS 包已声明 `sensor_msgs`、`rosgraph_msgs`、消息转 JSON 所需的 `rosidl_runtime_py` 和 PNG 编码依赖 `python3-pil`，复用已有 `rclpy`、`px4_msgs`、`rosllm_srvs`；不修改核心 Python 包依赖。入口显式使用仿真时间。所有业务源码及调用它的测试纳入版本控制范围，原始图片和大体积运行日志保留在 `artifacts/`。
 
-拟议调用过程，尚未接入：
+已验证的直接 ROS 调用过程；执行器一端仍待 T03c 接入：
 
 ```text
-[操作员或后续执行器] --AtomicActionRequest(input="{}", prev_output=前项输出)--> [拍照节点]
+[操作员 ROS 客户端] --AtomicActionRequest(input="{}", prev_output="")--> [拍照节点]
 [Gazebo 相机桥接] --Image、CameraInfo、Clock--> [拍照节点]
 [PX4 ROS 2 输出] --VehicleLocalPosition--> [拍照节点]
 [拍照节点] --PNG、配套 JSON--> [本地输出目录]
-[拍照节点] --AtomicActionResponse(success, output=文件引用或错误)--> [操作员或后续执行器]
+[拍照节点] --AtomicActionResponse(success, output=文件引用或错误)--> [操作员 ROS 客户端]
 ```
 
 ### 验收

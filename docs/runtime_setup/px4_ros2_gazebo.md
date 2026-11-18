@@ -159,6 +159,26 @@ ros2 topic echo /camera/image_raw --field header --once --qos-reliability best_e
 
 完整地面验证可运行 `/usr/bin/python3 artifacts/m6_t02a/test_temp_run.py`；它从实际脚本启动新仿真、场景与桥接，调用 pytest 读取原生/ROS 消息，结束后清理本轮进程。先停止其他仿真/桥接；除上述运行依赖外，验证器需要系统 pytest、Pillow 和 Gazebo Python 绑定。它不安装依赖、不飞行、不调用 Agent。采集有效性约束见 [T02b 契约](../../contracts/rosllm_services.md#m6-t02b-采集有效性判据)，判据边界及真实暂停验证见 [T02b 记录](../../plans/M6.md#t02b-采集有效性判据2026-11-18)；正式采集服务与缓存保护仍待 T03b 接入。
 
+## M6 T03b 拍照服务
+
+在前述相机仿真、场景与桥接运行后，于仓库根目录加载 ROS 与工作区环境，启动拍照服务。首次使用新增入口前，在 `ros2_ws` 中执行 `colcon build --packages-select flight_agent_ros --symlink-install`，再回到仓库根目录。
+
+```bash
+source /opt/ros/jazzy/setup.bash
+source ros2_ws/install/setup.bash
+ros2 run flight_agent_ros capture_photo_server --output-dir artifacts/photos
+```
+
+另开已加载上述环境的终端调用：
+
+```bash
+ros2 service call /capture_photo rosllm_srvs/srv/AtomicAction "{input: '{}', prev_output: ''}"
+```
+
+只有 `success=true` 才使用返回的 `image_path` 和 `metadata_path`；图片、配套 JSON 与哈希含义见[拍照服务契约](../../contracts/rosllm_services.md#m6-t03a-拍照服务)。服务不需要重新安装已有依赖；必须持续收到相机、时钟和有效 PX4 局部位置，启动服务本身不代表已能拍照。仿真重启时按 T02b 要求停止旧桥接和拍照服务，再在新仿真就绪后重启，不沿用旧缓存。
+
+源码测试为 `ros2_ws/src/flight_agent_ros/test/test_capture_photo_server.py`，直接检查正式业务代码。真实地面验证为同目录 `test_capture_photo_sitl.py`，显式通过 pytest 的 `-m sitl` 执行；它会自行启动与清理仿真、桥接和服务，运行前停止其他同类进程。结果与原始证据目录见 [M6 T03b 记录](../../plans/M6.md#t03b-正式拍照服务2026-11-18)。本阶段仍未接入 Agent 或检测服务。
+
 ## 安装顺序
 
 1. 安装 ROS 2 Jazzy。
