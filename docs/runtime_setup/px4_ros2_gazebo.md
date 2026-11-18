@@ -157,7 +157,7 @@ ros2 topic echo /camera/image_raw --field header --once --qos-reliability best_e
 
 这些命令用于观察消息，不能代替本批原始像素、参数和时间对应验证。实际采集方须使用兼容的 best-effort 订阅 QoS；需使用仿真时间的 ROS 节点另行设置 `use_sim_time=true`，启动桥接不会自动修改其他节点的时间源。源时间戳保留、frame_id 按桥接库标准转换，具体边界见上述 T02a 记录；不提供 NED/ENU 图像定位。
 
-完整地面验证可运行 `/usr/bin/python3 artifacts/m6_t02a/test_temp_run.py`；它从实际脚本启动新仿真、场景与桥接，调用 pytest 读取原生/ROS 消息，结束后清理本轮进程。先停止其他仿真/桥接；除上述运行依赖外，验证器需要系统 pytest、Pillow 和 Gazebo Python 绑定。它不安装依赖、不飞行、不调用 Agent。图像新鲜度、重置缓存失效与正式采集服务仍留待后续批次。
+完整地面验证可运行 `/usr/bin/python3 artifacts/m6_t02a/test_temp_run.py`；它从实际脚本启动新仿真、场景与桥接，调用 pytest 读取原生/ROS 消息，结束后清理本轮进程。先停止其他仿真/桥接；除上述运行依赖外，验证器需要系统 pytest、Pillow 和 Gazebo Python 绑定。它不安装依赖、不飞行、不调用 Agent。采集有效性约束见 [T02b 契约](../../contracts/rosllm_services.md#m6-t02b-采集有效性判据)，判据边界及真实暂停验证见 [T02b 记录](../../plans/M6.md#t02b-采集有效性判据2026-11-18)；正式采集服务与缓存保护仍待 T03b 接入。
 
 ## 安装顺序
 
