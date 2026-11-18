@@ -234,4 +234,123 @@ ROS 包已声明 `sensor_msgs`、`rosgraph_msgs`、消息转 JSON 所需的 `ros
 | 保存失败与并发 | 目录不可用、写入/核对/最终重命名失败时无成功引用；并发请求不串图、不覆盖，忙时明确失败。故障注入须说明替换范围。 |
 | 重复拍照 | 同一进程连续拍两张，取得各自请求后的图像、不同 UUID 和独立文件；先前文件内容保持不变。 |
 
-T03c 已验证 Agent 能选择并调用拍照动作；T04a/T04b 才定义并实现检测服务，T04d 才交付返航后仍能查看的逐项结果，后两者尚未接入。
+T03c 已验证 Agent 能选择并调用拍照动作；检测接口及服务证据见下节，Agent 串联留 T04c，返航后逐项结果交付留 T04d。
+
+## M6 T04a 图片检测服务
+
+状态：2026-11-18 用户已确认契约；T04b 已实现独立服务并通过实际入口消费既有 T03b 照片的验证，范围见 [M6 T04b 记录](../plans/M6.md#t04b-独立检测服务2026-11-18)。Agent 尚未接入。
+
+### 现状
+
+拍照输出见 [T03a](#m6-t03a-拍照服务)。已核对 `capture_photo_server.py` 的实际保存字段与 `sequence_executor.py` 的前项输出传递、失败即停行为。现有执行器不保存逐项成功输出，最终只返回通用摘要。
+
+[T01c 记录](../plans/M6.md#t01c-原生图片与检测工具试跑2026-11-17)已证明本机 OpenCV HOG 能消费一张真实场景图片并检出人物。独立检测服务已通过下文 T04b 验证，尚无采集后检测的 Agent 调用证据。
+
+### 目标
+
+让执行器调用一次 `inspect_image` 后，得到紧邻前项所拍图片的检测结果，能核对图片来源，并明确区分未检出与检测失败。
+
+### 约束
+
+复用 `rosllm_srvs/srv/AtomicAction`，不修改 `.srv`。检测是感知原子动作，不生成飞行执行凭证，不改变 Gate、飞行动作或序列失败即停行为。不向 Observation 或 LLM 传图片，不增加条件分支、自动重试、三维定位或检测器训练。
+
+### 假设
+
+拍照与检测服务在同一主机，操作员配置相同的照片根目录；图片及元数据在消费期间保持不变。检测结论仅描述这张图片，不表示当前持续可见、整个区域无人或目标的地理位置。
+
+### 目标调用链
+
+检测节点及工具已实现；执行器白名单与 Agent 说明仍待 T04c 接入，下图不能视为该生产主链已经运行。
+
+```text
+[SequenceExecutor] --AtomicAction.Request(input=类别, prev_output=前项拍照输出)--> [InspectImageServer]
+[InspectImageServer] --图片和元数据读取请求--> [本地照片目录]
+[本地照片目录] --PNG 字节、metadata.json--> [InspectImageServer]
+[InspectImageServer] --已核对图片的 BGR 像素及固定参数--> [OpenCV HOG 检测器]
+[OpenCV HOG 检测器] --检测框及原始 SVM 分数或异常--> [InspectImageServer]
+[InspectImageServer] --AtomicAction.Response(success, output=检测结果或错误)--> [SequenceExecutor]
+```
+
+### 对象职责与依赖
+
+`flight_agent_ros/inspect_image_server.py` 入口创建并持有 `InspectImageServer` 节点。节点发布 `inspect_image` 服务，每次只处理一个请求；收到有效请求后启动一次有期限的本地检测子进程，子进程读取并核对文件、创建 HOG 对象、执行检测，将结果返回节点。节点负责响应、超时终止与回收，不持有跨请求的图片缓存，也不建立任务循环。
+
+ROS 包声明系统 `python3-opencv` 依赖，沿用 T01c 已验证的 CPU、单 OpenCV 线程、内置默认人物检测器与工具版本，不下载权重。启动时检查 OpenCV 可导入、版本与内置系数匹配 T01c 记录，并能创建检测器；不满足时非零退出且不发布服务。
+
+### 请求与响应
+
+服务名为 `inspect_image`，`input` 必须是单个 JSON 对象文本 `{"target_class":"person"}`。`target_class` 必填且只接受 `person`，其他字段拒绝；不允许模型指定路径、媒体 ID、阈值、工具版本或调用预算。
+
+`prev_output` 必须能解析为 T03a 成功响应：`source="capture_photo_server"`、`error_code=null`，且 `photo_id/image_path/metadata_path/sha256` 均有效。`photo_id` 为 UUID，路径为绝对路径，哈希为 64 位十六进制文本。空输出、失败响应或其他动作输出均拒绝；不向前搜索历史照片、不扫描目录选择最新图片。序列中 `inspect_image` 必须紧接 `capture_photo`。
+
+读取方按 T03a 的 `<照片根目录>/<photo_id>/image.png` 和 `metadata.json` 布局核对路径；解析后的路径必须仍在该根目录和对应照片子目录内。读取元数据，要求 `schema_version=1`，`photo_id/image_path/sha256` 与引用一致。读取 PNG 一次，对同一份字节计算哈希并解码，防止核对一份文件却检测另一份内容；哈希须与引用一致，图像须为 T03a 的 RGB、1280×960 PNG，元数据宽高与图像相同。
+
+解码后只做 RGB 到 BGR 的颜色通道转换，保持原尺寸，不裁剪、不缩放、不画框覆盖原图。检测参数沿用试跑：`hitThreshold=0`、`winStride=[8,8]`、`padding=[8,8]`、`scale=1.05`、`groupThreshold=2`、`useMeanshiftGrouping=false`。这些是项目已确认的参数；接口依据见 [OpenCV 4.6 HOGDescriptor](https://docs.opencv.org/4.6.0/d5/d33/structcv_1_1HOGDescriptor.html)。
+
+`output` 始终为 JSON 对象文本，字段如下；不得输出 NaN 或 Infinity。
+
+| 字段 | 类型 | 成功时的内容 |
+|---|---|---|
+| `source` | string | 固定为 `inspect_image_server` |
+| `photo_id`, `image_path`, `metadata_path`, `sha256` | string 或 null | 已读取并核对的 T03a 引用，不生成新的照片 ID |
+| `target_class` | string 或 null | 本次检查的 `person` |
+| `tool` | object 或 null | `name="opencv_hog_default_people"`、实际 `opencv_version`、`coefficients_sha256`、`device="CPU"`、`opencv_thread_cnt=1` 以及上述 `parameters` 对象 |
+| `detections` | object 数组或 null | 每项为 `{"class":"person","xywh":[x,y,w,h],"svm_score":有限数值}`；未检出时为 `[]` |
+| `detection_cnt` | integer 或 null | 等于 `detections` 长度；未检出时为 0 |
+| `error_code` | string 或 null | 成功为 null，失败见下表 |
+| `message` | string | 面向人的说明，程序不解析此字段判断结果 |
+
+`xywh` 使用原图像素坐标，原点在左上角，x 向右、y 向下；均为整数，宽高为正，框必须位于原图范围内。`svm_score` 保留检测器原始分数，不称为概率，不额外变换或筛选检测结果。工具返回框与分数长度不一致、非有限分数或无效框时按检测失败处理，不静默丢弃异常项。
+
+`success=true` 只表示图片核对和检测调用完成、输出有效；有检测框时表示检出，空列表只表示该工具在这张图片上未检出。两者均允许执行器继续后续动作，不据此宣称整个飞行任务完成。
+
+### 失败处理与预算
+
+节点按输入、前项引用结构、忙状态、文件读取核对、检测的顺序检查，首个失败决定错误。通过忙状态检查后，从启动检测子进程前开始，以本地单调时间计算 5 秒预算，覆盖子进程启动、文件读取核对、解码和检测；到期及之后不接受成功结果。到期终止并回收子进程，不继续后台推理；完成回收前仍保持忙状态，不排队、不自动重试。
+
+5 秒是本项目已确认的调用预算，不是实测性能结论或硬实时保证。进程终止与回收仍可能受操作系统影响；不能安全回收时保持不可用并记录错误，由操作员停止服务，不累积子进程。沿用执行器外层超时，不修改全局飞行动作预算。V1 无取消协议，客户端超时不表示已取消服务端；序列仍按现有失败路径停止。
+
+失败时 `success=false`，`error_code` 非空、`message` 说明原因；媒体引用、`tool`、`detections`、`detection_cnt` 均为 null，`target_class` 仅在输入校验成功时为 `person`。不以空数组代表失败，不返回部分检测结果。
+
+| `error_code` | 条件 |
+|---|---|
+| `INVALID_INPUT` | JSON、对象字段或目标类别不符合请求要求 |
+| `INVALID_PREV_OUTPUT` | 前项不是有效的拍照成功引用，或引用格式错误 |
+| `BUSY` | 前一次检测仍在处理或回收 |
+| `MEDIA_INVALID` | 路径越界、文件缺失/不可读、元数据不对应、哈希不符或图片格式/尺寸不符合要求 |
+| `DETECTOR_UNAVAILABLE` | 启动后检测子进程无法启动或工具无法初始化；启动前缺依赖按上文直接拒绝发布服务 |
+| `DETECTION_TIMEOUT` | 子进程未在 5 秒预算内返回完整有效结果 |
+| `DETECTION_FAILED` | 检测器抛出异常、运行中异常退出或返回无效结果 |
+| `SERVICE_ERROR` | 未归入上述条件的服务内部异常 |
+
+服务进程未运行或 ROS 服务不可达时，没有服务端响应；执行器沿用 `ATOMIC_ACTION_UNAVAILABLE` 等既有错误，不能伪造检测结果。检测失败会阻止后续序列动作，包括序列尾部返航；受控试验由操作员按既有手册处置，不在本服务增加飞行恢复逻辑。
+
+### 文件访问与隐私
+
+入口为 `ros2 run flight_agent_ros inspect_image_server --photo-root <照片根目录>`，默认使用启动目录下的 `artifacts/photos`。启动时解析为绝对路径并检查目录存在、可读取；它必须对应拍照服务的 `--output-dir`。节点只读照片及元数据，不修改或上传原图，不从请求接受任意外部图片路径。
+
+### 观测与结果保存
+
+服务日志记录调用是否成功、核对通过的 `photo_id`、工具版本、耗时及失败码；核对失败的引用不能记作已验证图片。实际检测响应和原始图片用于 T04b 验收。当前接口不新增检测结果文件或终端逐项交付格式；持久保存和返航后交付由 T04d 明确，本批不把服务响应当作已完成的用户交付。
+
+### 备选方案
+
+复用本地已试跑的 HOG 足以验证一类目标的工具调用，无需引入云端依赖。拍照与检测分开，可独立执行只拍照，也能分别定位采集失败和检测失败；暂不合并为新的复合动作。
+
+### 实施与回滚
+
+T04a 已完成契约评审，T04b 已实现服务、入口、必要依赖和对应验证。T04c 再同步动作白名单、Registry 的结构化说明及主入口验证，T04d 再处理结果保存与终端交付。
+
+回滚 T04a 可移除本草案及计划记录，无运行行为变化。T04b 回滚须停止检测进程并撤回该入口、实现和新增依赖声明，保留拍照服务与已有照片；T04c 若已接入，须同步撤回检测白名单和说明，避免留下不可调用的动作。
+
+### 验证
+
+| 批次 | 验证及新增证据 |
+|---|---|
+| T04a | 核对实际拍照输出、执行器前项传递和 T01c 工具调用；检查请求不允许预填媒体引用，输出可区分空结果与失败。仅文档核对，不声称服务验证通过。 |
+| T04b | 从正式 ROS 入口读取 T03b 保存的真实图片并调用真实 HOG；保留请求、响应、原图及工具版本，核对哈希、图片对应和检测框。补非法输入/引用、坏图/哈希不符、不可用、超时及并发拒绝；说明构造输入、替身与真实调用边界。已有 T03b 拍照测试和 T01c 试跑直接复用，不重复建判定器。 |
+| T04c | 从实际有人入口经真实模型串联采集与检测，证明消费本轮图片；保留五飞行动作和拍照说明回归，检测失败后不派发后项。服务直调不能替代该证据。 |
+
+### 风险
+
+请求、结果字段、只读路径约束及子进程预算已确认并实现；正常调用与构造超时的验证范围见 T04b 记录。HOG 在地面单图试跑通过，尚无飞行视角与空场景的有效性证据，分别留 T05/T06 验证。该工具未检出不能证明现场不存在目标。

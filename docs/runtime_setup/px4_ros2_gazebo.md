@@ -192,6 +192,29 @@ ros2 service call /capture_photo rosllm_srvs/srv/AtomicAction "{input: '{}', pre
 
 源码测试为 `ros2_ws/src/flight_agent_ros/test/test_capture_photo_server.py`，直接检查正式业务代码。真实地面验证为同目录 `test_capture_photo_sitl.py`，显式通过 pytest 的 `-m sitl` 执行；它会自行启动与清理仿真、桥接和服务，运行前停止其他同类进程。结果与原始证据目录见 [M6 T03b 记录](../../plans/M6.md#t03b-正式拍照服务2026-11-18)。本阶段仍未接入 Agent 或检测服务。
 
+## M6 T04b 图片检测服务
+
+首次使用时，在 `ros2_ws` 中加载 Jazzy 环境并执行 `colcon build --packages-select flight_agent_ros --symlink-install`。使用系统 Python/OpenCV 环境，不将 uv 的 NumPy 置于系统包之前。回到仓库根目录，加载环境后启动：
+
+```bash
+source /opt/ros/jazzy/setup.bash
+source ros2_ws/install/setup.bash
+ros2 run flight_agent_ros inspect_image_server --photo-root artifacts/photos
+```
+
+照片根目录必须对应拍照服务的 `--output-dir` 且已存在。请求 `input` 为 `{"target_class":"person"}`，`prev_output` 必须原样传入一次成功拍照返回的完整 `output` JSON；字段、错误和预算见[检测服务契约](../../contracts/rosllm_services.md#m6-t04a-图片检测服务)。未检出仍成功，工具故障返回失败。T04b 只提供独立服务，Agent 尚不能选择此动作。
+
+在已加载上述环境的终端执行回归：
+
+```bash
+export ROS_DOMAIN_ID=74
+export ROS_LOG_DIR="$PWD/artifacts/m6_t04b/ros_logs"
+export PYTHONPATH="$PWD/ros2_ws/src/flight_agent_ros:$PYTHONPATH"
+/usr/bin/python3 -m pytest -q ros2_ws/src/flight_agent_ros/test/test_inspect_image_server.py ros2_ws/src/flight_agent_ros/test/test_inspect_image_entrypoint.py ros2_ws/src/flight_agent_ros/test/test_capture_photo_server.py
+```
+
+正式入口用例需要本地 T03b 证据照片，缺失时明确跳过；不能把跳过算作实际服务通过。用例自行启停检测进程，不启动仿真或飞行；复用真实已保存照片的证据范围与构造故障范围见 [T04b 记录](../../plans/M6.md#t04b-独立检测服务2026-11-18)。
+
 ## 安装顺序
 
 1. 安装 ROS 2 Jazzy。

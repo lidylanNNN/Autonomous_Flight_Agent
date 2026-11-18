@@ -12,6 +12,7 @@
   <depend>rosgraph_msgs</depend>
   <depend>rosidl_runtime_py</depend>
   <exec_depend>python3-pil</exec_depend>
+  <exec_depend>python3-opencv</exec_depend>
   <test_depend>python3-pytest</test_depend>
   <export>
     <build_type>ament_python</build_type>

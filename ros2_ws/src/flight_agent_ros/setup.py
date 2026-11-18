@@ -18,6 +18,7 @@ setup(
             'px4_world_state_adapter = flight_agent_ros.adapters.px4_world_state_adapter:main',
             'flight_atomic_action_server = flight_agent_ros.flight_atomic_action_server:main',
             'capture_photo_server = flight_agent_ros.capture_photo_server:main',
+            'inspect_image_server = flight_agent_ros.inspect_image_server:main',
         ],
     },
 )
