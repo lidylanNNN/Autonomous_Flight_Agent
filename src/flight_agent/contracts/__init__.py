@@ -29,9 +29,11 @@ from flight_agent.contracts.models.skill_model import (
 )
 from flight_agent.contracts.models.world_state_model import (
     CoordinateFrame,
+    FreshnessLevel,
     GlobalPosition,
     Vector3,
     WorldState,
+    WorldStateFreshness,
     enu_to_ned,
     ned_to_enu,
 )
@@ -50,6 +52,7 @@ __all__ = [
     'ControllerSpeedLimitProtocol',
     'CoordinateFrame',
     'FlightExecutionBackendProtocol',
+    'FreshnessLevel',
     'GlobalPosition',
     'GoToArgs',
     'HoldArgs',
@@ -70,6 +73,7 @@ __all__ = [
     'TakeoffArgs',
     'Vector3',
     'WorldState',
+    'WorldStateFreshness',
     'enu_to_ned',
     'ned_to_enu',
     'parse_skill_arguments',

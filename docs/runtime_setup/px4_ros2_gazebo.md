@@ -249,6 +249,8 @@ FLIGHT_M6_LIVE_API=1 PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 .venv/bin/python -m pytest
 
 复用上节进程启停、参数恢复及累计预算。P1/P2 定义见[场景配置](../../configs/m6/README.md#预定观察点)；用例在调用前固定八动作输入、P1/P2 接受半径与独立判据。证据位于 `artifacts/m6_t05b/<时间>/`，各点飞行证据分别位于 `test_temp_P1/`、`test_temp_P2/`，正式交付在 `behavior_results/`。结果与边界见 [T05b 记录](../../plans/M6.md#t05b-两点飞行视觉闭环2026-11-18)。
 
+本次分级策略的阈值与兼容规则见[Safety 契约](../../contracts/safety_contract.md#worldstate-报文新鲜度分级)，固定两点通过结果及历史失败见 [T05b 分级复验](../../plans/M6.md#t05b-分级新鲜度实施与两点复验2026-11-18)。
+
 ## M6 T04c Agent 拍照后检测验证
 
 先按 T03c 重建四个生产包，并加载该节的 ROS、工作区、`.env`、`PYTHONPATH` 环境。运行前停止其他同名仿真和节点，再执行：

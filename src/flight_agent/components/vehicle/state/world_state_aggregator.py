@@ -6,9 +6,8 @@ from datetime import UTC, datetime
 from math import isfinite
 from typing import Any
 
-from flight_agent.contracts import GlobalPosition, Vector3, WorldState
+from flight_agent.contracts import GlobalPosition, Vector3, WorldState, WorldStateFreshness
 
-_REQUIRED_TOPICS = ('local_position', 'status', 'land_detected', 'battery')
 _NON_FATAL_BATTERY_WARNINGS = frozenset({0, 1})
 
 _NAV_STATE_NAMES = {
@@ -59,12 +58,9 @@ _ACK_RESULT_NAMES = {
 class WorldStateAggregator:
     '''收集 PX4 Topic 样本并生成统一状态。'''
 
-    def __init__(self, max_state_age_ms: int = 1000) -> None:
-        '''初始化空状态聚合器和 Topic 新鲜度上限。'''
+    def __init__(self) -> None:
+        '''初始化空状态聚合器；新鲜度由报文等级统一定义。'''
 
-        if max_state_age_ms < 0:
-            raise ValueError('max_state_age_ms must be non-negative')
-        self._max_state_age_ms = max_state_age_ms
         self._position_ned: Vector3 | None = None
         self._velocity_ned: Vector3 | None = None
         self._source_timestamp_us = 0
@@ -206,22 +202,27 @@ class WorldStateAggregator:
         self._mark_received('command_ack', received_at)
 
     def snapshot(self, snapshot_at: datetime | None = None) -> WorldState:
-        '''生成当前 NED WorldState，并按最旧必需 Topic 计算年龄。'''
+        '''逐项按等级检查报文，保留最旧消息年龄作为诊断。'''
 
         now = self._aware_time(snapshot_at)
-        topic_freshness = {
-            topic: self._topic_is_fresh(topic, now) for topic in _REQUIRED_TOPICS
-        }
-        link_healthy = all(topic_freshness.values())
-        required_receive_times = [
-            self._last_received_at[topic]
-            for topic in _REQUIRED_TOPICS
-            if topic in self._last_received_at
-        ]
-        received_at = min(required_receive_times, default=now)
+        freshness = WorldStateFreshness(
+            snapshot_at=now,
+            local_position_received_at=self._last_received_at.get('local_position'),
+            status_received_at=self._last_received_at.get('status'),
+            battery_received_at=self._last_received_at.get('battery'),
+            land_detected_received_at=self._last_received_at.get('land_detected'),
+        )
+        link_healthy = freshness.is_fresh(now)
+        received_at = min(freshness.local_position_received_at or now,
+                          freshness.status_received_at or now,
+                          freshness.battery_received_at or now,
+                          freshness.land_detected_received_at or now)
         state_age_ms = self._elapsed_ms(received_at, now)
         health_flags = {
-            **{f'{topic}_fresh': fresh for topic, fresh in topic_freshness.items()},
+            'local_position_fresh': freshness.local_position_is_fresh(now),
+            'status_fresh': freshness.status_is_fresh(now),
+            'battery_fresh': freshness.battery_is_fresh(now),
+            'land_detected_fresh': freshness.land_detected_is_fresh(now),
             'position_valid': self._position_valid,
             'battery_connected': self._battery_connected,
             'battery_valid': self._battery_valid,
@@ -248,6 +249,7 @@ class WorldStateAggregator:
             source_timestamp_us=self._source_timestamp_us,
             received_at=received_at,
             state_age_ms=state_age_ms,
+            freshness=freshness,
             position_ned_m=self._position_ned,
             velocity_ned_mps=self._velocity_ned,
             battery_percent=self._battery_percent,
@@ -274,14 +276,6 @@ class WorldStateAggregator:
         '''记录 Topic 在 Adapter 中的实际接收时间。'''
 
         self._last_received_at[topic] = self._aware_time(received_at)
-
-    def _topic_is_fresh(self, topic: str, now: datetime) -> bool:
-        '''判断指定必需 Topic 是否存在且未超过年龄上限。'''
-
-        received_at = self._last_received_at.get(topic)
-        if received_at is None:
-            return False
-        return self._elapsed_ms(received_at, now) <= self._max_state_age_ms
 
     @staticmethod
     def _aware_time(value: datetime | None) -> datetime:

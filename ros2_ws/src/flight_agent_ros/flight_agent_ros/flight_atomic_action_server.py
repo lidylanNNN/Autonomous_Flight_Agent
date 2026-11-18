@@ -186,7 +186,7 @@ def build_flight_atomic_action_server(
     '''Build the same service and gate used by the production entrypoint.'''
 
     gate = SafetyExecutionGate(
-        SafetySupervisor(speed_limit_source, policy_version='mx4-flight-actions'),
+        SafetySupervisor(speed_limit_source, policy_version='mx4-flight-actions-freshness-v1'),
         backend,
         TraceRecorder(trace_path),
         authority_reader,

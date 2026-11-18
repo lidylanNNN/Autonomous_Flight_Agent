@@ -59,8 +59,8 @@ V1 目标：取得初始观察后等待人工输入。`RosAgent` 根据观察和
 | 动作完成判定 | 飞行动作服务复用 PX4 Backend 的状态完成条件 | 服务等待执行结果，Safety 批准且执行状态为 `SUCCEEDED` 才返回成功；序列执行器收到成功后继续，失败即停 |
 | Trace | `TraceRecorder`、`TraceReplay` | 已接入 WorldState、安全决策、观察、LLM 响应及 Gate 动作结果/异常记录，并通过替身主链审计，详见 [MX-5 审计](plans/MX-5-audit.md)；完整 Episode 因果链尚未完成 |
 | 测评数据 | `agent_benchmark_sets/`、schema 与 validation scripts | Dev 用例存在；Validation/Frozen Test 目前只是预留 manifest，不得报告冻结测评指标 |
-| 拍照 | `capture_photo_server`、共享动作白名单及 `RosEnv` 动作说明 | 地面接入及交付见 [M6 T03–T04](plans/M6.md)；固定单点飞行、拍照检测及返航后交付已按 [T05a](plans/M6.md#t05a-单点飞行视觉闭环2026-11-18)验证，不代表多点或系统性能 |
-| 图片检测 | `inspect_image_server`、共享动作白名单及 Registry 描述 | 独立服务及地面串联见 [T04b/T04c](plans/M6.md#t04c-agent-拍照后检测2026-11-18)；飞行视角真实新图检测及返航交付见 [T05a](plans/M6.md#t05a-单点飞行视觉闭环2026-11-18)，尚无真实无目标或多点证据 |
+| 拍照 | `capture_photo_server`、共享动作白名单及 `RosEnv` 动作说明 | 地面接入及交付见 [M6 T03–T04](plans/M6.md)；固定单点及两点飞行、拍照检测与返航交付已按 [T05a/T05b](plans/M6.md#t05b-分级新鲜度实施与两点复验2026-11-18)验证，不代表系统性能 |
+| 图片检测 | `inspect_image_server`、共享动作白名单及 Registry 描述 | 独立服务及地面串联见 [T04b/T04c](plans/M6.md#t04c-agent-拍照后检测2026-11-18)；固定两点飞行视角检测与返航交付见 [T05b](plans/M6.md#t05b-分级新鲜度实施与两点复验2026-11-18)，尚无真实无目标证据 |
 | 旧审批原型 | 模型、协议、组件、Mock、公共导出和专属测试已删除 | 旧审批决策枚举与原因码也已移除；见 [删除记录](plans/M4.md#8b-18b-2-删除范围与影响)与 [契约收敛](plans/M4.md#8b-3-契约收敛) |
 
 ### 2.1 文件处置决定（分批实施）
@@ -257,7 +257,7 @@ V1 不建立任务 ID 或任务会话。飞行动作服务以 `--safety-json` �
 |---|---|---|
 | M0 测评设计与骨架 | 完成基础结构 | Dev/Validation/Frozen Test 持续治理；基础结构不代表冻结结果 |
 | M1 ROS 2/PX4/Gazebo 环境 | 已有阶段记录 | 重跑时记录冻结版本和真实 SITL 证据 |
-| M2 WorldState/Trace 基础 | 已有阶段记录 | 状态时效与回放回归保持可用 |
+| M2 WorldState/Trace 基础 | 已有阶段记录 | 状态时效已按[报文等级](contracts/safety_contract.md#worldstate-报文新鲜度分级)接入，保留旧格式回放兼容 |
 | M3 确定性飞行动作 | 已有阶段记录 | 保留调试入口与 Backend 回归，不把它计作 Agent 任务成功 |
 | [MX 主流程骨架贯通](plans/MX.md) | **替身范围完成，2026-11-04 已复核** | 后续进入 M4 默认授权接线与受控 SITL；完整 Episode 等剩余边界见 [MX-5 审计](plans/MX-5-audit.md#发现) |
 | M4 Contract/Safety Gate | **已完成（受控场景范围）** | 默认授权、五动作实际服务、重复运行及旧审批清理已收口；限速拒绝等未覆盖项见 [M4 收口结论](plans/M4.md#收口结论)，不代表完整 Agent 任务闭环 |

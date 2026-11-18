@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from enum import StrEnum
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
 class CoordinateFrame(StrEnum):
@@ -35,6 +35,78 @@ class GlobalPosition(BaseModel):
     altitude_amsl_m: float
 
 
+class FreshnessLevel(StrEnum):
+    '''周期报文的新鲜度等级，阈值只在此处定义。'''
+
+    FAST = 'fast'
+    NORMAL = 'normal'
+    SLOW = 'slow'
+
+    @property
+    def max_age_ms(self) -> int:
+        '''按等级匹配允许的最大接收年龄，未知等级不回退。'''
+        match self:
+            case FreshnessLevel.FAST:
+                return 500
+            case FreshnessLevel.NORMAL:
+                return 1000
+            case FreshnessLevel.SLOW:
+                return 1500
+            case _:
+                raise ValueError('unknown freshness level')
+
+
+class WorldStateFreshness(BaseModel):
+    '''保存快照及四类必需报文的接收时间，并显式分配等级。'''
+
+    model_config = ConfigDict(extra='forbid', frozen=True)
+
+    snapshot_at: datetime
+    local_position_received_at: datetime | None
+    status_received_at: datetime | None
+    battery_received_at: datetime | None
+    land_detected_received_at: datetime | None
+
+    @field_validator('snapshot_at', 'local_position_received_at', 'status_received_at',
+                     'battery_received_at', 'land_detected_received_at')
+    @classmethod
+    def require_timezone(cls, value: datetime | None) -> datetime | None:
+        '''拒绝无时区时间；空值明确表示尚未收到报文。'''
+        if value is not None and value.tzinfo is None:
+            raise ValueError('timestamp must include a timezone')
+        return value
+
+    def local_position_is_fresh(self, now: datetime) -> bool:
+        '''位置和速度使用快速档。'''
+        return self._message_is_fresh(self.local_position_received_at, FreshnessLevel.FAST, now)
+
+    def status_is_fresh(self, now: datetime) -> bool:
+        '''飞控模式、权限状态和故障标志使用普通档。'''
+        return self._message_is_fresh(self.status_received_at, FreshnessLevel.NORMAL, now)
+
+    def battery_is_fresh(self, now: datetime) -> bool:
+        '''电量、连接与故障标志使用普通档。'''
+        return self._message_is_fresh(self.battery_received_at, FreshnessLevel.NORMAL, now)
+
+    def land_detected_is_fresh(self, now: datetime) -> bool:
+        '''着陆状态使用慢速档。'''
+        return self._message_is_fresh(self.land_detected_received_at, FreshnessLevel.SLOW, now)
+
+    def is_fresh(self, now: datetime) -> bool:
+        '''逐项检查必需报文，任一缺失或过期均无效。'''
+        return (self.local_position_is_fresh(now) and self.status_is_fresh(now)
+                and self.battery_is_fresh(now) and self.land_detected_is_fresh(now))
+
+    @staticmethod
+    def _message_is_fresh(received_at: datetime | None, level: FreshnessLevel,
+                          now: datetime) -> bool:
+        '''按本地接收时间比较等级阈值，拒绝未来时间。'''
+        if received_at is None:
+            return False
+        elapsed_ms = (now - received_at).total_seconds() * 1000
+        return 0 <= elapsed_ms <= level.max_age_ms
+
+
 class WorldState(BaseModel):
     '''Agent 使用的 NED 世界状态快照。'''
 
@@ -44,6 +116,7 @@ class WorldState(BaseModel):
     source_timestamp_us: int = Field(ge=0)
     received_at: datetime
     state_age_ms: int = Field(ge=0)
+    freshness: WorldStateFreshness | None = None
     position_ned_m: Vector3 | None = None
     velocity_ned_mps: Vector3 | None = None
     battery_percent: float | None = Field(default=None, ge=0.0, le=100.0)
@@ -82,11 +155,17 @@ class WorldState(BaseModel):
         return max(self.state_age_ms, elapsed_ms)
 
     def is_fresh(self, max_age_ms: int, now: datetime | None = None) -> bool:
-        '''判断状态是否没有超过允许的新鲜度窗口。'''
+        '''新格式逐报文检查并限制快照缓存年龄；旧格式保留统一年龄规则。'''
 
         if max_age_ms < 0:
             raise ValueError('max_age_ms must be non-negative')
-        return self.age_ms(now) <= max_age_ms
+        reference = now or datetime.now(UTC)
+        if reference.tzinfo is None:
+            raise ValueError('now must include a timezone')
+        if self.freshness is None:
+            return self.age_ms(reference) <= max_age_ms
+        snapshot_age_ms = (reference - self.freshness.snapshot_at).total_seconds() * 1000
+        return (0 <= snapshot_age_ms <= max_age_ms and self.freshness.is_fresh(reference))
 
 
 def ned_to_enu(vector: Vector3) -> Vector3:

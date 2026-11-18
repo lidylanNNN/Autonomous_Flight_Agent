@@ -1,12 +1,13 @@
 '''WorldState aggregator tests.'''
 
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
 
 from flight_agent.components.vehicle.state import WorldStateAggregator
-from flight_agent.contracts import Vector3
+from flight_agent.contracts import FreshnessLevel, Vector3, WorldState, WorldStateFreshness
 
 
 def update_required_topics(aggregator: WorldStateAggregator, received_at: datetime) -> None:
@@ -95,12 +96,12 @@ def test_aggregator_marks_state_stale_when_messages_stop() -> None:
     '''验证停止接收 PX4 消息后 WorldState 会变为不健康。'''
 
     received_at = datetime(2026, 1, 1, tzinfo=UTC)
-    aggregator = WorldStateAggregator(max_state_age_ms=1000)
+    aggregator = WorldStateAggregator()
     update_required_topics(aggregator, received_at)
 
-    state = aggregator.snapshot(received_at + timedelta(milliseconds=1001))
+    state = aggregator.snapshot(received_at + timedelta(milliseconds=1501))
 
-    assert state.state_age_ms == 1001
+    assert state.state_age_ms == 1501
     assert state.link_healthy is False
     assert state.is_fresh(1000, received_at + timedelta(milliseconds=1001)) is False
     assert all(
@@ -114,9 +115,9 @@ def test_one_new_topic_does_not_hide_other_stale_topics() -> None:
     '''验证单个 Topic 更新不能掩盖其他必需 Topic 已过期。'''
 
     received_at = datetime(2026, 1, 1, tzinfo=UTC)
-    aggregator = WorldStateAggregator(max_state_age_ms=1000)
+    aggregator = WorldStateAggregator()
     update_required_topics(aggregator, received_at)
-    later = received_at + timedelta(milliseconds=1001)
+    later = received_at + timedelta(milliseconds=1501)
     aggregator.update_status(
         SimpleNamespace(
             timestamp=14,
@@ -349,3 +350,91 @@ def test_optional_event_age_does_not_make_required_state_stale() -> None:
 
     assert state.state_age_ms == 0
     assert state.link_healthy is True
+
+
+@pytest.mark.parametrize(('test_input_field', 'test_input_level', 'expected_output_limit'), [
+    ('local_position_received_at', FreshnessLevel.FAST, 500),
+    ('status_received_at', FreshnessLevel.NORMAL, 1000),
+    ('battery_received_at', FreshnessLevel.NORMAL, 1000),
+    ('land_detected_received_at', FreshnessLevel.SLOW, 1500),
+])
+@pytest.mark.parametrize('test_input_offset_ms', [0, 0.001, None])
+def test_temp_grade_boundaries(
+    test_input_field: str, test_input_level: FreshnessLevel, expected_output_limit: int,
+    test_input_offset_ms: float | None,
+) -> None:
+    '''每类报文在自身等级上限允许，超过一微秒或缺失时拒绝。'''
+    test_temp_now = datetime(2026, 1, 1, tzinfo=UTC)
+    aggregator = WorldStateAggregator()
+    update_required_topics(aggregator, test_temp_now)
+    state = aggregator.snapshot(test_temp_now)
+    assert state.freshness is not None
+    assert test_input_level.max_age_ms == expected_output_limit
+    state = state.model_copy(update={'freshness': state.freshness.model_copy(update={
+        test_input_field: (None if test_input_offset_ms is None else
+            test_temp_now - timedelta(milliseconds=expected_output_limit + test_input_offset_ms)),
+    })})
+    assert state.is_fresh(1000, test_temp_now) is (test_input_offset_ms == 0)
+
+
+def test_temp_slow_land_message_does_not_hide_stale_position() -> None:
+    '''生产聚合按慢速档接纳着陆消息，同时不放过快速档过期的位置。'''
+    test_temp_now = datetime(2026, 1, 1, tzinfo=UTC)
+    aggregator = WorldStateAggregator()
+    update_required_topics(aggregator, test_temp_now)
+    aggregator.update_land_detected(SimpleNamespace(timestamp=12, landed=False),
+                                    test_temp_now - timedelta(milliseconds=1200))
+    state = aggregator.snapshot(test_temp_now)
+    assert state.state_age_ms == 1200 and state.link_healthy
+    assert state.is_fresh(1000, test_temp_now)
+    assert state.is_fresh(1000, test_temp_now + timedelta(milliseconds=301)) is False
+    assert state.freshness is not None
+    state = state.model_copy(update={'freshness': state.freshness.model_copy(update={
+        'local_position_received_at': test_temp_now - timedelta(milliseconds=501),
+    })})
+    assert state.is_fresh(1000, test_temp_now) is False
+
+
+def test_temp_snapshot_cache_has_its_own_limit() -> None:
+    '''所有报文仍在等级内时，过期的快照缓存仍被拒绝。'''
+    test_temp_now = datetime(2026, 1, 1, tzinfo=UTC)
+    aggregator = WorldStateAggregator()
+    update_required_topics(aggregator, test_temp_now)
+    state = aggregator.snapshot(test_temp_now)
+    assert state.is_fresh(100, test_temp_now + timedelta(milliseconds=100))
+    assert state.is_fresh(100, test_temp_now + timedelta(milliseconds=101)) is False
+
+
+def test_temp_new_trace_preserves_grade_timestamps(tmp_path: Path) -> None:
+    '''生产聚合状态经正式 Trace 写入回放后仍保持分级判定。'''
+    from flight_agent.components.tracing import TraceRecorder, TraceReplay
+
+    test_temp_now = datetime(2026, 1, 1, tzinfo=UTC)
+    aggregator = WorldStateAggregator()
+    update_required_topics(aggregator, test_temp_now)
+    state = aggregator.snapshot(test_temp_now)
+    test_temp_path = tmp_path / 'world.jsonl'
+    TraceRecorder(test_temp_path).record_world_state(state)
+    test_temp_record, = TraceReplay(test_temp_path).iter_world_state_records()
+    assert test_temp_record.state == state
+    assert test_temp_record.state.is_fresh(1000, test_temp_now)
+    assert test_temp_record.state.is_fresh(1000, test_temp_now + timedelta(milliseconds=501)) is False
+
+
+def test_temp_partial_or_naive_new_metadata_is_rejected() -> None:
+    '''部分新字段及无时区时间不被当作旧格式或有效新格式。'''
+    from pydantic import ValidationError
+
+    test_temp_now = datetime(2026, 1, 1, tzinfo=UTC)
+    aggregator = WorldStateAggregator()
+    update_required_topics(aggregator, test_temp_now)
+    test_temp_payload = aggregator.snapshot(test_temp_now).model_dump(mode='json')
+    del test_temp_payload['freshness']['status_received_at']
+    with pytest.raises(ValidationError):
+        WorldState.model_validate(test_temp_payload)
+    with pytest.raises(ValidationError, match='timezone'):
+        WorldStateFreshness(snapshot_at=test_temp_now.replace(tzinfo=None),
+            local_position_received_at=None, status_received_at=None,
+            battery_received_at=None, land_detected_received_at=None)
+    with pytest.raises(ValueError):
+        FreshnessLevel('unknown')

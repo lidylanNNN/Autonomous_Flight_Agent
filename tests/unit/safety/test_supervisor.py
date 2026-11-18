@@ -24,6 +24,7 @@ from flight_agent.contracts import (
     TakeoffArgs,
     Vector3,
     WorldState,
+    WorldStateFreshness,
 )
 
 _NOW = datetime(2026, 10, 12, tzinfo=UTC)
@@ -350,26 +351,32 @@ def test_unusable_px4_speed_evidence_rejects(
     assert decision.reason_codes == (reason,)
 
 
-def test_state_becoming_stale_during_parameter_read_rejects() -> None:
-    '''验证异步限速读取完成后重新检查原状态的时效。'''
+@pytest.mark.parametrize('test_input_format', ['legacy', 'position', 'land'])
+def test_state_becoming_stale_during_parameter_read_rejects(test_input_format: str) -> None:
+    '''限速读取跨越旧格式、快速档或慢速档期限时均拒绝。'''
+    test_temp_current = [_NOW]
+    state = make_state()
+    if test_input_format != 'legacy':
+        state = state.model_copy(update={'freshness': WorldStateFreshness(
+            snapshot_at=_NOW, local_position_received_at=_NOW,
+            status_received_at=_NOW, battery_received_at=_NOW,
+            land_detected_received_at=_NOW - timedelta(
+                milliseconds=1490 if test_input_format == 'land' else 0),
+        )})
 
-    current = [_NOW]
-
-    class AdvancingSource(FakeSpeedSource):
-        '''模拟参数读取期间时钟向前推进。'''
+    class TestTempAdvancingSource(FakeSpeedSource):
+        '''模拟参数读取期间推进时钟，不替换生产复核。'''
 
         async def read_validated_speed_limit(self, *, max_age_s: float) -> float:
-            '''在返回读数前推进时钟。'''
-
-            current[0] += timedelta(seconds=2)
+            '''返回前使选定报文过期，同时让新格式快照仍未超过缓存上限。'''
+            test_temp_current[0] += timedelta(milliseconds=(
+                2000 if test_input_format == 'legacy' else
+                501 if test_input_format == 'position' else 20))
             return await super().read_validated_speed_limit(max_age_s=max_age_s)
 
-    decision = asyncio.run(
-        SafetySupervisor(
-            AdvancingSource(), policy_version='m4-v1', clock=lambda: current[0]
-        ).evaluate(make_proposal(), make_constraints(), make_state(),
-                   ControlAuthority.AGENT_ALLOWED)
-    )
+    decision = asyncio.run(SafetySupervisor(TestTempAdvancingSource(),
+        policy_version='m4-v1', clock=lambda: test_temp_current[0]).evaluate(
+            make_proposal(), make_constraints(), state, ControlAuthority.AGENT_ALLOWED))
     assert decision.reason_codes == (SafetyReasonCode.STALE_STATE,)
 
 
