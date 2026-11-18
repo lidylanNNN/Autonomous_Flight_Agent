@@ -110,6 +110,30 @@ _ATOMIC_ACTION_SPECS = (
             'Photo success does not mean detection or flight task success.'
         ),
     ),
+    AtomicActionSpec(
+        name='inspect_image',
+        description=(
+            '检测紧邻前一项 capture_photo 保存的新照片中的人物。 '
+            '必须紧接 capture_photo，执行器会把拍照 output 原样放入 prev_output。 '
+            '只输入 target_class=person；不得预填照片 ID、路径、哈希或 prev_output，'
+            '不得检测旧照片或将其他动作放在拍照与检测之间。'
+        ),
+        args_schema={
+            'type': 'object',
+            'properties': {'target_class': {'type': 'string', 'enum': ['person']}},
+            'required': ['target_class'],
+            'additionalProperties': False,
+        },
+        output_description=(
+            'source (inspect_image_server), photo_id, image_path, metadata_path, sha256, '
+            'target_class, tool, detections, detection_cnt, error_code, message. '
+            'success=true means the preceding photo was verified and detection completed; '
+            'detections=[] and detection_cnt=0 mean no person detected in this image, not a tool failure. '
+            'Each detection has class, xywh (original image pixels), svm_score (not a probability). '
+            'On failure success=false, error_code reports the cause and media/detection fields are null. '
+            'Detection success does not mean flight task success.'
+        ),
+    ),
 )
 
 ATOMIC_ACTION_REGISTRY: Mapping[str, AtomicActionSpec] = MappingProxyType(

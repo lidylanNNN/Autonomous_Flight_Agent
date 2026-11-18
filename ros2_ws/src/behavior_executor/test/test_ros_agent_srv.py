@@ -158,6 +158,7 @@ def test_temp_main_observes_before_human_input_then_reobserves_after_llm_failure
                 'acceptance_radius_m': 1.0,
             },
             'hold': {'duration_s': 1.0}, 'rtl': {}, 'land': {}, 'capture_photo': {},
+            'inspect_image': {'target_class': 'person'},
         }
         assert set(test_temp_schemas) == set(test_input_arguments)
         assert test_temp_schemas['capture_photo'] == {
@@ -167,6 +168,16 @@ def test_temp_main_observes_before_human_input_then_reobserves_after_llm_failure
         assert 'capture_photo output fields: source (capture_photo_server)' in action_library
         assert 'photo_id, image_path, metadata_path, sha256, error_code, message' in action_library
         assert 'Photo success does not mean detection or flight task success' in action_library
+        assert test_temp_schemas['inspect_image'] == {
+            'type': 'object',
+            'properties': {'target_class': {'type': 'string', 'enum': ['person']}},
+            'required': ['target_class'], 'additionalProperties': False,
+        }
+        assert '必须紧接 capture_photo' in action_library
+        assert '不得预填照片 ID、路径、哈希或 prev_output' in action_library
+        assert 'inspect_image output fields: source (inspect_image_server)' in action_library
+        assert 'svm_score (not a probability)' in action_library
+        assert 'not a tool failure' in action_library
         for spec in list_skill_specs():
             input_schema = test_temp_schemas[spec.name.value]
             assert input_schema['additionalProperties'] is False

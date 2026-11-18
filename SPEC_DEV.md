@@ -60,7 +60,7 @@ V1 目标：取得初始观察后等待人工输入。`RosAgent` 根据观察和
 | Trace | `TraceRecorder`、`TraceReplay` | 已接入 WorldState、安全决策、观察、LLM 响应及 Gate 动作结果/异常记录，并通过替身主链审计，详见 [MX-5 审计](plans/MX-5-audit.md)；完整 Episode 因果链尚未完成 |
 | 测评数据 | `agent_benchmark_sets/`、schema 与 validation scripts | Dev 用例存在；Validation/Frozen Test 目前只是预留 manifest，不得报告冻结测评指标 |
 | 拍照 | `capture_photo_server`、共享动作白名单及 `RosEnv` 动作说明 | 独立服务及实际有人入口经真实模型调用的地面证据见 [M6 T03b/T03c](plans/M6.md)；尚无飞行视觉任务或终端逐项图片交付 |
-| 图片检测 | `inspect_image_server` 独立 ROS 服务 | 已从正式入口消费 T03b 保存照片并调用真实 HOG，见 [T04b 记录](plans/M6.md#t04b-独立检测服务2026-11-18)；尚未接入 Agent、飞行视觉任务或终端逐项结果交付 |
+| 图片检测 | `inspect_image_server`、共享动作白名单及 Registry 描述 | 独立服务与实际有人入口串联采集后检测的证据见 [T04b/T04c 记录](plans/M6.md#t04c-agent-拍照后检测2026-11-18)；尚无飞行视觉任务或终端逐项结果交付 |
 | 旧审批原型 | 模型、协议、组件、Mock、公共导出和专属测试已删除 | 旧审批决策枚举与原因码也已移除；见 [删除记录](plans/M4.md#8b-18b-2-删除范围与影响)与 [契约收敛](plans/M4.md#8b-3-契约收敛) |
 
 ### 2.1 文件处置决定（分批实施）

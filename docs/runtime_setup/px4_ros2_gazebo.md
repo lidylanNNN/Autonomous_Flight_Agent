@@ -202,7 +202,7 @@ source ros2_ws/install/setup.bash
 ros2 run flight_agent_ros inspect_image_server --photo-root artifacts/photos
 ```
 
-照片根目录必须对应拍照服务的 `--output-dir` 且已存在。请求 `input` 为 `{"target_class":"person"}`，`prev_output` 必须原样传入一次成功拍照返回的完整 `output` JSON；字段、错误和预算见[检测服务契约](../../contracts/rosllm_services.md#m6-t04a-图片检测服务)。未检出仍成功，工具故障返回失败。T04b 只提供独立服务，Agent 尚不能选择此动作。
+照片根目录必须对应拍照服务的 `--output-dir` 且已存在。请求 `input` 为 `{"target_class":"person"}`，`prev_output` 必须原样传入一次成功拍照返回的完整 `output` JSON；字段、错误和预算见[检测服务契约](../../contracts/rosllm_services.md#m6-t04a-图片检测服务)。未检出仍成功，工具故障返回失败。Agent 串联验证见下方 T04c。
 
 在已加载上述环境的终端执行回归：
 
@@ -214,6 +214,17 @@ export PYTHONPATH="$PWD/ros2_ws/src/flight_agent_ros:$PYTHONPATH"
 ```
 
 正式入口用例需要本地 T03b 证据照片，缺失时明确跳过；不能把跳过算作实际服务通过。用例自行启停检测进程，不启动仿真或飞行；复用真实已保存照片的证据范围与构造故障范围见 [T04b 记录](../../plans/M6.md#t04b-独立检测服务2026-11-18)。
+
+## M6 T04c Agent 拍照后检测验证
+
+先按 T03c 重建四个生产包，并加载该节的 ROS、工作区、`.env`、`PYTHONPATH` 环境。运行前停止其他同名仿真和节点，再执行：
+
+```bash
+export ROS_LOG_DIR="$PWD/artifacts/m6_t04c/live_ros_logs"
+FLIGHT_M6_LIVE_API=1 PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 .venv/bin/python -m pytest ros2_ws/src/behavior_executor/test/test_agent_capture_sitl.py -m sitl -k inspect -q -s -o addopts= -p no:cacheprovider
+```
+
+用例自行启停仿真、相机桥及生产节点，保持飞机在地面，沿用既有模型预算。检测进程单独使用系统 Python，并从继承的 `PYTHONPATH` 移除本项目 uv 环境，以满足上节系统 OpenCV 的要求；其他节点保持原环境。证据、失败记录和适用范围见 [T04c 记录](../../plans/M6.md#t04c-agent-拍照后检测2026-11-18)。该用例验证实际输入驱动本轮拍照与检测，不交付返航后逐项视觉结果。
 
 ## 安装顺序
 

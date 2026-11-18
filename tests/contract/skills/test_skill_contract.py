@@ -27,7 +27,7 @@ from flight_agent.contracts import (
 
 
 def test_temp_action_descriptions_preserve_flight_execution_boundary() -> None:
-    '''统一工具描述不能把拍照注册成飞行动作，也不能改写原飞行参数。'''
+    '''统一工具描述不能把感知工具注册成飞行动作，也不能改写原飞行参数。'''
     for spec in list_skill_specs():
         action_spec = get_atomic_action_spec(spec.name.value)
         assert isinstance(action_spec, AtomicActionSpec)
@@ -44,6 +44,12 @@ def test_temp_action_descriptions_preserve_flight_execution_boundary() -> None:
     assert 'capture_photo' not in SKILL_REGISTRY
     with pytest.raises(ValueError):
         SkillName('capture_photo')
+    action_spec = get_atomic_action_spec('inspect_image')
+    assert action_spec.args_schema['additionalProperties'] is False
+    assert set(action_spec.args_schema['properties']) == {'target_class'}
+    assert 'inspect_image' not in SKILL_REGISTRY
+    with pytest.raises(ValueError):
+        SkillName('inspect_image')
     with pytest.raises(KeyError):
         get_atomic_action_spec('unknown_action')
 
