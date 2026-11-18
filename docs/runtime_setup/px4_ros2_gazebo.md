@@ -114,7 +114,7 @@ gz service -s /world/default/scene/info \
   --reqtype gz.msgs.Empty --reptype gz.msgs.Scene --timeout 5000 --req ''
 ```
 
-`target` 应只有一个 `m6_person`，姿态与场景 SDF 一致；`empty` 不应有该实体或带后缀的副本。完整重置时停止终端一的仿真，再执行上述启动和配置步骤；不在运行中的飞机上重置世界/时钟。资源校验失败时先恢复原始文件，不绕过校验。相机图像、ROS 桥接和检测结果仍按后续 M6 子批次验证。
+`target` 应只有一个 `m6_person`，姿态与场景 SDF 一致；`empty` 不应有该实体或带后缀的副本。完整重置时停止终端一的仿真，再执行上述启动和配置步骤；不在运行中的飞机上重置世界/时钟。资源校验失败时先恢复原始文件，不绕过校验。实体查询只验证场景装载；图片与检测见下文 T01c，ROS 桥接见 T02a。
 
 ## M6 T01c 检测工具试跑
 
@@ -135,6 +135,29 @@ gz service -s /world/default/scene/info \
 ```
 
 该命令固定 CPU 单 OpenCV 线程，不接收场景坐标或真值；JSON 包含输入图片哈希、检测框、SVM score、耗时和检测进程峰值 RSS。空列表表示成功但未检出，图片不可读则非零退出；有输出文件不自动代表检出人物。归档原图、原始消息及结果位于上述证据目录，版本和校验值见 `manifest.json`。
+
+## M6 T02a ROS 图像桥接
+
+在前述 M6 相机仿真与 `target` 场景就绪后，另开终端，在仓库根目录运行：
+
+```bash
+scripts/ros2_px4/start_camera_bridge.sh
+```
+
+入口只支持 `default` 世界和 `x500_mono_cam_0` 实例，不接受配置参数；`--help` 查看用法。运行依赖为系统 ROS Jazzy 的 `ros_gz_bridge`、`sensor_msgs`、`rosgraph_msgs`，脚本加载 `/opt/ros/jazzy/setup.bash` 并逐项检查。验证版本、影响与回滚见 [T02a 记录](../../plans/M6.md#t02a-恢复实施图像桥接2026-11-17)。
+
+映射与 QoS 以 [camera_bridge.yaml](../../scripts/ros2_px4/camera_bridge.yaml) 为唯一配置来源：图像及参数使用 `SENSOR_DATA`，时钟使用 `CLOCK`；三个映射均为 `GZ_TO_ROS`。不启动第二个桥接或其他 `/clock` 发布者；操作员退出桥接终端即停止转发，仿真需在原终端另行停止。启动日志只表示桥接创建，必须检查实际消息：
+
+```bash
+source /opt/ros/jazzy/setup.bash
+ros2 topic echo /camera/camera_info --once --qos-reliability best_effort
+ros2 topic echo /clock --once --qos-reliability best_effort
+ros2 topic echo /camera/image_raw --field header --once --qos-reliability best_effort
+```
+
+这些命令用于观察消息，不能代替本批原始像素、参数和时间对应验证。实际采集方须使用兼容的 best-effort 订阅 QoS；需使用仿真时间的 ROS 节点另行设置 `use_sim_time=true`，启动桥接不会自动修改其他节点的时间源。源时间戳保留、frame_id 按桥接库标准转换，具体边界见上述 T02a 记录；不提供 NED/ENU 图像定位。
+
+完整地面验证可运行 `/usr/bin/python3 artifacts/m6_t02a/test_temp_run.py`；它从实际脚本启动新仿真、场景与桥接，调用 pytest 读取原生/ROS 消息，结束后清理本轮进程。先停止其他仿真/桥接；除上述运行依赖外，验证器需要系统 pytest、Pillow 和 Gazebo Python 绑定。它不安装依赖、不飞行、不调用 Agent。图像新鲜度、重置缓存失效与正式采集服务仍留待后续批次。
 
 ## 安装顺序
 
