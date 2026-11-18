@@ -6,6 +6,11 @@ import pytest
 from pydantic import ValidationError
 
 from flight_agent.components.skills import SKILL_REGISTRY, list_skill_specs
+from flight_agent.components.skills.registry import (
+    AtomicActionSpec,
+    get_atomic_action_spec,
+    get_skill_spec,
+)
 from flight_agent.contracts import (
     ApprovedSkillCommand,
     FlightExecutionBackendProtocol,
@@ -19,6 +24,28 @@ from flight_agent.contracts import (
     WorldState,
     skill_result_duration_s,
 )
+
+
+def test_temp_action_descriptions_preserve_flight_execution_boundary() -> None:
+    '''统一工具描述不能把拍照注册成飞行动作，也不能改写原飞行参数。'''
+    for spec in list_skill_specs():
+        action_spec = get_atomic_action_spec(spec.name.value)
+        assert isinstance(action_spec, AtomicActionSpec)
+        assert action_spec.name == spec.name.value
+        assert action_spec.description == spec.description
+        assert action_spec.args_schema == spec.args_schema
+        assert get_skill_spec(spec.name) is spec
+    action_spec = get_atomic_action_spec('capture_photo')
+    assert isinstance(action_spec, AtomicActionSpec)
+    assert action_spec.args_schema == {
+        'type': 'object', 'properties': {}, 'additionalProperties': False,
+    }
+    assert action_spec.output_description
+    assert 'capture_photo' not in SKILL_REGISTRY
+    with pytest.raises(ValueError):
+        SkillName('capture_photo')
+    with pytest.raises(KeyError):
+        get_atomic_action_spec('unknown_action')
 
 
 def make_success_result() -> SkillResult:

@@ -157,9 +157,16 @@ def test_temp_main_observes_before_human_input_then_reobserves_after_llm_failure
                 'north_m': 1.0, 'east_m': 2.0, 'altitude_m': 3.0,
                 'acceptance_radius_m': 1.0,
             },
-            'hold': {'duration_s': 1.0}, 'rtl': {}, 'land': {},
+            'hold': {'duration_s': 1.0}, 'rtl': {}, 'land': {}, 'capture_photo': {},
         }
         assert set(test_temp_schemas) == set(test_input_arguments)
+        assert test_temp_schemas['capture_photo'] == {
+            'type': 'object', 'properties': {}, 'additionalProperties': False,
+        }
+        assert 'Flight actions only (takeoff, goto, hold, rtl, land) output fields:' in action_library
+        assert 'capture_photo output fields: source (capture_photo_server)' in action_library
+        assert 'photo_id, image_path, metadata_path, sha256, error_code, message' in action_library
+        assert 'Photo success does not mean detection or flight task success' in action_library
         for spec in list_skill_specs():
             input_schema = test_temp_schemas[spec.name.value]
             assert input_schema['additionalProperties'] is False

@@ -1,9 +1,11 @@
-'''M3 deterministic Flight Skill registry.'''
+'''飞行动作执行规格及 Agent 使用的结构化动作描述。'''
 
 from __future__ import annotations
 
 from collections.abc import Mapping
+from dataclasses import dataclass
 from types import MappingProxyType
+from typing import Any
 
 from flight_agent.contracts import (
     GoToArgs,
@@ -15,6 +17,17 @@ from flight_agent.contracts import (
     SkillSpec,
     TakeoffArgs,
 )
+
+
+@dataclass(frozen=True)
+class AtomicActionSpec:
+    '''供 Agent 生成工具说明，不作为飞行权限或执行凭证。'''
+
+    name: str
+    description: str
+    args_schema: dict[str, Any]
+    output_description: str = ''
+
 
 _SKILL_SPECS = (
     SkillSpec(
@@ -73,6 +86,41 @@ _SKILL_SPECS = (
 SKILL_REGISTRY: Mapping[SkillName, SkillSpec] = MappingProxyType(
     {spec.name: spec for spec in _SKILL_SPECS}
 )
+
+_ATOMIC_ACTION_SPECS = (
+    *(AtomicActionSpec(
+        name=spec.name.value,
+        description=spec.description,
+        args_schema=spec.args_schema,
+    ) for spec in _SKILL_SPECS),
+    AtomicActionSpec(
+        name='capture_photo',
+        description=(
+            '保存请求后的一张新照片及相机、时间和实测位置。 '
+            '不移动飞机，不做目标检测，不解析 prev_output。 '
+            '只能输入空对象，不能指定路径、图片 ID、坐标或等待时长。'
+        ),
+        args_schema={'type': 'object', 'properties': {}, 'additionalProperties': False},
+        output_description=(
+            'source (capture_photo_server), '
+            'photo_id, image_path, metadata_path, sha256, error_code, message. '
+            'success=true means a new PNG and metadata JSON were saved and read back; '
+            'paths are absolute and sha256 identifies the PNG. '
+            'On failure success=false, error_code reports the cause and file references are null. '
+            'Photo success does not mean detection or flight task success.'
+        ),
+    ),
+)
+
+ATOMIC_ACTION_REGISTRY: Mapping[str, AtomicActionSpec] = MappingProxyType(
+    {spec.name: spec for spec in _ATOMIC_ACTION_SPECS}
+)
+
+
+def get_atomic_action_spec(name: str) -> AtomicActionSpec:
+    '''返回模型可用的动作描述；未知名称抛出 KeyError。'''
+
+    return ATOMIC_ACTION_REGISTRY[name]
 
 
 def get_skill_spec(name: SkillName) -> SkillSpec:

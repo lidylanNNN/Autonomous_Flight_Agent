@@ -59,6 +59,7 @@ V1 目标：取得初始观察后等待人工输入。`RosAgent` 根据观察和
 | 动作完成判定 | 飞行动作服务复用 PX4 Backend 的状态完成条件 | 服务等待执行结果，Safety 批准且执行状态为 `SUCCEEDED` 才返回成功；序列执行器收到成功后继续，失败即停 |
 | Trace | `TraceRecorder`、`TraceReplay` | 已接入 WorldState、安全决策、观察、LLM 响应及 Gate 动作结果/异常记录，并通过替身主链审计，详见 [MX-5 审计](plans/MX-5-audit.md)；完整 Episode 因果链尚未完成 |
 | 测评数据 | `agent_benchmark_sets/`、schema 与 validation scripts | Dev 用例存在；Validation/Frozen Test 目前只是预留 manifest，不得报告冻结测评指标 |
+| 拍照 | `capture_photo_server`、共享动作白名单及 `RosEnv` 动作说明 | 独立服务及实际有人入口经真实模型调用的地面证据见 [M6 T03b/T03c](plans/M6.md)；尚无检测、飞行视觉任务或终端逐项图片交付 |
 | 旧审批原型 | 模型、协议、组件、Mock、公共导出和专属测试已删除 | 旧审批决策枚举与原因码也已移除；见 [删除记录](plans/M4.md#8b-18b-2-删除范围与影响)与 [契约收敛](plans/M4.md#8b-3-契约收敛) |
 
 ### 2.1 文件处置决定（分批实施）

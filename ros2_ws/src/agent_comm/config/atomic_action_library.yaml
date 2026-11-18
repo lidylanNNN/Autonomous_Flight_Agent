@@ -1,7 +1,8 @@
-# Service allowlist; Registry owns action descriptions and public input schemas.
+# Shared service allowlist; Registry owns structured action descriptions.
 skills:
   - takeoff
   - goto
   - hold
   - rtl
   - land
+  - capture_photo

@@ -16,9 +16,8 @@ from rclpy.client import Client
 from rclpy.node import Node
 from rosllm_srvs.srv import LLM, ExecuteBehavior, Observation
 
-from flight_agent.components.skills.registry import get_skill_spec
+from flight_agent.components.skills.registry import get_atomic_action_spec
 from flight_agent.components.tracing import TraceRecorder
-from flight_agent.contracts import SkillName
 
 _SERVICE_TIMEOUT_S = 5.0
 _LLM_RESPONSE_TIMEOUT_S = 35.0
@@ -78,7 +77,7 @@ class RosEnv:
         return response
 
     def get_atomic_action_library(self) -> str:
-        '''从动作白名单和 Registry 通用生成飞行服务说明。'''
+        '''从共享白名单生成说明，区分飞行审批结果与拍照保存结果。'''
 
         config_path = Path(get_package_share_directory('agent_comm')) / 'config' / 'atomic_action_library.yaml'
         config = yaml.safe_load(config_path.read_text(encoding='utf-8'))
@@ -97,7 +96,8 @@ class RosEnv:
             ),
             (
                 'All actions output: AtomicAction.Response(success: bool, output: JSON string). '
-                'output fields: source (flight_atomic_action_server), '
+                'Flight actions only (takeoff, goto, hold, rtl, land) output fields: '
+                'source (flight_atomic_action_server), '
                 'proposal_id/decision_id/execution_id (string or null), reason_codes (string array), '
                 'execution_status/failure_code/error_code (string or null), '
                 'verification (INCONCLUSIVE). Unproduced fields are null; reason_codes may be empty. '
@@ -107,11 +107,13 @@ class RosEnv:
             ),
         ]
         for name in config['skills']:
-            spec = get_skill_spec(SkillName(name))
+            spec = get_atomic_action_spec(name)
             descriptions.append(
-                f'{spec.name.value}: {spec.description} '
+                f'{spec.name}: {spec.description} '
                 f'input_schema={json.dumps(spec.args_schema, ensure_ascii=False, sort_keys=True)}'
             )
+            if spec.output_description:
+                descriptions.append(f'{spec.name} output fields: {spec.output_description}')
         return '\n'.join(descriptions)
 
     def step(self, behavior: str) -> tuple[Observation.Response, float, bool, dict[str, object]]:

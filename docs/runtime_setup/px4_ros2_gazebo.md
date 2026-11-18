@@ -159,6 +159,19 @@ ros2 topic echo /camera/image_raw --field header --once --qos-reliability best_e
 
 完整地面验证可运行 `/usr/bin/python3 artifacts/m6_t02a/test_temp_run.py`；它从实际脚本启动新仿真、场景与桥接，调用 pytest 读取原生/ROS 消息，结束后清理本轮进程。先停止其他仿真/桥接；除上述运行依赖外，验证器需要系统 pytest、Pillow 和 Gazebo Python 绑定。它不安装依赖、不飞行、不调用 Agent。采集有效性约束见 [T02b 契约](../../contracts/rosllm_services.md#m6-t02b-采集有效性判据)，判据边界及真实暂停验证见 [T02b 记录](../../plans/M6.md#t02b-采集有效性判据2026-11-18)；正式采集服务与缓存保护仍待 T03b 接入。
 
+## M6 T03c Agent 拍照验证
+
+从当前源码重新构建 `agent_comm`、`behavior_executor`、`observation_manager`、`flight_agent_ros` 后，在仓库根目录执行下列命令。它会启动并清理本轮仿真和生产节点，经真实模型运行拍照及暂停后的失败两轮，沿用现有累计预算；运行前停止其他仿真及同名节点。证据范围与结果见 [T03c 记录](../../plans/M6.md#t03c-agent-拍照接入2026-11-18)。
+
+```bash
+source /opt/ros/jazzy/setup.bash
+source ros2_ws/install/setup.bash
+source .env
+export PYTHONPATH="$PWD/.venv/lib/python3.12/site-packages:$PWD/ros2_ws/src/flight_agent_ros:$PWD/src:/usr/lib/python3/dist-packages:$PYTHONPATH"
+export ROS_LOG_DIR="$PWD/artifacts/m6_t03c/live_ros_logs"
+FLIGHT_M6_LIVE_API=1 PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 .venv/bin/python -m pytest ros2_ws/src/behavior_executor/test/test_agent_capture_sitl.py -m sitl -q -s -o addopts= -p no:cacheprovider
+```
+
 ## M6 T03b 拍照服务
 
 在前述相机仿真、场景与桥接运行后，于仓库根目录加载 ROS 与工作区环境，启动拍照服务。首次使用新增入口前，在 `ros2_ws` 中执行 `colcon build --packages-select flight_agent_ros --symlink-install`，再回到仓库根目录。

@@ -69,7 +69,7 @@
 
 ## M6 T02b 采集有效性判据
 
-状态：2026-11-18 用户已确认；已由正式拍照服务实现，验证范围见 [M6 T03b 记录](../plans/M6.md#t03b-正式拍照服务2026-11-18)。Agent 接入仍待 T03c。
+状态：2026-11-18 用户已确认；已由正式拍照服务实现，验证范围见 [M6 T03b 记录](../plans/M6.md#t03b-正式拍照服务2026-11-18)；Agent 接入及实际调用证据见 [T03c](../plans/M6.md#t03c-agent-拍照接入2026-11-18)。
 
 ### 现状
 
@@ -123,7 +123,7 @@ C1–C6、时间阈值及重置后必须重启进程的限制已确认。请求�
 
 ### 现状
 
-现有 `AtomicAction` 已提供 `input`、`prev_output`、`success` 和 `output`；`SequenceExecutor` 会将前一项的 `output` 原样交给下一项，并在失败时停止。`capture_photo_server` 已发布可直接调用的 `capture_photo` 服务，但尚未列入动作白名单，T03c 才接入 Agent。
+现有 `AtomicAction` 已提供 `input`、`prev_output`、`success` 和 `output`；`SequenceExecutor` 会将前一项的 `output` 原样交给下一项，并在失败时停止。`capture_photo_server` 已发布 `capture_photo` 服务并列入共享动作白名单，Agent 能生成拍照说明并通过执行器调用。
 
 ### 目标
 
@@ -213,7 +213,7 @@ T02b 的 5 秒只限制等待新图的时间。磁盘写入不承诺硬实时截
 
 ROS 包已声明 `sensor_msgs`、`rosgraph_msgs`、消息转 JSON 所需的 `rosidl_runtime_py` 和 PNG 编码依赖 `python3-pil`，复用已有 `rclpy`、`px4_msgs`、`rosllm_srvs`；不修改核心 Python 包依赖。入口显式使用仿真时间。所有业务源码及调用它的测试纳入版本控制范围，原始图片和大体积运行日志保留在 `artifacts/`。
 
-已验证的直接 ROS 调用过程；执行器一端仍待 T03c 接入：
+已验证的直接 ROS 调用过程；Agent 经执行器调用的证据见 T03c 记录：
 
 ```text
 [操作员 ROS 客户端] --AtomicActionRequest(input="{}", prev_output="")--> [拍照节点]
@@ -234,4 +234,4 @@ ROS 包已声明 `sensor_msgs`、`rosgraph_msgs`、消息转 JSON 所需的 `ros
 | 保存失败与并发 | 目录不可用、写入/核对/最终重命名失败时无成功引用；并发请求不串图、不覆盖，忙时明确失败。故障注入须说明替换范围。 |
 | 重复拍照 | 同一进程连续拍两张，取得各自请求后的图像、不同 UUID 和独立文件；先前文件内容保持不变。 |
 
-T03c 才验证 Agent 能选择拍照动作；T04a/T04b 才定义并实现检测服务，T04d 才交付返航后仍能查看的逐项结果。本批不把这些能力计为拍照服务已经完成。
+T03c 已验证 Agent 能选择并调用拍照动作；T04a/T04b 才定义并实现检测服务，T04d 才交付返航后仍能查看的逐项结果，后两者尚未接入。
