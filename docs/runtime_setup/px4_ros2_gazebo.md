@@ -233,10 +233,21 @@ ros2 run agent_comm ros_agent_srv --ros-args -p behavior_result_dir:=/绝对路�
 
 ```bash
 export ROS_LOG_DIR="$PWD/artifacts/m6_t05a/live_ros_logs"
-FLIGHT_M6_LIVE_API=1 PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 .venv/bin/python -m pytest ros2_ws/src/behavior_executor/test/test_agent_visual_sitl.py -m sitl -q -s -o addopts= -p no:cacheprovider
+FLIGHT_M6_LIVE_API=1 PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 .venv/bin/python -m pytest ros2_ws/src/behavior_executor/test/test_agent_visual_sitl.py -m sitl -k single -q -s -o addopts= -p no:cacheprovider
 ```
 
 运行前停止其他同名仿真和节点。用例自行启停实际生产进程，沿用累计模型预算，临时设置并恢复限速、心跳及低空 RTL 参数。输入和判据在调用前保存为 `test_temp_case.json`；证据位于 `artifacts/m6_t05a/<时间>/`，正式交付在其 `behavior_results/` 下。结果和证据边界以 [T05a 记录](../../plans/M6.md#t05a-单点飞行视觉闭环2026-11-18)为准。
+
+## M6 T05b 两点飞行视觉验证
+
+加载 T03c 所列环境后执行：
+
+```bash
+export ROS_LOG_DIR="$PWD/artifacts/m6_t05b/live_ros_logs"
+FLIGHT_M6_LIVE_API=1 PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 .venv/bin/python -m pytest ros2_ws/src/behavior_executor/test/test_agent_visual_sitl.py -m sitl -k two_points -q -s -o addopts= -p no:cacheprovider
+```
+
+复用上节进程启停、参数恢复及累计预算。P1/P2 定义见[场景配置](../../configs/m6/README.md#预定观察点)；用例在调用前固定八动作输入、P1/P2 接受半径与独立判据。证据位于 `artifacts/m6_t05b/<时间>/`，各点飞行证据分别位于 `test_temp_P1/`、`test_temp_P2/`，正式交付在 `behavior_results/`。结果与边界见 [T05b 记录](../../plans/M6.md#t05b-两点飞行视觉闭环2026-11-18)。
 
 ## M6 T04c Agent 拍照后检测验证
 

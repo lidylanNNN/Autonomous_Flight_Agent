@@ -1,4 +1,4 @@
-'''真实有人入口的单点飞行、拍照、检测及返航交付；仅显式运行。'''
+'''真实有人入口的定点飞行、拍照、检测及返航交付；仅显式运行。'''
 from __future__ import annotations
 
 import hashlib
@@ -11,6 +11,7 @@ import sys
 import time
 from contextlib import ExitStack
 from datetime import UTC, datetime
+from itertools import pairwise
 from math import hypot
 from pathlib import Path
 
@@ -29,30 +30,38 @@ from flight_agent.components.tracing import TraceReplay
 @pytest.mark.sitl
 @pytest.mark.skipif(os.environ.get('FLIGHT_M6_LIVE_API') != '1', reason='真实模型须显式启用')
 @pytest.mark.parametrize('test_input_model', ['live'])
-def test_temp_agent_visual_flight(test_input_model: str) -> None:
-    '''固定 P1 和五动作输入，核对真实飞行、照片对应关系及返航后的交付。'''
+@pytest.mark.parametrize('test_input_point_cnt', [1, 2], ids=['single', 'two_points'])
+def test_temp_agent_visual_flight(test_input_model: str, test_input_point_cnt: int) -> None:
+    '''固定 P1/P2 输入，核对逐点真实飞行、新照片及返航后的独立交付。'''
     test_temp_root = Path(__file__).resolve().parents[4]
-    test_temp_run = test_temp_root / 'artifacts/m6_t05a' / datetime.now(UTC).strftime('%Y%m%dT%H%M%S%fZ')
+    test_temp_run = test_temp_root / ('artifacts/m6_t05a' if test_input_point_cnt == 1 else 'artifacts/m6_t05b') / datetime.now(UTC).strftime('%Y%m%dT%H%M%S%fZ')
     test_temp_run.mkdir(parents=True)
     print(f'Evidence: {test_temp_run}', flush=True)
     assert not any(name.strip() in {'px4', 'MicroXRCEAgent', 'parameter_bridg'} for name in
                    subprocess.check_output(['ps', '-eo', 'comm='], text=True).splitlines())
+    expected_output_points = [[0, 3, -1.5], [-1, 3, -1.5]][:test_input_point_cnt]
+    test_input_visits = ''.join(
+        f'飞到局部NED坐标北{north}米、东{east}米、高度1.5米，接受半径{0.5 if index == 0 else 0.25}米；'
+        '拍一张新照片；检测这张新照片中是否有人；'
+        for index, (north, east, _) in enumerate(expected_output_points))
     test_input_human = (
-        '请在本轮按顺序且只执行五个动作：起飞到离地1.5米；'
-        '飞到局部NED坐标北0米、东3米、高度1.5米，接受半径0.5米；'
-        '拍一张新照片；检测这张新照片中是否有人；RTL返回起飞点并自动着陆。'
+        f'请在本轮按顺序且只执行{2 + 3 * test_input_point_cnt}个动作：起飞到离地1.5米；'
+        + test_input_visits + 'RTL返回起飞点并自动着陆。'
         '不要添加悬停或其他动作，完成后结束本轮。'
     )
-    expected_output_names = ['takeoff', 'goto', 'capture_photo', 'inspect_image', 'rtl']
-    expected_output_arguments = [
-        {'target_altitude_m': 1.5},
-        {'north_m': 0.0, 'east_m': 3.0, 'altitude_m': 1.5, 'acceptance_radius_m': 0.5},
-        {}, {'target_class': 'person'}, {},
-    ]
+    expected_output_names = ['takeoff'] + ['goto', 'capture_photo', 'inspect_image'] * test_input_point_cnt + ['rtl']
+    expected_output_arguments = [{'target_altitude_m': 1.5}]
+    for test_temp_index, (north, east, _) in enumerate(expected_output_points):
+        expected_output_arguments.extend([
+            {'north_m': north, 'east_m': east, 'altitude_m': 1.5, 'acceptance_radius_m': 0.5 if test_temp_index == 0 else 0.25},
+            {}, {'target_class': 'person'},
+        ])
+    expected_output_arguments.append({})
     (test_temp_run / 'test_temp_case.json').write_text(json.dumps({
         'human': test_input_human, 'names': expected_output_names,
-        'arguments': expected_output_arguments, 'target_ned_m': [0, 3, -1.5],
-        'horizontal_tolerance_m': 0.5, 'vertical_tolerance_m': 0.5,
+        'arguments': expected_output_arguments, 'targets_ned_m': expected_output_points,
+        'horizontal_tolerances_m': [0.5, 0.25][:test_input_point_cnt], 'vertical_tolerance_m': 0.5,
+        'min_displacements_m': [2.0, 0.5][:test_input_point_cnt], 'max_sample_gap_s': 0.5,
         'min_detection_cnt': 1, 'max_home_error_m': 1.0,
     }, ensure_ascii=False, indent=2))
     test_temp_spec = importlib.util.spec_from_file_location('test_temp_sitl_helpers',
@@ -182,37 +191,60 @@ def test_temp_agent_visual_flight(test_input_model: str) -> None:
             assert all(step['success'] and step['error'] is None for step in report['steps'])
             test_temp_flight_calls = [json.loads(line) for line in (test_temp_run / 'test_temp_service_calls.jsonl').read_text().splitlines()]
             # 飞行与视觉观察脚本共用文件；按回调字段区分并恢复实际顺序。
-            test_temp_capture, = [call for call in test_temp_flight_calls if 'name' not in call]
+            test_temp_captures = [call for call in test_temp_flight_calls if 'name' not in call]
             test_temp_flights = [call for call in test_temp_flight_calls if 'name' in call]
-            test_temp_inspect, = [json.loads(line) for line in (test_temp_run / 'test_temp_inspect_calls.jsonl').read_text().splitlines()]
-            test_temp_calls = [*test_temp_flights[:2], test_temp_capture, test_temp_inspect, *test_temp_flights[2:]]
-            assert [call['name'] for call in test_temp_flights] == ['takeoff', 'goto', 'rtl']
+            test_temp_inspections = [json.loads(line) for line in (test_temp_run / 'test_temp_inspect_calls.jsonl').read_text().splitlines()]
+            assert len(test_temp_captures) == len(test_temp_inspections) == test_input_point_cnt
+            test_temp_calls = [test_temp_flights[0]]
+            for test_temp_index in range(test_input_point_cnt):
+                test_temp_calls.extend([test_temp_flights[test_temp_index + 1],
+                    test_temp_captures[test_temp_index], test_temp_inspections[test_temp_index]])
+            test_temp_calls.append(test_temp_flights[-1])
+            assert [call['name'] for call in test_temp_flights] == ['takeoff'] + ['goto'] * test_input_point_cnt + ['rtl']
             for test_temp_index, call in enumerate(test_temp_calls):
                 assert call['success'] and call['output'] == report['steps'][test_temp_index]['output']
                 assert json.loads(call['input']) == expected_output_arguments[test_temp_index]
                 assert call['prev_output'] == ('' if test_temp_index == 0 else test_temp_calls[test_temp_index - 1]['output'])
-            output = json.loads(test_temp_capture['output'])
-            metadata = json.loads(Path(output['metadata_path']).read_text())
-            test_temp_detection = json.loads(test_temp_inspect['output'])
-            assert output['error_code'] is None and test_temp_detection['error_code'] is None
-            for test_temp_field in ('photo_id', 'image_path', 'sha256'):
-                assert metadata[test_temp_field] == output[test_temp_field] == test_temp_detection[test_temp_field]
-            assert test_temp_detection['metadata_path'] == output['metadata_path']
-            assert hashlib.sha256(Path(output['image_path']).read_bytes()).hexdigest() == output['sha256']
-            assert metadata['timing']['image_received_monotonic_ns'] > metadata['timing']['request_monotonic_ns']
-            position = metadata['vehicle_position']
-            assert position['xy_valid'] and position['z_valid']
-            assert hypot(position['x'], position['y'] - 3) <= 0.5 and abs(position['z'] + 1.5) <= 0.5
-            assert test_temp_detection['detection_cnt'] == len(test_temp_detection['detections']) > 0
-            assert output['image_path'] in test_temp_terminal
-            with Image.open(output['image_path']) as image:
-                image.verify()
+            test_temp_outputs = []
+            test_temp_metadata = []
+            for test_temp_capture, test_temp_inspect, expected_output_point in zip(
+                test_temp_captures, test_temp_inspections, expected_output_points, strict=True,
+            ):
+                output = json.loads(test_temp_capture['output'])
+                metadata = json.loads(Path(output['metadata_path']).read_text())
+                test_temp_detection = json.loads(test_temp_inspect['output'])
+                assert output['error_code'] is None and test_temp_detection['error_code'] is None
+                for test_temp_field in ('photo_id', 'image_path', 'sha256'):
+                    assert metadata[test_temp_field] == output[test_temp_field] == test_temp_detection[test_temp_field]
+                assert test_temp_detection['metadata_path'] == output['metadata_path']
+                assert hashlib.sha256(Path(output['image_path']).read_bytes()).hexdigest() == output['sha256']
+                assert metadata['timing']['image_received_monotonic_ns'] > metadata['timing']['request_monotonic_ns']
+                position = metadata['vehicle_position']
+                assert position['xy_valid'] and position['z_valid']
+                assert hypot(position['x'] - expected_output_point[0], position['y'] - expected_output_point[1]) <= 0.5 and abs(position['z'] + 1.5) <= 0.5
+                assert test_temp_detection['detection_cnt'] == len(test_temp_detection['detections']) > 0
+                assert output['image_path'] in test_temp_terminal
+                with Image.open(output['image_path']) as image:
+                    image.verify()
+                test_temp_outputs.append(output)
+                test_temp_metadata.append(metadata)
+            for test_temp_field in ('photo_id', 'image_path', 'metadata_path', 'sha256'):
+                assert len({item[test_temp_field] for item in test_temp_outputs}) == test_input_point_cnt
+            for test_temp_before, test_temp_after in pairwise(test_temp_metadata):
+                assert (test_temp_before['timing']['image_received_monotonic_ns']
+                        < test_temp_after['timing']['request_monotonic_ns'])
             results = tuple(TraceReplay(test_temp_run / 'safety.jsonl').iter_skill_result_records())
-            assert [item.command.skill_name.value for item in results] == ['takeoff', 'goto', 'rtl']
+            assert [item.command.skill_name.value for item in results] == ['takeoff'] + ['goto'] * test_input_point_cnt + ['rtl']
             assert all(item.result.status.value == 'SUCCEEDED' for item in results)
-            test_temp_sitl._check_goto_evidence(test_temp_run, results[1].model_dump(mode='json'), test_temp_messages, {
-                'target_ned_m': [0, 3, -1.5], 'horizontal_tolerance_m': 0.5,
-                'vertical_tolerance_m': 0.5, 'min_displacement_m': 2.0, 'max_sample_gap_s': 0.5})
+            for test_temp_index, expected_output_point in enumerate(expected_output_points):
+                test_temp_point_run = test_temp_run / f'test_temp_P{test_temp_index + 1}'
+                test_temp_point_run.mkdir()
+                test_temp_sitl._check_goto_evidence(test_temp_point_run,
+                    results[test_temp_index + 1].model_dump(mode='json'), test_temp_messages, {
+                        'target_ned_m': expected_output_point,
+                        'horizontal_tolerance_m': 0.5 if test_temp_index == 0 else 0.25,
+                        'vertical_tolerance_m': 0.5, 'min_displacement_m': 2.0 if test_temp_index == 0 else 0.5,
+                        'max_sample_gap_s': 0.5})
             state = test_temp_sitl._wait_state(node, test_temp_run, lambda state:
                 state.get('landed') is True and state.get('armed') is False)
             test_temp_sitl._save(test_temp_run / 'test_temp_final_state.json', state)
