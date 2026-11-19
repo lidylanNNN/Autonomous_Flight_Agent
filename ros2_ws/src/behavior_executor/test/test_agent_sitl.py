@@ -9,12 +9,10 @@ import os
 import runpy
 import subprocess
 import sys
-import threading
 from contextlib import ExitStack
 from datetime import UTC, datetime
 from pathlib import Path
 from time import monotonic
-from types import FrameType
 
 import pytest
 import rclpy
@@ -268,52 +266,50 @@ def test_temp_wait_prompt(node: object, test_temp_run: Path, expected_output_pro
 test_temp_wait_prompt.__test__ = False
 
 
-def test_temp_profile_flight() -> None:
-    '''只观察服务回调返回时的请求和响应，不替换对象、参数或执行结果。'''
+def test_temp_observe_flight() -> None:
+    """只包装必要入口记录真实响应及拒绝用例的派发次数，不启用 profiler。"""
     from flight_agent_ros.adapters.flight_execution_backend import Px4Ros2FlightExecutionBackend
     from flight_agent_ros.flight_atomic_action_server import FlightAtomicActionServer
 
     test_temp_run, test_temp_executable = Path(sys.argv[1]), sys.argv[2]
-    test_temp_code = FlightAtomicActionServer._handle_action.__code__
-    test_temp_execute_code = Px4Ros2FlightExecutionBackend.execute.__code__
+    test_temp_original_action = FlightAtomicActionServer._handle_action
+    test_temp_original_execute = Px4Ros2FlightExecutionBackend.execute
     test_temp_execute_cnt = 0
     test_temp_rejection_case = test_temp_run.parent.name == 'm5-4b-3'
-    if test_temp_rejection_case:
+
+    def test_temp_save_execute_cnt() -> None:
         (test_temp_run / 'test_temp_backend_calls.json').write_text(json.dumps({
-            'test_temp_execute_cnt': 0,
+            'test_temp_execute_cnt': test_temp_execute_cnt,
             'backend_source': sys.modules[Px4Ros2FlightExecutionBackend.__module__].__file__,
         }))
 
-    def test_temp_record_call(frame: FrameType, event: str, arg: object) -> None:
-        '''保存实际回调的完整 input、prev_output 和返回值。'''
-        nonlocal test_temp_execute_cnt
-        if test_temp_rejection_case and frame.f_code is test_temp_execute_code and event == 'call':
-            test_temp_execute_cnt += 1
-            (test_temp_run / 'test_temp_backend_calls.json').write_text(json.dumps({
-                'test_temp_execute_cnt': test_temp_execute_cnt,
-                'backend_source': sys.modules[Px4Ros2FlightExecutionBackend.__module__].__file__,
-            }))
-        if frame.f_code is test_temp_code and event == 'return' and arg is not None:
-            request = frame.f_locals['request']
-            with (test_temp_run / 'test_temp_service_calls.jsonl').open('a') as test_temp_log:
-                test_temp_log.write(json.dumps({
-                    'name': frame.f_locals['skill_name'].value,
-                    'input': request.input, 'prev_output': request.prev_output,
-                    'success': arg.success, 'output': arg.output,
-                    'recorded_at': datetime.now(UTC).isoformat(),
-                }) + '\n')
+    def _handle_action(self, skill_name, request, response):
+        result = test_temp_original_action(self, skill_name, request, response)
+        with (test_temp_run / 'test_temp_service_calls.jsonl').open('a') as test_temp_log:
+            test_temp_log.write(json.dumps({'name': skill_name.value, 'input': request.input,
+                'prev_output': request.prev_output, 'success': result.success, 'output': result.output,
+                'recorded_at': datetime.now(UTC).isoformat()}) + '\n')
+        return result
 
+    async def execute(self, command):
+        nonlocal test_temp_execute_cnt
+        test_temp_execute_cnt += 1
+        test_temp_save_execute_cnt()
+        return await test_temp_original_execute(self, command)
+
+    FlightAtomicActionServer._handle_action = _handle_action
+    if test_temp_rejection_case:
+        test_temp_save_execute_cnt()
+        Px4Ros2FlightExecutionBackend.execute = execute
     sys.argv = [test_temp_executable, *sys.argv[3:]]
-    sys.setprofile(test_temp_record_call)
-    threading.setprofile(test_temp_record_call)
     try:
         runpy.run_path(test_temp_executable, run_name='__main__')
     finally:
-        sys.setprofile(None)
-        threading.setprofile(None)
+        FlightAtomicActionServer._handle_action = test_temp_original_action
+        Px4Ros2FlightExecutionBackend.execute = test_temp_original_execute
 
 
-test_temp_profile_flight.__test__ = False
+test_temp_observe_flight.__test__ = False
 
 if __name__ == '__main__':
-    test_temp_profile_flight()
+    test_temp_observe_flight()

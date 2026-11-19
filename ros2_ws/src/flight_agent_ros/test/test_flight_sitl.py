@@ -9,14 +9,12 @@ import os
 import signal
 import subprocess
 import sys
-import threading
 from collections.abc import Callable, Iterator
 from contextlib import ExitStack, contextmanager
 from datetime import UTC, datetime
 from itertools import pairwise
 from pathlib import Path
 from time import monotonic
-from types import FrameType
 from typing import TYPE_CHECKING, Any
 
 import pytest
@@ -365,7 +363,8 @@ def test_action_sitl(
             }, expected_output_case['topic_counts'])
             assert len(test_temp_records) == test_temp_record_index
             test_temp_counts = json.loads((test_temp_sitl_run / 'test_temp_backend_calls.json').read_text())
-            assert test_temp_counts['state_reads'] >= 2 * len(test_input_case['steps'])
+            # Gate 每步读取一次状态；服务端已不再为创建提案提前读取。
+            assert test_temp_counts['state_reads'] >= len(test_input_case['steps'])
             if not test_temp_execution_ids:
                 assert test_temp_counts['execute_calls'] == 0
                 assert not any(item['topic'] in test_temp_topics for item in test_temp_messages)
@@ -896,7 +895,7 @@ def _stop(test_temp_process: subprocess.Popen[bytes]) -> None:
 
 
 def _server(test_temp_run: Path) -> None:
-    '''观察真实后端函数进入次数，然后调用实际 main，不替换对象或函数。'''
+    """定点记录实际状态读取和执行入口，不跟踪所有函数事件。"""
     from flight_agent_ros import flight_atomic_action_server as entry
     from flight_agent_ros.adapters.flight_execution_backend import Px4Ros2FlightExecutionBackend
 
@@ -906,52 +905,40 @@ def _server(test_temp_run: Path) -> None:
         'server_source': entry.__file__,
         'backend_source': sys.modules[Px4Ros2FlightExecutionBackend.__module__].__file__,
     }
-    test_temp_codes = {
-        Px4Ros2FlightExecutionBackend.get_world_state.__code__: 'state_reads',
-        Px4Ros2FlightExecutionBackend.execute.__code__: 'execute_calls',
-    }
+    test_temp_original_state = Px4Ros2FlightExecutionBackend.get_world_state
+    test_temp_original_execute = Px4Ros2FlightExecutionBackend.execute
 
-    def test_temp_record_backend_call(frame: FrameType, event: str, arg: object) -> None:
-        '''只记录目标函数调用，不改变执行结果。'''
-        if (event == 'return' and test_temp_codes.get(frame.f_code) == 'state_reads'
-                and test_temp_counts['state_reads'] % 2 == 0):
-            _save(
-                test_temp_run / 'test_temp_backend_calls.json', test_temp_counts | test_temp_sources
-            )
-        if event == 'call' and frame.f_code in test_temp_codes:
-            test_temp_key = test_temp_codes[frame.f_code]
-            test_temp_counts[test_temp_key] += 1
-            if test_temp_key == 'execute_calls':
-                _save(
-                    test_temp_run / 'test_temp_backend_calls.json', test_temp_counts | test_temp_sources
-                )
-                command = frame.f_locals['command'].model_dump(mode='json')
-                if not any(item['command'] == command for item in test_temp_events):
-                    test_temp_events.append({
-                        'command': command,
-                        'recorded_decisions': [json.loads(line)['decision']['decision_id']
-                                               for line in (test_temp_run / 'safety.jsonl')
-                                               .read_text().splitlines()
-                                               if json.loads(line)['type'] == 'safety_decision'],
-                    })
-                    _save(test_temp_run / 'test_temp_execution_entries.json', test_temp_events)
+    def test_temp_save_counts() -> None:
+        _save(test_temp_run / 'test_temp_backend_calls.json', test_temp_counts | test_temp_sources)
 
-    _save(test_temp_run / 'test_temp_backend_calls.json', test_temp_counts | test_temp_sources)
-    sys.argv = [
-        'flight_atomic_action_server',
-        '--safety-json',
-        str(test_temp_run / 'safety.json'),
-        '--trace-path',
-        str(test_temp_run / 'safety.jsonl'),
-    ]
-    sys.setprofile(test_temp_record_backend_call)
-    threading.setprofile(test_temp_record_backend_call)
+    async def get_world_state(self):
+        test_temp_counts['state_reads'] += 1
+        try:
+            return await test_temp_original_state(self)
+        finally:
+            test_temp_save_counts()
+
+    async def execute(self, command):
+        test_temp_counts['execute_calls'] += 1
+        test_temp_save_counts()
+        test_temp_events.append({'command': command.model_dump(mode='json'),
+            'recorded_decisions': [json.loads(line)['decision']['decision_id']
+                for line in (test_temp_run / 'safety.jsonl').read_text().splitlines()
+                if json.loads(line)['type'] == 'safety_decision']})
+        _save(test_temp_run / 'test_temp_execution_entries.json', test_temp_events)
+        return await test_temp_original_execute(self, command)
+
+    Px4Ros2FlightExecutionBackend.get_world_state = get_world_state
+    Px4Ros2FlightExecutionBackend.execute = execute
+    test_temp_save_counts()
+    sys.argv = ['flight_atomic_action_server', '--safety-json', str(test_temp_run / 'safety.json'),
+                '--trace-path', str(test_temp_run / 'safety.jsonl')]
     try:
         entry.main()
     finally:
-        threading.setprofile(None)
-        sys.setprofile(None)
-        _save(test_temp_run / 'test_temp_backend_calls.json', test_temp_counts | test_temp_sources)
+        Px4Ros2FlightExecutionBackend.get_world_state = test_temp_original_state
+        Px4Ros2FlightExecutionBackend.execute = test_temp_original_execute
+        test_temp_save_counts()
 
 
 if __name__ == '__main__':

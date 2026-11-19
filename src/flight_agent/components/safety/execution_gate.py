@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Callable
+from copy import deepcopy
 from uuid import uuid4
 
 from flight_agent.components.safety.supervisor import SafetySupervisor
@@ -19,6 +20,7 @@ from flight_agent.contracts import (
     SafetyDecisionType,
     SkillName,
     SkillResult,
+    WorldState,
     parse_skill_arguments,
 )
 
@@ -45,14 +47,35 @@ class SafetyExecutionGate:
     ) -> tuple[SafetyDecision, SkillResult | None]:
         '''先记录决策，仅在批准且 Trace 成功后创建执行身份并派发。'''
 
-        proposal_snapshot = proposal.model_copy(deep=True)
+        return await self._submit(proposal.model_copy(deep=True), constraints)
+
+    async def submit_action(
+        self, skill_name: SkillName, arguments: dict[str, object],
+        proposal_id: str, constraints: MissionConstraints,
+    ) -> tuple[SafetyDecision, SkillResult | None]:
+        '''等待参数后以检查所用状态创建生产提案，不改写外部绑定提案。'''
+        arguments_snapshot = deepcopy(arguments)
+
+        def make_proposal(state: WorldState) -> AtomicActionProposal:
+            return AtomicActionProposal(proposal_id=proposal_id, skill_name=skill_name.value,
+                arguments=arguments_snapshot, based_on_state_id=state.state_id)
+
+        return await self._submit(make_proposal, constraints)
+
+    async def _submit(
+        self, proposal: AtomicActionProposal | Callable[[WorldState], AtomicActionProposal],
+        constraints: MissionConstraints,
+    ) -> tuple[SafetyDecision, SkillResult | None]:
         constraints_snapshot = constraints.model_copy(deep=True)
+        speed_limit_reading = deepcopy(await self._supervisor.read_speed_limit())
         state = (await self._backend.get_world_state()).model_copy(deep=True)
+        proposal_snapshot = proposal(state) if callable(proposal) else proposal
         decision = await self._supervisor.evaluate(
             proposal_snapshot,
             constraints_snapshot,
             state,
             self._authority_reader(),
+            speed_limit_reading=speed_limit_reading,
         )
         self._recorder.record_safety_decision(proposal_snapshot, decision)
         if decision.decision is not SafetyDecisionType.APPROVE:

@@ -7,6 +7,7 @@ import sys
 from datetime import UTC, datetime
 from pathlib import Path
 from threading import Thread
+from types import SimpleNamespace
 
 import pytest
 import rclpy
@@ -76,10 +77,10 @@ class RecordingBackend:
         raise AssertionError('UNKNOWN authority must not dispatch')
 
 
-class UnusedSpeedSource:
-    async def read_validated_speed_limit(self, *, max_age_s: float) -> float:
+class TestTempSpeedSource:
+    async def read_validated_speed_limit_reading(self, *, max_age_s: float):
         del max_age_s
-        raise AssertionError('UNKNOWN authority must not request speed approval')
+        return SimpleNamespace(value=8.0, received_at=datetime.now(UTC))
 
 
 @pytest.mark.parametrize('service_name', ['hold', 'takeoff', 'goto', 'rtl', 'land'])
@@ -98,7 +99,7 @@ def test_action_ros_service_rejects_unknown_authority_and_records_trace(
         backend,
         trace_path=trace_path,
         authority_reader=lambda: ControlAuthority.UNKNOWN,
-        speed_limit_source=UnusedSpeedSource(),
+        speed_limit_source=TestTempSpeedSource(),
     )
     client_node = rclpy.create_node('flight_hold_client')
     client = client_node.create_client(AtomicAction, service_name)
@@ -254,7 +255,7 @@ def test_ros_main_default_authority_and_startup_notice(
     for name in ['hold', 'takeoff', 'goto', 'rtl', 'land']
     for outcome in [
         'success', 'execution_failure', 'trace_failure',
-        'initial_state_error', 'gate_state_error', 'execution_error',
+        'gate_state_error', 'execution_error',
         'execution_timeout', 'result_trace_failure', 'error_trace_failure',
     ]
 ] + [('rtl', 'home_unavailable'), ('land', 'already_landed'), ('land', 'invalid_position')])
@@ -268,12 +269,12 @@ def test_action_execution_identity_requires_recorded_approval(
     from flight_agent.components.vehicle.flight_execution import MockFlightExecutionBackend
 
     class FixedSpeedSource:
-        async def read_validated_speed_limit(self, *, max_age_s: float) -> float:
+        async def read_validated_speed_limit_reading(self, *, max_age_s: float):
             '''仅为测试提供可信限速读数。'''
-            return 8.0
+            return SimpleNamespace(value=8.0, received_at=datetime.now(UTC))
 
     trace_fails = outcome == 'trace_failure'
-    state_fails = outcome in {'initial_state_error', 'gate_state_error'}
+    state_fails = outcome in {'gate_state_error'}
     rejection_reason = {
         'home_unavailable': 'HOME_REFERENCE_UNAVAILABLE',
         'already_landed': 'INVALID_COMMAND_SEQUENCE',
@@ -291,9 +292,7 @@ def test_action_execution_identity_requires_recorded_approval(
     })
     backend = MockFlightExecutionBackend(state)
     if state_fails:
-        reads = [OSError('state unavailable')] if outcome == 'initial_state_error' else [
-            state, OSError('state unavailable'),
-        ]
+        reads = [OSError('state unavailable')]
         monkeypatch.setattr(backend, 'get_world_state', AsyncMock(side_effect=reads))
     original_execute = backend.execute
 

@@ -130,7 +130,8 @@ def test_single_takeoff_from_human_entry_through_model_and_gate(
     server = build_flight_atomic_action_server(
         constraints, backend, trace_path=safety_trace_path,
         authority_reader=lambda: ControlAuthority.AGENT_ALLOWED,
-        speed_limit_source=SimpleNamespace(read_validated_speed_limit=AsyncMock(return_value=8.0)),
+        speed_limit_source=SimpleNamespace(read_validated_speed_limit_reading=AsyncMock(
+            side_effect=lambda **kwargs: SimpleNamespace(value=8.0, received_at=datetime.now(UTC)))),
     )
     observation = ObservationManagerNode(SimpleNamespace(read_world_state=read_state))
     llm = llm_node.LLMNode()

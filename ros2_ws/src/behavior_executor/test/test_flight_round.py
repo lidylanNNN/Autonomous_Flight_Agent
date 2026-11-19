@@ -37,6 +37,7 @@ from flight_agent.contracts import (
     SkillName,
     SkillResult,
     Vector3,
+    WorldStateFreshness,
 )
 
 
@@ -73,6 +74,9 @@ def test_human_round_through_flight_service_and_gate(
             'battery_connected': True, 'battery_valid': True, 'battery_fault_free': True,
             'failure_detector_clear': True, 'preflight_checks_pass': True,
         },
+        'freshness': WorldStateFreshness(snapshot_at=datetime.now(UTC),
+            local_position_received_at=datetime.now(UTC), status_received_at=datetime.now(UTC),
+            battery_received_at=datetime.now(UTC), land_detected_received_at=datetime.now(UTC)),
     })
     backend = MockFlightExecutionBackend(state)
     trace_path = tmp_path / 'safety.jsonl'
@@ -112,7 +116,8 @@ def test_human_round_through_flight_service_and_gate(
         def fail_write(*_args, **_kwargs):
             raise PermissionError('TEST_TRACE_DENIED')
         monkeypatch.setattr(TraceRecorder, failed_method, fail_write)
-    speed_source = SimpleNamespace(read_validated_speed_limit=AsyncMock(return_value=8.0))
+    speed_source = SimpleNamespace(read_validated_speed_limit_reading=AsyncMock(
+            side_effect=lambda **kwargs: SimpleNamespace(value=8.0, received_at=datetime.now(UTC))))
     authority = (
         ControlAuthority.UNKNOWN if outcome == 'unknown_authority'
         else ControlAuthority.AGENT_ALLOWED
@@ -289,7 +294,7 @@ def test_human_round_through_flight_service_and_gate(
                 )
         if outcome == 'unknown_authority':
             assert 'AUTHORITY_NOT_GRANTED' in trace_decision_records[0].decision.reason_codes
-            speed_source.read_validated_speed_limit.assert_not_called()
+            speed_source.read_validated_speed_limit_reading.assert_awaited_once()
         else:
             for command, trace_record in zip(_commands, trace_decision_records, strict=True):
                 assert command.proposal_id == trace_record.proposal.proposal_id

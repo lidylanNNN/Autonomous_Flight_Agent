@@ -8,6 +8,7 @@ import runpy
 import sys
 from datetime import UTC, datetime
 from pathlib import Path
+from types import SimpleNamespace
 
 from rclpy.node import Node
 
@@ -75,9 +76,9 @@ class TestTempBackend(MockFlightExecutionBackend):
 
 
 class TestTempSpeedSource:
-    async def read_validated_speed_limit(self, *, max_age_s: float) -> float:
+    async def read_validated_speed_limit_reading(self, *, max_age_s: float):
         '''按真实限速接口提供固定值，不验证 MAVLink 来源及 max_age_s。'''
-        return 8.0
+        return SimpleNamespace(value=8.0, received_at=datetime.now(UTC))
 
 
 if __name__ == '__main__':

@@ -251,6 +251,71 @@ FLIGHT_M6_LIVE_API=1 PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 .venv/bin/python -m pytest
 
 本次分级策略的阈值与兼容规则见[Safety 契约](../../contracts/safety_contract.md#worldstate-报文新鲜度分级)，固定两点通过结果及历史失败见 [T05b 分级复验](../../plans/M6.md#t05b-分级新鲜度实施与两点复验2026-11-18)。
 
+## M6 T06a 无目标飞行视觉验证
+
+加载 T03c 所列环境后执行：
+
+```bash
+export ROS_LOG_DIR="$PWD/artifacts/m6_t06a/live_ros_logs"
+FLIGHT_M6_LIVE_API=1 PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 .venv/bin/python -m pytest ros2_ws/src/behavior_executor/test/test_agent_visual_sitl.py -m sitl -k no_target -q -s -o addopts= -p no:cacheprovider
+```
+
+复用 T05a 单点任务及进程清理、参数恢复和累计预算。用例在地面选择已有 `empty` 配置并保存实际世界查询，确认没有人物实体后才启动任务；空场景真值不传入模型或检测器。判据在模型调用前固定：真实新图、检测成功且数量为零、原始结果及图片引用交付、实际返航落地上锁。证据位于 `artifacts/m6_t06a/<时间>/`，结果及边界见 [T06a 记录](../../plans/M6.md#t06a-无目标飞行视觉验证2026-11-18)。
+
+## M6 T06b 采集失败传播验证
+
+加载 T03c 所列 ROS、工作区及 `PYTHONPATH` 环境即可，不需要 `.env`、模型调用或仿真。运行目录须使用新名称，避免 pytest 清空旧 `--basetemp` 证据：
+
+```bash
+mkdir -p artifacts/m6_t06b
+export ROS_LOG_DIR="$PWD/artifacts/m6_t06b/ros_logs"
+PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 .venv/bin/python -m pytest ros2_ws/src/behavior_executor/test/test_capture_failure_round.py -k 'no_frame or stale_frame or save_failure' -q -o addopts= -p no:cacheprovider --basetemp="artifacts/m6_t06b/test_temp_run_$(date -u +%Y%m%dT%H%M%S)"
+```
+
+用例以构造消息运行正式采集服务、ROS 执行器和有人主入口，验证无新图、过期源时间图片及 PNG 写入失败。模型回复固定，后续检测/返航是计数探针，不运行 Gate、Backend 或飞行。每个用例目录保存固定输入、Trace、正式失败结果、终端输出、调用记录和源码哈希；证据边界与结果见 [T06b 记录](../../plans/M6.md#t06b-采集失败传播验证2026-11-18)。已有采集边界回归位于 `ros2_ws/src/flight_agent_ros/test/test_capture_photo_server.py`。
+
+## M6 T06c 检测失败传播验证
+
+加载 T03c 所列 ROS、工作区及 `PYTHONPATH` 环境，不需要 `.env` 或仿真。沿用 T06b 用例，选取检测故障：
+
+```bash
+mkdir -p artifacts/m6_t06c
+export ROS_DOMAIN_ID=76
+export ROS_LOG_DIR="$PWD/artifacts/m6_t06c/ros_logs"
+PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 .venv/bin/python -m pytest ros2_ws/src/behavior_executor/test/test_capture_failure_round.py -k 'inspect_unavailable or detector' -q -o addopts= -p no:cacheprovider --basetemp="artifacts/m6_t06c/test_temp_run_$(date -u +%Y%m%dT%H%M%S)"
+```
+
+用例先由正式采集服务保存构造消息产生的新照片，再注入检测服务未发布、工具子进程启动失败或运行超时。子进程超时保留正式五秒预算，使用真实休眠进程验证回收；不运行 HOG 推理。固定模型回复仍包含返航，返航服务为计数探针。照片引用、失败步骤、原始输出、零后续调用和子进程退出记录均写入用例目录；详细边界及结果见 [T06c 记录](../../plans/M6.md#t06c-检测失败传播验证2026-11-18)。去掉 `-k` 可同时运行 T06b/T06c 六例。真实工具空结果回归沿用 T04b 的系统 Python 环境和检测服务测试。
+
+## M6 T07a 固定集合复跑
+
+加载 T03c 的 ROS、工作区、`.env` 和 `PYTHONPATH` 环境。复跑前固定候选源码及当前工作树差异，给本轮证据使用独立目录；HEAD 相同不表示未提交源码相同。既有真实集合去掉筛选即可运行单点、两点和空场景各一次：
+
+```bash
+export TEST_TEMP_M6_T07A_DIR="$PWD/artifacts/m6_t07a/$(date -u +%Y%m%dT%H%M%S)"
+mkdir -p "$TEST_TEMP_M6_T07A_DIR"
+export ROS_DOMAIN_ID=76
+export ROS_LOG_DIR="$TEST_TEMP_M6_T07A_DIR/live_ros_logs"
+FLIGHT_M6_LIVE_API=1 PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 .venv/bin/python -m pytest ros2_ws/src/behavior_executor/test/test_agent_visual_sitl.py -m sitl -q -s -o addopts= -p no:cacheprovider --junitxml="$TEST_TEMP_M6_T07A_DIR/test_temp_live_junit.xml"
+```
+
+无论真实集合是否通过，保留其退出码与全部失败，随后执行原定替身故障集合，不自动重跑失败项：
+
+```bash
+export ROS_LOG_DIR="$TEST_TEMP_M6_T07A_DIR/fault_ros_logs"
+PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 .venv/bin/python -m pytest ros2_ws/src/behavior_executor/test/test_capture_failure_round.py -q -o addopts= -p no:cacheprovider --basetemp="$TEST_TEMP_M6_T07A_DIR/test_temp_fault_cases" --junitxml="$TEST_TEMP_M6_T07A_DIR/test_temp_fault_junit.xml"
+```
+
+真实用例仍把逐轮证据写入 T05a/T05b/T06a 原目录，终端 `Evidence:` 行提供对应路径；替身结果独立放入本轮目录。输入及判据不变，累计模型预算、参数恢复和退出清理沿用各用例。候选冻结范围、准确源码归档、本轮日志索引及未通过原因见 [T07a 记录](../../plans/M6.md#t07a-固定功能集合复跑2026-11-18)；本轮不作为 T07b 可用基线交接。
+
+## 测试记录及性能观察
+
+常规测试不再使用 `sys.setprofile`、`threading.setprofile` 或 cProfile。飞行动作、拍照、检测的观察脚本仅包装必要入口，执行原业务方法并原样记录请求/响应；独立动作服务用例另记录状态读取次数、实际执行入口次数及进入时已存在的批准决策。异步函数每次调用计一次，挂起和恢复不重复计数；旧记录仍按当时观察方式解释。
+
+原 `FLIGHT_TEST_TIMING`、`FLIGHT_TEST_DISPATCH_PROFILE` 已从测试入口移除，无需设置，也不会再启用性能剖析。旧诊断源码和原始数据保留在 `artifacts/m6_timing_diagnosis/`、`artifacts/m6_dispatch_diagnosis/`，只用于历史追溯，不作为当前功能测试的启动方式。视觉观察脚本保留原文件名以复用启动配置，但内部已无 profiler。
+
+性能问题按用户决定先观察，不改变四线程或安全阈值。常规运行继续保存正式 Trace、状态、图片、命令及失败事实；出现新的过期拒绝时先查证据，不自动重试或恢复高频剖析。当前验证和未完成边界见 [移除 profiler 记录](../../plans/M6.md#测试移除-profiler2026-11-19)。
+
 ## M6 T04c Agent 拍照后检测验证
 
 先按 T03c 重建四个生产包，并加载该节的 ROS、工作区、`.env`、`PYTHONPATH` 环境。运行前停止其他同名仿真和节点，再执行：

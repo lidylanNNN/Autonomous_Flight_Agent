@@ -18,7 +18,6 @@ from rosllm_srvs.srv import AtomicAction
 from flight_agent.components.safety import SafetyExecutionGate, SafetySupervisor
 from flight_agent.components.tracing import TraceRecorder
 from flight_agent.contracts import (
-    AtomicActionProposal,
     ControlAuthority,
     ControllerSpeedLimitProtocol,
     FlightExecutionBackendProtocol,
@@ -152,16 +151,8 @@ class FlightAtomicActionServer(Node):
         output: dict[str, object],
     ) -> bool:
         '''提交指定动作提案；仅从执行结果获取 Gate 分配的执行 ID。'''
-        state = await self._backend.get_world_state()
-        proposal = AtomicActionProposal(
-            proposal_id=proposal_id,
-            skill_name=skill_name,
-            arguments=arguments,
-            based_on_state_id=state.state_id,
-        )
-        decision, result = await self._gate.submit(
-            proposal, self._constraints
-        )
+        decision, result = await self._gate.submit_action(
+            skill_name, arguments, proposal_id, self._constraints)
         output['decision_id'] = decision.decision_id
         output['reason_codes'] = [code.value for code in decision.reason_codes]
         if result is not None:
@@ -186,7 +177,7 @@ def build_flight_atomic_action_server(
     '''Build the same service and gate used by the production entrypoint.'''
 
     gate = SafetyExecutionGate(
-        SafetySupervisor(speed_limit_source, policy_version='mx4-flight-actions-freshness-v1'),
+        SafetySupervisor(speed_limit_source, policy_version='mx4-flight-actions-evidence-first-v1'),
         backend,
         TraceRecorder(trace_path),
         authority_reader,

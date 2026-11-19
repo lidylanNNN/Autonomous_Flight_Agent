@@ -7,11 +7,15 @@
 飞行动作服务通过 Gate 建立动作提案到 Flight Execution Backend 的确定性仲裁边界。独立 M3 调试入口仍直接调用 Backend。当前调用流为：
 
 ```text
-[FlightAtomicActionServer] --AtomicActionProposal + MissionConstraints--> [SafetyExecutionGate]
+[FlightAtomicActionServer] --动作名、参数、提案 ID + MissionConstraints--> [SafetyExecutionGate]
+[SafetyExecutionGate] --限速证据读取请求--> [SafetySupervisor]
+[SafetySupervisor] --读取并校验限速请求--> [Px4ParameterAdapter]
+[Px4ParameterAdapter] --已校验读数或读取异常--> [SafetySupervisor]
+[SafetySupervisor] --保留接收时间的读数或 None--> [SafetyExecutionGate]
 [SafetyExecutionGate] --WorldState 读取请求--> [FlightExecutionBackend]
 [FlightExecutionBackend] --WorldState--> [SafetyExecutionGate]
 [Authority reader] --ControlAuthority--> [SafetyExecutionGate]
-[SafetyExecutionGate] --AtomicActionProposal + MissionConstraints + WorldState + ControlAuthority--> [SafetySupervisor]
+[SafetyExecutionGate] --AtomicActionProposal + MissionConstraints + WorldState + ControlAuthority + 限速读数--> [SafetySupervisor]
 [SafetySupervisor] --SafetyDecision--> [SafetyExecutionGate]
 [SafetyExecutionGate] --AtomicActionProposal + SafetyDecision--> [TraceRecorder]
 [SafetyExecutionGate] --ApprovedSkillCommand(仅批准时)--> [FlightExecutionBackend]
@@ -32,6 +36,18 @@ M4-7 Safety Supervisor 已按固定顺序组合独立检查器，并通过 ROS �
 - 飞行动作服务启动时从 `--safety-json` 指定的新 JSON 文件读取 `MissionConstraints` 根对象；文件缺少、不可读或校验失败时不发布服务。
 - V1 受控 SITL 的授权假设以 [SPEC 第 5 节](../SPEC_DEV.md#5-安全不变量)为准；默认授权仅满足 Authority 检查，不免除其他检查。
 - 保留参数、状态、Authority、围栏、包线和健康检查及拒绝语义。迁移步骤见 [MX-4 结构变更单](../plans/MX-4-structure-change.md)。
+
+## 检查前准备参数证据（2026-11-19）
+
+限速参数的异步读取、来源和数值校验先完成，再获取检查所用的完整 WorldState 和 Authority。随后执行完整检查及末次时效复核，不在持有状态期间等待飞控参数。位置各档阈值不变；此调整减少参数等待消耗位置有效期，不修复 ROS 更新迟滞。
+
+参数来源增加返回已校验读数的接口，复用 PX4 现有读数的 `value/received_at`；原浮点读取接口保留供调试入口使用。Supervisor 在完整检查时再次验证读数实际接收年龄不超过 2 秒、非未来且有时区，不能把准备时间冒充接收时间。读取失败、无效或过期证据均不得放行。
+
+生产飞行动作服务把动作名、参数及提案 ID 交给 Gate；Gate 冻结输入，准备参数证据后读取状态，再用该状态 ID 创建提案。已有绑定状态 ID 的 `submit(proposal, constraints)` 仍严格核对原 ID，不重新绑定或绕过不匹配拒绝。所有围栏、电量、模式、健康及 Authority 检查均使用等待后的同一状态。
+
+影响范围为核心 Supervisor/Gate、参数适配器及飞行动作服务调用方；ROS 服务字段、动作参数和限制来源不变。对于原先可凭状态或权限早退的请求，现在可能先发生参数读取；已知读取故障仍保留诊断，未取得批准或 Trace 失败均零派发。
+
+实现和验证必须同时同步，避免接口失配。回滚时按本批差异整体恢复核心、参数适配及调用方，并恢复对应策略版本与测试；不能只把状态读取移回参数等待之前或单独回滚接口。用户已授权本次顺序调整，执行事实见 M6 后续记录。
 
 ## 安全约束
 
@@ -201,9 +217,9 @@ WorldState 的可选 `freshness: WorldStateFreshness` 保存 `snapshot_at` 和�
 
 聚合器在四个更新函数中分别保存时间，生成快照时显式调用四次共同的新鲜度判断，再用四项布尔值计算链路健康；不通过字典推导式或报文名遍历派发规则。等级由代码中的固定分配决定，报文内容、模型输入不能自行选择宽松等级。
 
-Safety 初次检查及限速读取后的复核均依据各项接收时间和分配等级重新计算，不能只信快照生成时的健康标志。原 `received_at` 与 `state_age_ms` 保留诊断含义；不能再用最旧报文年龄与统一 1000 ms 比较来覆盖分级结果。`max_state_age_ms` 用于限制新格式快照本身的缓存年龄，按快照生成时间计算，避免缓存被无限复用。
+Safety 初次检查及末次复核均依据各项接收时间和分配等级重新计算，不能只信快照生成时的健康标志。原 `received_at` 与 `state_age_ms` 保留诊断含义；不能再用最旧报文年龄与统一 1000 ms 比较来覆盖分级结果。`max_state_age_ms` 用于限制新格式快照本身的缓存年龄，按快照生成时间计算，避免缓存被无限复用。
 
-旧数据没有逐报文时间时仍按旧格式的统一年龄规则读取和回放，不凭空补时间后套用新策略；生产聚合器只生成完整新格式。仅有部分新时间字段的状态拒绝。Trace 中 `freshness` 对象表示新规则，缺失或 null 表示旧规则；生产策略版本为 `mx4-flight-actions-freshness-v1`。旧数据不得冒充新分级规则通过的证据。
+旧数据没有逐报文时间时仍按旧格式的统一年龄规则读取和回放，不凭空补时间后套用新策略；生产聚合器只生成完整新格式。仅有部分新时间字段的状态拒绝。Trace 中 `freshness` 对象表示新规则，缺失或 null 表示旧规则；当前生产策略版本为 `mx4-flight-actions-evidence-first-v1`，同时标识先准备参数证据再取状态的顺序；此前分级策略记录沿用原版本名。旧数据不得冒充新策略通过的证据。
 
 新增必需报文须在契约中说明消费者、旧数据的风险、发布周期依据与等级，然后显式增加时间字段、检查和边界验证；未分配等级的报文不得参与安全批准。不建立动态注册或自动分类机制。
 
@@ -215,7 +231,7 @@ Safety 初次检查及限速读取后的复核均依据各项接收时间和分�
 
 复用已有年龄边界、缺失消息、状态 ID、派发前复核和零派发测试。新增每档等于阈值允许、超阈值拒绝，以及只有低频着陆消息超过旧 1000 ms 而其余消息有效时的新分级判定；同时验证位置超过 `FAST` 必须拒绝，最新位置不能掩盖其他必需报文失效。
 
-验证缓存等待及限速读取跨过任一档上限后仍拒绝；旧记录沿用旧规则、部分新字段拒绝、非法或未知等级不回退。关键安全边界用可控错误确认测试能发现漏检并恢复。最后通过真实生产装配路径复跑两点 SITL，不以单测代替完整功能验收。
+验证参数等待后取得的新状态参与完整检查；读取状态期间参数证据过期仍拒绝，本地检查跨过位置期限也须由末次复核拒绝。旧记录沿用旧规则、部分新字段拒绝、非法或未知等级不回退。关键安全边界用可控错误确认测试能发现漏检并恢复。SITL 与固定集合复跑的实际范围以 M6 阶段记录为准，不以单测代替完整功能验收。
 
 ### 风险与回滚
 

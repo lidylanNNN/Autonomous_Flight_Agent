@@ -183,6 +183,19 @@ def test_supervisor_speed_boundary_validates_reading(monkeypatch: pytest.MonkeyP
         asyncio.run(wrong_source.read_validated_speed_limit(max_age_s=2.0))
 
 
+def test_temp_validated_reading_preserves_receipt_time(monkeypatch: pytest.MonkeyPatch) -> None:
+    '''新的 Safety 接口交付原读数，不能在返回时刷新接收时间。'''
+    reading = Px4ParameterReading('MPC_XY_VEL_MAX', 7.5,
+        datetime.now(UTC) - timedelta(milliseconds=500), 1, 1)
+
+    async def read_mpc_xy_vel_max(self, *, timeout_s=3.0):
+        return reading
+
+    monkeypatch.setattr(Px4ParameterAdapter, 'read_mpc_xy_vel_max', read_mpc_xy_vel_max)
+    result = asyncio.run(Px4ParameterAdapter().read_validated_speed_limit_reading(max_age_s=2.0))
+    assert result is reading
+
+
 @pytest.mark.parametrize(
     ('changes', 'error'),
     [

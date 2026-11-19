@@ -35,6 +35,9 @@ from flight_agent.contracts import (
     WorldState,
     parse_skill_arguments,
 )
+from flight_agent.contracts.protocols.controller_speed_limit_protocol import (
+    ControllerSpeedLimitReading,
+)
 
 _PARAMETER_MAX_AGE_S = 2.0
 _LOGGER = logging.getLogger(__name__)
@@ -58,14 +61,25 @@ class SafetySupervisor:
         self._policy_version = policy_version
         self._clock = clock or (lambda: datetime.now(UTC))
 
+    async def read_speed_limit(self) -> ControllerSpeedLimitReading | None:
+        '''在获取检查状态前完成飞控参数等待；已知故障保留诊断并拒绝证据。'''
+        try:
+            return await self._speed_limit_source.read_validated_speed_limit_reading(
+                max_age_s=_PARAMETER_MAX_AGE_S)
+        except Px4ParameterReadError as error:
+            _LOGGER.warning('PX4 speed limit evidence unavailable: %s', error, exc_info=True)
+            return None
+
     async def evaluate(
         self,
         proposal: AtomicActionProposal,
         constraints: MissionConstraints,
         state: WorldState,
         authority: ControlAuthority,
+        *,
+        speed_limit_reading: ControllerSpeedLimitReading | None,
     ) -> SafetyDecision:
-        '''按冻结顺序检查所有可计算条件，失败时禁止后续放行。'''
+        '''只做完整同步检查，不再等待外部证据；异步签名保持调用形式一致。'''
 
         schema_reasons = check_proposal_schema(proposal, constraints)
         reasons: list[SafetyReasonCode] = list(schema_reasons)
@@ -85,21 +99,18 @@ class SafetySupervisor:
             reasons.extend(check_system_health(skill_name, state))
             reasons.extend(check_home_reference(skill_name, state, constraints))
 
-            if not reasons:
-                try:
-                    speed_limit = await self._speed_limit_source.read_validated_speed_limit(
-                        max_age_s=_PARAMETER_MAX_AGE_S
-                    )
-                except Px4ParameterReadError as error:
-                    _LOGGER.warning('PX4 speed limit evidence unavailable: %s', error, exc_info=True)
+            if speed_limit_reading is None:
+                reasons.append(SafetyReasonCode.SYSTEM_UNHEALTHY)
+            else:
+                reasons.extend(check_controller_speed_limit(speed_limit_reading.value, constraints))
+                received_at = speed_limit_reading.received_at
+                if received_at.tzinfo is None or not 0 <= (
+                    self._clock() - received_at).total_seconds() <= _PARAMETER_MAX_AGE_S:
                     reasons.append(SafetyReasonCode.SYSTEM_UNHEALTHY)
-                else:
-                    reasons.extend(check_controller_speed_limit(speed_limit, constraints))
-                late_state_reasons = check_proposal_state(
-                    proposal, constraints, state, now=self._clock()
-                )
-                reasons[:0] = late_state_reasons
-
+            late_state_reasons = check_proposal_state(
+                proposal, constraints, state, now=self._clock()
+            )
+            reasons[:0] = late_state_reasons
         ordered_reasons = tuple(dict.fromkeys(reasons))
         if ordered_reasons:
             decision_type = SafetyDecisionType.REJECT

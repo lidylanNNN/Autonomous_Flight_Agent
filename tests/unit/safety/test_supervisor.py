@@ -3,6 +3,7 @@
 import asyncio
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -47,6 +48,22 @@ class FakeSpeedSource:
         if self.error is not None:
             raise self.error
         return self.value
+
+
+    async def read_validated_speed_limit_reading(self, *, max_age_s: float):
+        return SimpleNamespace(value=await self.read_validated_speed_limit(max_age_s=max_age_s),
+                               received_at=_NOW)
+
+
+async def test_temp_evaluate(test_input_supervisor, test_input_proposal, test_input_constraints,
+                             test_input_state, test_input_authority):
+    """组件测试显式准备读数；生产顺序另由 Gate 测试验证。"""
+    reading = await test_input_supervisor.read_speed_limit()
+    return await test_input_supervisor.evaluate(test_input_proposal, test_input_constraints,
+        test_input_state, test_input_authority, speed_limit_reading=reading)
+
+
+test_temp_evaluate.__test__ = False
 
 
 def make_constraints() -> MissionConstraints:
@@ -118,10 +135,10 @@ def test_healthy_proposal_gets_stable_approval() -> None:
     async def run_twice() -> tuple[SafetyDecision, SafetyDecision]:
         '''在同一输入上重复仲裁。'''
 
-        first = await supervisor.evaluate(
+        first = await test_temp_evaluate(supervisor,
             make_proposal(), make_constraints(), make_state(), ControlAuthority.AGENT_ALLOWED,
         )
-        second = await supervisor.evaluate(
+        second = await test_temp_evaluate(supervisor,
             make_proposal(), make_constraints(), make_state(), ControlAuthority.AGENT_ALLOWED,
         )
         return first, second
@@ -304,12 +321,12 @@ def test_execution_gate_uses_snapshot_during_async_read(tmp_path: Path, monkeypa
     assert execute.call_args.args[0].arguments.target_altitude_m == 10.0
 
 
-def test_invalid_schema_and_stale_state_never_read_px4_parameter() -> None:
-    '''验证无效参数及过期状态按顺序拒绝，且不访问飞控参数。'''
+def test_temp_invalid_schema_and_stale_state_reject_after_evidence_preparation() -> None:
+    '''验证证据准备后，无效参数及过期状态仍按顺序拒绝。'''
 
     source = FakeSpeedSource()
     decision = asyncio.run(
-        SafetySupervisor(source, policy_version='m4-v1', clock=lambda: _NOW).evaluate(
+        test_temp_evaluate(SafetySupervisor(source, policy_version='m4-v1', clock=lambda: _NOW),
             make_proposal(arguments={'target_altitude_m': -1.0}),
             make_constraints(),
             make_state(received_at=_NOW - timedelta(seconds=3)),
@@ -321,7 +338,7 @@ def test_invalid_schema_and_stale_state_never_read_px4_parameter() -> None:
         SafetyReasonCode.INVALID_SCHEMA,
         SafetyReasonCode.STALE_STATE,
     )
-    assert source.calls == []
+    assert source.calls == [2.0]
 
 
 @pytest.mark.parametrize(
@@ -343,7 +360,7 @@ def test_unusable_px4_speed_evidence_rejects(
 
     source = FakeSpeedSource(value=value, error=error)
     decision = asyncio.run(
-        SafetySupervisor(source, policy_version='m4-v1', clock=lambda: _NOW).evaluate(
+        test_temp_evaluate(SafetySupervisor(source, policy_version='m4-v1', clock=lambda: _NOW),
             make_proposal(), make_constraints(), make_state(), ControlAuthority.AGENT_ALLOWED,
         )
     )
@@ -374,8 +391,8 @@ def test_state_becoming_stale_during_parameter_read_rejects(test_input_format: s
                 501 if test_input_format == 'position' else 20))
             return await super().read_validated_speed_limit(max_age_s=max_age_s)
 
-    decision = asyncio.run(SafetySupervisor(TestTempAdvancingSource(),
-        policy_version='m4-v1', clock=lambda: test_temp_current[0]).evaluate(
+    decision = asyncio.run(test_temp_evaluate(SafetySupervisor(TestTempAdvancingSource(),
+        policy_version='m4-v1', clock=lambda: test_temp_current[0]),
             make_proposal(), make_constraints(), state, ControlAuthority.AGENT_ALLOWED))
     assert decision.reason_codes == (SafetyReasonCode.STALE_STATE,)
 
@@ -385,7 +402,7 @@ def test_px4_read_failure_keeps_original_diagnostic(caplog: pytest.LogCaptureFix
 
     source = FakeSpeedSource(error=Px4ParameterReadError('heartbeat timed out'))
     decision = asyncio.run(
-        SafetySupervisor(source, policy_version='m4-v1', clock=lambda: _NOW).evaluate(
+        test_temp_evaluate(SafetySupervisor(source, policy_version='m4-v1', clock=lambda: _NOW),
             make_proposal(), make_constraints(), make_state(), ControlAuthority.AGENT_ALLOWED,
         )
     )
@@ -399,7 +416,7 @@ def test_programming_error_is_not_disguised_as_px4_failure() -> None:
     source = FakeSpeedSource(error=AttributeError('misspelled method'))
     with pytest.raises(AttributeError, match='misspelled method'):
         asyncio.run(
-            SafetySupervisor(source, policy_version='m4-v1', clock=lambda: _NOW).evaluate(
+            test_temp_evaluate(SafetySupervisor(source, policy_version='m4-v1', clock=lambda: _NOW),
                 make_proposal(), make_constraints(), make_state(), ControlAuthority.AGENT_ALLOWED,
             )
         )
@@ -420,12 +437,115 @@ def test_late_stale_state_precedes_speed_rejection() -> None:
             return await super().read_validated_speed_limit(max_age_s=max_age_s)
 
     decision = asyncio.run(
-        SafetySupervisor(
+        test_temp_evaluate(SafetySupervisor(
             SlowSpeedSource(value=12.0), policy_version='m4-v1', clock=lambda: current[0]
-        ).evaluate(make_proposal(), make_constraints(), make_state(),
+        ),make_proposal(), make_constraints(), make_state(),
                    ControlAuthority.AGENT_ALLOWED)
     )
     assert decision.reason_codes == (
         SafetyReasonCode.STALE_STATE,
         SafetyReasonCode.SPEED_ABOVE_ENVELOPE,
     )
+
+
+@pytest.mark.parametrize('test_input_reject', [None, 'battery', 'authority', 'position', 'bound_id'])
+def test_temp_gate_waits_before_binding_and_checks_updated_state(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, test_input_reject: str | None,
+) -> None:
+    '''真实 Gate 等待参数后才取状态，身份、健康和权限检查不沿用旧结果。'''
+    from unittest.mock import AsyncMock
+
+    test_temp_now = [_NOW]
+    test_temp_events = []
+    test_input_arguments = {'target_altitude_m': 10.0}
+    backend = MockFlightExecutionBackend(make_state())
+
+    class TestTempDelayedSource:
+        async def read_validated_speed_limit_reading(self, *, max_age_s):
+            test_temp_events.append('speed')
+            await asyncio.sleep(0)
+            test_temp_now[0] += timedelta(milliseconds=600)
+            test_input_arguments['target_altitude_m'] = 20.0
+            backend._state = make_state(state_id='after-wait', received_at=test_temp_now[0],
+                battery_percent=10.0 if test_input_reject == 'battery' else 80.0,
+                freshness=WorldStateFreshness(snapshot_at=test_temp_now[0],
+                    local_position_received_at=test_temp_now[0] - timedelta(
+                        milliseconds=501 if test_input_reject == 'position' else 0),
+                    status_received_at=test_temp_now[0], battery_received_at=test_temp_now[0],
+                    land_detected_received_at=test_temp_now[0]))
+            return SimpleNamespace(value=8., received_at=test_temp_now[0])
+
+    test_temp_original_read = backend.get_world_state
+
+    async def get_world_state():
+        test_temp_events.append('state')
+        return await test_temp_original_read()
+
+    def test_temp_authority():
+        test_temp_events.append('authority')
+        return ControlAuthority.UNKNOWN if test_input_reject == 'authority' else ControlAuthority.AGENT_ALLOWED
+
+    monkeypatch.setattr(backend, 'get_world_state', get_world_state)
+    execute = AsyncMock(wraps=backend.execute)
+    monkeypatch.setattr(backend, 'execute', execute)
+    path = tmp_path / 'safety.jsonl'
+    gate = SafetyExecutionGate(SafetySupervisor(TestTempDelayedSource(), policy_version='test-order',
+        clock=lambda: test_temp_now[0]), backend, TraceRecorder(path), test_temp_authority)
+    decision, result = asyncio.run(gate.submit(make_proposal(), make_constraints())
+        if test_input_reject == 'bound_id' else gate.submit_action(
+            SkillName.TAKEOFF, test_input_arguments, 'proposal-after-wait', make_constraints()))
+    assert test_temp_events == ['speed', 'state', 'authority']
+    record, = TraceReplay(path).iter_safety_decision_records()
+    assert decision.checked_state_id == 'after-wait'
+    assert record.proposal.based_on_state_id == ('state-1' if test_input_reject == 'bound_id' else 'after-wait')
+    if test_input_reject is None:
+        assert decision.decision is SafetyDecisionType.APPROVE and result is not None
+        assert execute.call_args.args[0].approved_state_id == 'after-wait'
+        assert execute.call_args.args[0].arguments.target_altitude_m == 10.0
+    else:
+        assert decision.decision is SafetyDecisionType.REJECT and result is None
+        if test_input_reject == 'bound_id':
+            assert SafetyReasonCode.STATE_ID_MISMATCH in decision.reason_codes
+        execute.assert_not_called()
+
+
+@pytest.mark.parametrize('test_input_time', [_NOW - timedelta(seconds=3),
+                                          _NOW + timedelta(seconds=1), _NOW.replace(tzinfo=None)])
+def test_temp_parameter_evidence_keeps_actual_receipt_time(test_input_time: datetime) -> None:
+    '''即便来源已验证，等待结束后的真实时间戳仍须有效，不以准备时间顶替。'''
+    supervisor = SafetySupervisor(FakeSpeedSource(), policy_version='test-order', clock=lambda: _NOW)
+    decision = asyncio.run(supervisor.evaluate(make_proposal(), make_constraints(), make_state(),
+        ControlAuthority.AGENT_ALLOWED,
+        speed_limit_reading=SimpleNamespace(value=8., received_at=test_input_time)))
+    assert decision.reason_codes == (SafetyReasonCode.SYSTEM_UNHEALTHY,)
+
+
+def test_temp_final_state_check_still_rejects_after_local_delay() -> None:
+    '''取消参数等待后，检查计算自身跨过位置期限仍不能放行。'''
+    test_temp_times = iter([_NOW, _NOW, _NOW + timedelta(milliseconds=501)])
+    state = make_state(freshness=WorldStateFreshness(snapshot_at=_NOW,
+        local_position_received_at=_NOW, status_received_at=_NOW,
+        battery_received_at=_NOW, land_detected_received_at=_NOW))
+    supervisor = SafetySupervisor(FakeSpeedSource(), policy_version='test-order',
+                                   clock=lambda: next(test_temp_times))
+    decision = asyncio.run(supervisor.evaluate(make_proposal(), make_constraints(), state,
+        ControlAuthority.AGENT_ALLOWED, speed_limit_reading=SimpleNamespace(value=8., received_at=_NOW)))
+    assert decision.reason_codes == (SafetyReasonCode.STALE_STATE,)
+
+
+def test_temp_state_wait_does_not_refresh_parameter_receipt(tmp_path: Path) -> None:
+    '''状态读取本身若挂起，不能把旧参数证据重新计时后放行。'''
+    test_temp_now = [_NOW]
+
+    class TestTempSlowBackend(MockFlightExecutionBackend):
+        async def get_world_state(self):
+            await asyncio.sleep(0)
+            test_temp_now[0] += timedelta(seconds=3)
+            return make_state(received_at=test_temp_now[0])
+
+    gate = SafetyExecutionGate(SafetySupervisor(FakeSpeedSource(), policy_version='test-order',
+        clock=lambda: test_temp_now[0]), TestTempSlowBackend(make_state()),
+        TraceRecorder(tmp_path / 'safety.jsonl'), lambda: ControlAuthority.AGENT_ALLOWED)
+    decision, result = asyncio.run(gate.submit_action(SkillName.TAKEOFF,
+        {'target_altitude_m': 10.}, 'proposal-1', make_constraints()))
+    assert decision.reason_codes == (SafetyReasonCode.SYSTEM_UNHEALTHY,) and result is None

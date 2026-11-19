@@ -57,8 +57,13 @@ class Px4ParameterAdapter:
     async def read_validated_speed_limit(self, *, max_age_s: float) -> float:
         '''读取目标PX4限速并立即核对来源、数值和新鲜度。'''
 
+        return (await self.read_validated_speed_limit_reading(max_age_s=max_age_s)).value
+
+    async def read_validated_speed_limit_reading(self, *, max_age_s: float) -> Px4ParameterReading:
+        '''保留实际接收时间，让 Safety 在取得状态后再次核对证据。'''
         reading = await self.read_mpc_xy_vel_max()
-        return self.validate_speed_limit_reading(reading, max_age_s=max_age_s)
+        self.validate_speed_limit_reading(reading, max_age_s=max_age_s)
+        return reading
 
     def validate_speed_limit_reading(
         self,

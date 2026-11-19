@@ -30,11 +30,15 @@ from flight_agent.components.tracing import TraceReplay
 @pytest.mark.sitl
 @pytest.mark.skipif(os.environ.get('FLIGHT_M6_LIVE_API') != '1', reason='真实模型须显式启用')
 @pytest.mark.parametrize('test_input_model', ['live'])
-@pytest.mark.parametrize('test_input_point_cnt', [1, 2], ids=['single', 'two_points'])
-def test_temp_agent_visual_flight(test_input_model: str, test_input_point_cnt: int) -> None:
+@pytest.mark.parametrize(('test_input_point_cnt', 'test_input_scene'),
+                         [(1, 'target'), (2, 'target'), (1, 'empty')],
+                         ids=['single', 'two_points', 'no_target'])
+def test_temp_agent_visual_flight(test_input_model: str, test_input_point_cnt: int,
+                                test_input_scene: str) -> None:
     '''固定 P1/P2 输入，核对逐点真实飞行、新照片及返航后的独立交付。'''
     test_temp_root = Path(__file__).resolve().parents[4]
-    test_temp_run = test_temp_root / ('artifacts/m6_t05a' if test_input_point_cnt == 1 else 'artifacts/m6_t05b') / datetime.now(UTC).strftime('%Y%m%dT%H%M%S%fZ')
+    test_temp_stage = 'm6_t06a' if test_input_scene == 'empty' else ('m6_t05a' if test_input_point_cnt == 1 else 'm6_t05b')
+    test_temp_run = test_temp_root / 'artifacts' / test_temp_stage / datetime.now(UTC).strftime('%Y%m%dT%H%M%S%fZ')
     test_temp_run.mkdir(parents=True)
     print(f'Evidence: {test_temp_run}', flush=True)
     assert not any(name.strip() in {'px4', 'MicroXRCEAgent', 'parameter_bridg'} for name in
@@ -62,7 +66,8 @@ def test_temp_agent_visual_flight(test_input_model: str, test_input_point_cnt: i
         'arguments': expected_output_arguments, 'targets_ned_m': expected_output_points,
         'horizontal_tolerances_m': [0.5, 0.25][:test_input_point_cnt], 'vertical_tolerance_m': 0.5,
         'min_displacements_m': [2.0, 0.5][:test_input_point_cnt], 'max_sample_gap_s': 0.5,
-        'min_detection_cnt': 1, 'max_home_error_m': 1.0,
+        'scene': test_input_scene, 'min_detection_cnt': 0 if test_input_scene == 'empty' else 1,
+        'max_detection_cnt': 0 if test_input_scene == 'empty' else None, 'max_home_error_m': 1.0,
     }, ensure_ascii=False, indent=2))
     test_temp_spec = importlib.util.spec_from_file_location('test_temp_sitl_helpers',
         test_temp_root / 'ros2_ws/src/flight_agent_ros/test/test_flight_sitl.py')
@@ -156,10 +161,19 @@ def test_temp_agent_visual_flight(test_input_model: str, test_input_point_cnt: i
                     while 'Ready for takeoff' not in (test_temp_run / 'test_temp_simulation.log').read_text(errors='replace'):
                         assert time.monotonic() < test_temp_deadline and test_temp_process.poll() is None
                         time.sleep(0.2)
-                    test_temp_scene = subprocess.run([str(test_temp_root / 'scripts/ros2_px4/configure_m6_scene.sh'), 'target'],
+                    test_temp_scene = subprocess.run([str(test_temp_root / 'scripts/ros2_px4/configure_m6_scene.sh'), test_input_scene],
                         env=test_temp_env, capture_output=True, text=True, timeout=25, check=False)
                     (test_temp_run / 'test_temp_scene.log').write_text(test_temp_scene.stdout + test_temp_scene.stderr)
                     assert test_temp_scene.returncode == 0
+                    test_temp_world = subprocess.run(['gz', 'service', '-s', '/world/default/scene/info',
+                        '--reqtype', 'gz.msgs.Empty', '--reptype', 'gz.msgs.Scene', '--timeout', '5000', '--req', ''],
+                        env=test_temp_env, capture_output=True, text=True, timeout=10, check=False)
+                    (test_temp_run / 'test_temp_scene_info.txt').write_text(test_temp_world.stdout + test_temp_world.stderr)
+                    assert test_temp_world.returncode == 0 and 'name: "ground_plane"' in test_temp_world.stdout
+                    if test_input_scene == 'empty':
+                        assert 'm6_person' not in test_temp_world.stdout
+                    else:
+                        assert 'name: "m6_person"' in test_temp_world.stdout
                 elif test_temp_role == 'capture':
                     client = node.create_client(AtomicAction, 'capture_photo')
                     assert client.wait_for_service(timeout_sec=10), 'capture_photo'
@@ -222,7 +236,12 @@ def test_temp_agent_visual_flight(test_input_model: str, test_input_point_cnt: i
                 position = metadata['vehicle_position']
                 assert position['xy_valid'] and position['z_valid']
                 assert hypot(position['x'] - expected_output_point[0], position['y'] - expected_output_point[1]) <= 0.5 and abs(position['z'] + 1.5) <= 0.5
-                assert test_temp_detection['detection_cnt'] == len(test_temp_detection['detections']) > 0
+                assert test_temp_detection['detection_cnt'] == len(test_temp_detection['detections'])
+                if test_input_scene == 'empty':
+                    assert test_temp_detection['detection_cnt'] == 0
+                else:
+                    assert test_temp_detection['detection_cnt'] > 0
+                assert test_temp_inspect['output'] in test_temp_terminal
                 assert output['image_path'] in test_temp_terminal
                 with Image.open(output['image_path']) as image:
                     image.verify()
@@ -267,10 +286,11 @@ def test_temp_agent_visual_flight(test_input_model: str, test_input_point_cnt: i
         (test_temp_run / 'test_temp_manifest.json').write_text(json.dumps({
             'commit': subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip(),
             'px4': subprocess.check_output(['git', '-C', str(Path.home() / 'PX4-Autopilot'), 'rev-parse', 'HEAD'], text=True).strip(),
-            'model': test_input_model, 'commands': test_temp_commands, 'substitutions': [],
+            'model': test_input_model, 'scene': test_input_scene, 'commands': test_temp_commands, 'substitutions': [],
             'source_sha256': {str(path.relative_to(test_temp_root)): hashlib.sha256(path.read_bytes()).hexdigest()
                 for path in [Path(__file__), *[test_temp_root / path for path in (
                     'manifests/environment.yaml', 'configs/m6/person.sdf', 'configs/m6/resources.sha256',
+                    'scripts/ros2_px4/configure_m6_scene.sh',
                     'ros2_ws/src/agent_comm/agent_comm/ros_agent_srv.py',
                     'ros2_ws/src/behavior_executor/behavior_executor/sequence_executor.py',
                     'ros2_ws/src/flight_agent_ros/flight_agent_ros/capture_photo_server.py',
