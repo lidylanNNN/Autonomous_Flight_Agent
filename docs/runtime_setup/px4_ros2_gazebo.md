@@ -90,6 +90,28 @@ scripts/tracing/replay_trace.sh artifacts/world_state.jsonl
 `--at 2026-09-17T08:44:08+00:00` 定位历史快照。记录序号从 1 开始。无效 JSON、
 未知记录类型、无效 Contract 或 Timestamp 倒序都会报告源文件行号。
 
+## M7 E01b1 开源仓库地面验证
+
+本批通过隔离控制脚本预启动仓库，再复用原仿真、相机桥和状态适配器入口；尚无正式世界选择参数。固定来源、临时插件适配、点位候选与结果只在 [M7 E01b1](../../plans/M7.md#9-e01b1-开源仓库可行性验证2026-11-20)维护，不把这里当作仓库飞行启动手册。
+
+本机原始材料为 `artifacts/m7_e01b1/20261120T095246385315Z/`，其中 `test_temp_prepare_warehouse.py`、`test_temp_warehouse_ground.py`、`test_temp_warehouse_geometry.py` 保存本次实际执行源码。控制脚本复用 `artifacts/m6_t02a/test_temp_collect_camera.py`，需要现有 ROS 2/Jazzy 安装、已构建工作区、PX4 与 Gazebo Harmonic，不读取模型密钥。运行需宿主机图形/通信权限和 PX4 运行目录写权限；不要与其他 PX4/XRCE/相机桥实例同时启动。
+
+如需复核同一地面链路，先保留原材料，在仓库根目录创建新的证据根目录并链接固定输入；下面命令依赖本机已保留的 artifacts，不是从全新 clone 获取资产的正式安装步骤。目录唯一且原输入存在后再运行：
+
+```bash
+test_temp_source="$PWD/artifacts/m7_e01b1/20261120T095246385315Z"
+test_temp_replay="$PWD/artifacts/m7_e01b1/replay-$(date -u +%Y%m%dT%H%M%S%NZ)"
+mkdir "$test_temp_replay"
+ln -s "$test_temp_source/test_temp_upstream" "$test_temp_replay/test_temp_upstream"
+ln -s "$test_temp_source/warehouse_px4_ground.sdf" "$test_temp_replay/warehouse_px4_ground.sdf"
+printf '%s' "$test_temp_replay" > /tmp/test_temp_e01b1_dir
+source /opt/ros/jazzy/setup.bash
+source ros2_ws/install/setup.bash
+/usr/bin/python3 "$test_temp_source/test_temp_warehouse_ground.py"
+```
+
+这组命令只启动地面验证，不启动 Agent、检测器或飞行动作服务。脚本创建 `test_temp_ground_01/` 并保存场景响应、日志、相机原始消息/PNG、WorldState、资源采样和退出进程快照；退出时清理本批进程组，不以进程清理代替着陆证明。临时输出根目录通过 `/tmp/test_temp_e01b1_dir` 传入，不并发运行该复核入口。正式资源获取、世界选择、人物布局和重置入口由 E01b2 评审后提供。
+
 ## M6 单人物场景
 
 场景配置、预定观察点、资源版本/许可和哈希以 [configs/m6](../../configs/m6/README.md) 为准。开始前停止上一轮仿真，避免沿用旧世界。终端一在仓库根目录启动：
