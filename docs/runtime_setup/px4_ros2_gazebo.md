@@ -289,6 +289,8 @@ PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 .venv/bin/python -m pytest ros2_ws/src/behavior
 
 ## M6 T07a 固定集合复跑
 
+已验收候选版本、依赖、原始结果及 M7 使用入口统一见 [T07b 交接索引](../../plans/M6.md#t07b-唯一交接索引2026-11-19)；本节只维护复现操作。
+
 加载 T03c 的 ROS、工作区、`.env` 和 `PYTHONPATH` 环境。复跑前固定候选源码及当前工作树差异，给本轮证据使用独立目录；HEAD 相同不表示未提交源码相同。既有真实集合去掉筛选即可运行单点、两点和空场景各一次：
 
 ```bash
@@ -306,7 +308,7 @@ export ROS_LOG_DIR="$TEST_TEMP_M6_T07A_DIR/fault_ros_logs"
 PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 .venv/bin/python -m pytest ros2_ws/src/behavior_executor/test/test_capture_failure_round.py -q -o addopts= -p no:cacheprovider --basetemp="$TEST_TEMP_M6_T07A_DIR/test_temp_fault_cases" --junitxml="$TEST_TEMP_M6_T07A_DIR/test_temp_fault_junit.xml"
 ```
 
-真实用例仍把逐轮证据写入 T05a/T05b/T06a 原目录，终端 `Evidence:` 行提供对应路径；替身结果独立放入本轮目录。输入及判据不变，累计模型预算、参数恢复和退出清理沿用各用例。候选冻结范围、准确源码归档、本轮日志索引及未通过原因见 [T07a 记录](../../plans/M6.md#t07a-固定功能集合复跑2026-11-18)；本轮不作为 T07b 可用基线交接。
+真实用例仍把逐轮证据写入 T05a/T05b/T06a 原目录，终端 `Evidence:` 行提供对应路径；替身结果独立放入本轮目录。输入及判据不变，累计模型预算、参数恢复和退出清理沿用各用例。原始结果和历史失败由上述交接索引导航，不覆盖旧材料。
 
 ## 测试记录及性能观察
 
