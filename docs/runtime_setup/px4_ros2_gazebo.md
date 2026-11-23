@@ -92,7 +92,7 @@ scripts/tracing/replay_trace.sh artifacts/world_state.jsonl
 
 ## M7 E01b1 开源仓库地面验证
 
-本批通过隔离控制脚本预启动仓库，再复用原仿真、相机桥和状态适配器入口；尚无正式世界选择参数。固定来源、临时插件适配、点位候选与结果只在 [M7 E01b1](../../plans/M7.md#9-e01b1-开源仓库可行性验证2026-11-20)维护，不把这里当作仓库飞行启动手册。
+本节保留 E01b1 当时的隔离控制脚本复现方式；该轮先预启动仓库，再复用原仿真、相机桥和状态适配器入口。正式入口首轮地面验证及使用方式见下节。固定来源、临时插件适配、点位候选与结果只在 [M7 E01b1](../../plans/M7.md#9-e01b1-开源仓库可行性验证2026-11-20)维护，不把这里当作仓库飞行启动手册。
 
 本机原始材料为 `artifacts/m7_e01b1/20261120T095246385315Z/`，其中 `test_temp_prepare_warehouse.py`、`test_temp_warehouse_ground.py`、`test_temp_warehouse_geometry.py` 保存本次实际执行源码。控制脚本复用 `artifacts/m6_t02a/test_temp_collect_camera.py`，需要现有 ROS 2/Jazzy 安装、已构建工作区、PX4 与 Gazebo Harmonic，不读取模型密钥。运行需宿主机图形/通信权限和 PX4 运行目录写权限；不要与其他 PX4/XRCE/相机桥实例同时启动。
 
@@ -110,7 +110,34 @@ source ros2_ws/install/setup.bash
 /usr/bin/python3 "$test_temp_source/test_temp_warehouse_ground.py"
 ```
 
-这组命令只启动地面验证，不启动 Agent、检测器或飞行动作服务。脚本创建 `test_temp_ground_01/` 并保存场景响应、日志、相机原始消息/PNG、WorldState、资源采样和退出进程快照；退出时清理本批进程组，不以进程清理代替着陆证明。临时输出根目录通过 `/tmp/test_temp_e01b1_dir` 传入，不并发运行该复核入口。正式资源获取、世界选择、人物布局和重置入口由 E01b2 评审后提供。
+这组命令只启动地面验证，不启动 Agent、检测器或飞行动作服务。脚本创建 `test_temp_ground_01/` 并保存场景响应、日志、相机原始消息/PNG、WorldState、资源采样和退出进程快照；退出时清理本批进程组，不以进程清理代替着陆证明。临时输出根目录通过 `/tmp/test_temp_e01b1_dir` 传入，不并发运行该复核入口。
+
+## M7 E01b2-a 正式仓库入口（首轮地面验证）
+
+以下命令依赖已有 ROS 2 Jazzy、已构建工作区及冻结 PX4/Gazebo；资源位置和参数以 [M7 接线定义](../../plans/M7.md#105-拟议设计)为准。首次准备需网络；后续启动仅校验已有缓存。需要宿主机通信、渲染及 PX4 运行目录写权限。
+
+在仓库根目录先准备资源，再启动仿真：
+
+```bash
+source /opt/ros/jazzy/setup.bash
+source ros2_ws/install/setup.bash
+/usr/bin/python3 scripts/ros2_px4/prepare_m7_warehouse.py --fetch
+export ROS_DOMAIN_ID=79
+export GZ_PARTITION=afa_m7_e01b2a_manual
+scripts/ros2_px4/start_simulation.sh --model x500_mono_cam --world m7-warehouse
+```
+
+另两个终端加载相同 ROS 环境及相同的 `ROS_DOMAIN_ID`、`GZ_PARTITION`，分别运行 `scripts/ros2_px4/start_camera_bridge.sh` 和 `scripts/ros2_px4/run_px4_world_state_adapter.sh`。若要保存状态证据，启动状态适配器前设置 `FLIGHT_AGENT_TRACE_PATH` 为本轮新建目录中的 `world.jsonl`。用实际场景响应、相机消息和新鲜地面状态判断就绪；启动日志不代替这些检查。结束时停止桥及状态适配器，并在仿真终端按 Ctrl-C。
+
+启动器以 PX4 的 `-d` 模式运行，两种世界均保留正常飞控日志及信号退出，但不提供本地 `pxh>` 交互输入。这样避免非交互后台输入为 EOF 时的提示符忙循环；参数等操作继续使用现有 PX4 客户端。根因、短时对照和两种世界地面复验见 [日志问题修复记录](../../plans/M7.md#12-px4-提示符日志问题定位与修复2026-11-23)。不要靠保持验证器输入管道打开或过滤日志来替代该修复。
+
+本机自动验证源码和原始证据见 [首轮记录](../../plans/M7.md#11-e01b2-a-正式入口首轮地面验证2026-11-23)。如需复跑，在加载上述 ROS 环境后运行：
+
+```bash
+/usr/bin/python3 artifacts/m7_e01b2a/20261123_formal/test_temp_formal_ground.py warehouse_02
+```
+
+参数为该证据根目录下尚不存在的子目录名，每轮使用新名称；控制脚本自行设置隔离环境并清理本轮进程。不能与其他 PX4/XRCE/相机桥并行运行。该脚本依赖本机保留的 M6 采集器，不是正式 Runner。当前仅验收首轮仓库地面运行，完整失败路径、M6 回归及人物配置仍待完成，不用于飞行或系统评测。
 
 ## M6 单人物场景
 
