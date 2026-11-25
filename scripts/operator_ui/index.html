@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>飞行任务台 · Autonomous Flight Agent</title><link rel="stylesheet" href="/style.css"></head>
+<body>
+<aside class="rail"><a class="brand" href="/">✣ <span>FLIGHT AGENT<small>自主飞行任务台</small></span></a><div class="nav-label">工作空间</div><button class="nav active">◈　任务与执行</button><button class="nav" id="liveMode">◎　实时入口</button><div class="nav-label records-title">运行记录 <span id="runCount">0</span></div><div id="runs" class="runs"></div><footer>PX4 / Gazebo · SITL<br><span>本地工作空间</span></footer></aside>
+<main>
+<header><div><div class="eyebrow">AUTONOMOUS FLIGHT AGENT</div><h1>任务与执行 <span id="modeBadge" class="badge">记录回放</span></h1></div><div class="header-actions"><span class="dot"></span><span id="connection">未连接实时入口</span><button id="connect" class="button">连接真实入口</button></div></header>
+<div class="workspace">
+<section class="monitor">
+<div class="section-heading"><div><h2 id="runTitle">载入运行记录</h2><p id="runSubtitle">所有输入、状态和媒体均来自实际运行记录</p></div><span id="verdict" class="badge">待查看</span></div>
+<div class="viewer"><video id="video" controls preload="metadata" muted playsinline></video><img id="livePhoto" class="hidden" alt="本轮最近一次真实拍照结果"><div id="emptyVideo" class="empty-video"><span>◎</span><h3>等待本轮相机与执行记录</h3><p>实时入口不会播放历史录像作为直播。</p></div><div class="viewer-label" id="viewerLabel">GAZEBO · 历史录像</div></div>
+<div class="telemetry"><div><small>飞行模式</small><strong id="flightMode">—</strong></div><div><small>高度 / m</small><strong id="altitude">—</strong></div><div><small>电量</small><strong id="battery">—</strong></div><div><small>解锁状态</small><strong id="armed">—</strong></div><div><small>地面状态</small><strong id="landed">—</strong></div></div>
+<p class="caption" id="stateNote">历史状态按录像时间近似对齐，不表示当前飞机状态。</p>
+<div class="tabs"><button class="tab selected" data-tab="trace">执行 Trace <span id="traceCount">0</span></button><button class="tab" data-tab="media">交付媒体 <span id="photoCount">0</span></button><button class="tab" data-tab="console">入口终端</button></div>
+<div id="trace" class="tab-body"></div><div id="media" class="tab-body hidden"></div><pre id="console" class="tab-body hidden console"></pre>
+</section>
+<section class="conversation"><div class="conversation-head"><h2>任务交互</h2><span>原文保留</span></div><div class="conversation-body"><div class="message-label">HUMAN INPUT <span id="inputKind">本轮实际提交</span></div><div id="human" class="human-message">选择记录，查看真实输入。</div><div id="scope" class="scope hidden"></div><div class="message-label agent-label">AGENT <span>模型实际输出</span></div><div id="actions" class="actions"></div><details class="raw-output"><summary>查看模型原始响应</summary><pre id="rawResponse"></pre></details><div id="report" class="report"></div></div>
+<form id="composer"><label for="task">新任务</label><textarea id="task" rows="4" placeholder="描述目标和希望取得的结果，输入将原样提交。"></textarea><div id="sendHint" class="send-hint">连接真实入口后，可发送并执行。</div><div class="composer-actions"><button type="button" id="example" class="text-button">填入原桥梁指令</button><button type="submit" id="send" class="button primary">保存草稿</button></div></form>
+</section></div><div id="toast" role="status" class="toast hidden"></div>
+</main><script src="/app.js"></script></body></html>

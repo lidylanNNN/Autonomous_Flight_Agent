@@ -53,6 +53,7 @@ V1 目标：取得初始观察后等待人工输入。`RosAgent` 根据观察和
 |---|---|---|
 | 环境与状态 | `ros2_ws/`、`scripts/ros2_px4/`、`Px4WorldStateAdapter`、`WorldStateAggregator` | M1/M2 的 PX4/Gazebo、ROS 2 消息和状态聚合基础已建立；运行环境以 `manifests/environment.yaml` 为准 |
 | MX-3 有人入口与行为序列 | `ros_agent_srv.main()` 已装配 `RosEnv`、`RosAgent`、观察服务和行为执行器；逐边调用见第 4 节 | M5 已接入实际观察摘要、五动作说明、真实 Flash 调用、预算保护及终端诊断，并取得独立进程下真实模型起降、多动作及超高拒绝的受控 SITL 证据；范围和遗留问题见 [M5 收口审查](plans/M5.md#4c-收口审查)。下一轮 prompt 尚无上一轮执行诊断 |
+| 本地交互 UI | `scripts/start_operator_ui.sh`、`scripts/operator_ui/` | 浏览器以 JSON 行传递原文给 `ros_agent_srv.main()` 的输入适配，不另建调度器。已验证真实浏览器、模型与地面拍照交付；支持状态、Trace、照片及历史回放，未接入规划确认、网页急停或相机直播。范围见 [交互 UI 记录](plans/interaction_ui.md) |
 | MX-4 飞行动作服务 | `flight_atomic_action_server` 从 `--safety-json` 加载限制，发布 `hold`、`takeoff`、`goto`、`rtl`、`land` 并调用 Safety Gate | 五个服务测试覆盖 `UNKNOWN` 拒绝、Trace/状态读取失败零派发，以及替身批准、执行失败和异常响应；不代表 PX4/Gazebo 端到端证据 |
 | 确定性飞行动作 | `flight_execution_backend.py`、PX4 Command/Offboard adapters、Skill Registry | Takeoff、GoTo、Hold、RTL、Land 有代码映射；M3 调试脚本有 SITL 验证记录，不等于 Agent 任务闭环 |
 | 执行前 Safety | `SafetyExecutionGate` 调用 `SafetySupervisor`，批准后调用 `FlightExecutionBackend` | Gate 和检查器、决策 Trace 已实现；MX-4 1b 已移除 Proposal 与 Gate 的旧任务身份；ROS 侧 main 已按 M4-7c 设置默认权限并验证启动传参与日志；Takeoff/Land 的真实服务起降及 Hold 5 秒已通过，GoTo、RTL 已通过受控场景验证；见 [7f 记录](plans/M4.md#7f-实施记录)、[7g-1 记录](plans/M4.md#7g-1-实施记录)、[7g-2 记录](plans/M4.md#7g-2-实施记录)与 [7g-3 记录](plans/M4.md#7g-3-实施记录) |
@@ -167,7 +168,7 @@ eval_harness/                         [已存在；测评执行辅助]
 tests/                                [已存在；迁移后新增主链集成测试]
 ```
 
-上游的 `behavior_tree_executor`、`code_executor`、视觉节点、示例包及 `GetUserInput.srv` 不进入 V1 文件树；有人入口先沿用上游 `ros_agent_srv` 的终端输入方式。V1 只实现序列模式。上述路径固定职责和迁移目标，**不表示已复制或实现上游代码**。`rosllm_srvs` 的字段与失败语义见 [服务契约](contracts/rosllm_services.md)；接口构建证据见 [MX 记录](plans/MX.md)。
+上游的 `behavior_tree_executor`、`code_executor`、视觉节点、示例包及 `GetUserInput.srv` 不进入 V1 文件树；业务主循环仍为 `ros_agent_srv.main()`，终端输入保持可用，本地 UI 仅适配其输入输出，不增加任务调度循环。V1 只实现序列模式。上述路径固定职责和迁移目标，**不表示已复制或实现上游代码**。`rosllm_srvs` 的字段与失败语义见 [服务契约](contracts/rosllm_services.md)；接口构建证据见 [MX 记录](plans/MX.md)。
 
 现有模块的保留、复用和迁移决定见第 2.1 节。命名须反映实际职责：PX4 命令执行器不是行为序列执行器，状态聚合器不是 Observation Manager；不能为凑同名把已有模块改称尚未实现的上游模块。
 
